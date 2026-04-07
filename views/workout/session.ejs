@@ -5,6 +5,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
 
   <!-- FitPlus AI 모듈 -->
+  <script src="/js/workout/exercise-registry.js"></script>
+  <script src="/js/workout/exercises/squat-exercise.js"></script>
   <script src="/js/workout/pose-engine.js"></script>
   <script src="/js/workout/scoring-engine.js"></script>
   <script src="/js/workout/rep-counter.js"></script>
@@ -70,7 +72,11 @@
         <div class="card score-card">
           <div class="score-header">
             <span class="muted">이번 rep 점수</span>
-            <span class="muted" id="viewInfo" style="font-size: 12px;"></span>
+            <span class="muted" id="phaseInfo" style="font-size: 12px;"></span>
+          </div>
+          <div class="score-header">
+            <span class="muted"></span>
+            <span class="muted" id="viewInfo" style="font-size: 11px;"></span>
           </div>
           <div class="score" id="liveScore">--</div>
           <div class="score-detail" id="scoreBreakdown">
@@ -166,6 +172,7 @@
     let scoringEngine = null;
     let repCounter = null;
     let sessionBuffer = null;
+    let exerciseModule = null;
 
     // 상태 관리
     let state = {
@@ -196,6 +203,7 @@
     const statusBadge = document.getElementById('statusBadge');
     const liveScoreEl = document.getElementById('liveScore');
     const scoreBreakdownEl = document.getElementById('scoreBreakdown');
+    const phaseInfoEl = document.getElementById('phaseInfo');
     const viewInfoEl = document.getElementById('viewInfo');
     const repCountEl = document.getElementById('repCount');
     const setCountEl = document.getElementById('setCount');
@@ -216,6 +224,25 @@
       .toLowerCase()
       .replace(/-/g, '_');
 
+    function getExerciseRuntime(extra = {}) {
+      return {
+        exerciseCode: currentExerciseCode,
+        exerciseModule,
+        repCounter,
+        scoringEngine,
+        state,
+        ...extra
+      };
+    }
+
+    function getFrameGateResult(angles) {
+      if (!exerciseModule?.getFrameGate) {
+        return { isReady: true };
+      }
+
+      return exerciseModule.getFrameGate(angles, getExerciseRuntime({ angles })) || { isReady: true };
+    }
+
     // AI 엔진 초기화
     async function initAIEngines() {
       try {
@@ -229,6 +256,7 @@
         scoringEngine = new ScoringEngine(workoutData.scoringProfile, {
           exerciseCode: workoutData.exercise.code
         });
+        exerciseModule = window.WorkoutExerciseRegistry?.get(workoutData.exercise.code) || null;
 
         // 3. RepCounter 초기화
         repCounter = new RepCounter(workoutData.exercise.code);
@@ -391,39 +419,58 @@ cameraOverlay.innerHTML = cameraReadyHtml;
       const { angles } = poseData;
       updateViewInfo(angles);
 
+      const frameGate = getFrameGateResult(angles);
+      if (!frameGate.isReady) {
+        if (poseEngine && poseEngine.setVisualFeedback) {
+          poseEngine.setVisualFeedback([]);
+        }
+        updateScoreDisplay({ score: 0, breakdown: [], gated: true, message: frameGate.message });
+        if (frameGate.message) {
+          showAlert('자세 인식 대기', frameGate.message);
+        }
+        return;
+      }
+
       // 디버깅: 각도 출력
       // console.log('[Session] 각도:', angles);
 
       // 1. 점수 계산
-      const scoreResult = scoringEngine.calculate(angles);
+      const rawScoreResult = scoringEngine.calculate(angles);
 
-      // 2. 횟수 감지 (phase 판정 후 시각 피드백에 반영)
-      repCounter.update(angles, scoreResult.score);
+      // 2. 현재 프레임 phase를 먼저 갱신한 뒤, live 점수를 반영한다.
+      const previousCounts = {
+        all: repCounter?.currentRepAllScores?.length || 0,
+        active: repCounter?.currentRepScores?.length || 0,
+        movement: repCounter?.currentMovementScores?.length || 0
+      };
+      repCounter.update(angles, rawScoreResult.score);
+      updateViewInfo(angles);
 
-      const liveFeedbackResult = getLiveFeedbackResult(scoreResult, angles);
+      const liveScoreResult = getLiveFeedbackResult(rawScoreResult, angles);
+      syncRepCounterLatestScores(liveScoreResult.score, previousCounts);
 
       if (poseEngine && poseEngine.setVisualFeedback) {
-        poseEngine.setVisualFeedback(liveFeedbackResult.breakdown);
+        poseEngine.setVisualFeedback(liveScoreResult.breakdown);
       }
 
       // 디버깅: 점수 결과
-      if (scoreResult.score > 0) {
-        console.log('[Session] 점수:', scoreResult.score, 'breakdown:', scoreResult.breakdown?.length);
+      if (liveScoreResult.score > 0) {
+        console.log('[Session] 점수:', liveScoreResult.score, 'breakdown:', liveScoreResult.breakdown?.length);
       }
 
-      updateRepMetricBuffer(liveFeedbackResult);
+      updateRepMetricBuffer(liveScoreResult);
 
-      updateScoreDisplay(scoreResult);
+      updateScoreDisplay(liveScoreResult);
 
       // 3. 세션 버퍼에 저장
       if (sessionBuffer) {
-        sessionBuffer.addScore(scoreResult);
+        sessionBuffer.addScore(liveScoreResult);
       }
 
       // 4. 피드백 체크
       const shouldCheckFeedback = repCounter?.pattern?.isTimeBased ? true : repCounter?.isInProgress();
       if (shouldCheckFeedback) {
-        checkFeedback(liveFeedbackResult);
+        checkFeedback(liveScoreResult);
       }
     }
 
@@ -469,65 +516,33 @@ cameraOverlay.innerHTML = cameraReadyHtml;
       return Math.round(sum / trimmed.length);
     }
 
-    function isSquatExercise() {
-      return currentExerciseCode === 'squat';
-    }
+    function syncRepCounterLatestScores(score, previousCounts) {
+      if (!repCounter || !Number.isFinite(score)) return;
 
-    function isLegVisualMetricKey(metricKey) {
-      const key = (metricKey || '').toString().toLowerCase();
-      return [
-        'knee_angle',
-        'left_knee_angle',
-        'right_knee_angle',
-        'knee_depth',
-        'knee_symmetry',
-        'knee_alignment',
-        'knee_over_toe',
-        'depth'
-      ].includes(key);
-    }
+      const targets = [
+        { list: repCounter.currentRepAllScores, previous: previousCounts?.all || 0 },
+        { list: repCounter.currentRepScores, previous: previousCounts?.active || 0 },
+        { list: repCounter.currentMovementScores, previous: previousCounts?.movement || 0 }
+      ];
 
-    function isFrontKneeAlignmentMetricKey(metricKey) {
-      const key = (metricKey || '').toString().toLowerCase();
-      return key === 'knee_alignment' || key === 'knee_over_toe';
-    }
-
-    function isSquatScoringPhase() {
-      const phase = repCounter?.currentPhase;
-      return phase === window.REP_PHASES?.DESCENT ||
-        phase === window.REP_PHASES?.BOTTOM ||
-        phase === window.REP_PHASES?.ASCENT;
+      for (const target of targets) {
+        if (!Array.isArray(target.list)) continue;
+        if (target.list.length > target.previous) {
+          target.list[target.list.length - 1] = score;
+        }
+      }
     }
 
     function getLiveFeedbackResult(scoreResult, angles) {
-      if (!isSquatExercise() || !scoreResult?.breakdown?.length) {
+      if (!scoreResult?.breakdown?.length) {
         return scoreResult;
       }
 
-      const phase = repCounter?.currentPhase || window.REP_PHASES?.NEUTRAL;
-      const currentState = repCounter?.currentState || window.REP_STATES?.NEUTRAL;
-      const view = angles?.view || 'UNKNOWN';
-      let breakdown = scoreResult.breakdown;
-
-      const isStandingPhase = currentState === window.REP_STATES?.NEUTRAL ||
-        phase === window.REP_PHASES?.NEUTRAL ||
-        phase === window.REP_PHASES?.LOCKOUT;
-
-      if (isStandingPhase) {
-        breakdown = breakdown.filter((item) => !isLegVisualMetricKey(item.key));
+      if (exerciseModule?.filterLiveFeedback) {
+        return exerciseModule.filterLiveFeedback(scoreResult, getExerciseRuntime({ angles })) || scoreResult;
       }
 
-      const shouldHideFrontKneeAlignment = view === 'FRONT' &&
-        phase !== window.REP_PHASES?.BOTTOM &&
-        phase !== window.REP_PHASES?.ASCENT;
-
-      if (shouldHideFrontKneeAlignment) {
-        breakdown = breakdown.filter((item) => !isFrontKneeAlignmentMetricKey(item.key));
-      }
-
-      return breakdown === scoreResult.breakdown
-        ? scoreResult
-        : { ...scoreResult, breakdown };
+      return scoreResult;
     }
 
     function updateRepMetricBuffer(scoreResult) {
@@ -541,10 +556,9 @@ cameraOverlay.innerHTML = cameraReadyHtml;
       }
       state.repInProgressPrev = isRepInProgress;
 
-      // 스쿼트는 movement phase만, 나머지 운동은 ACTIVE 구간만 누적한다.
       if (!isRepInProgress) return;
-      if (isSquatExercise()) {
-        if (!isSquatScoringPhase()) return;
+      if (exerciseModule?.shouldAccumulateRepMetrics) {
+        if (!exerciseModule.shouldAccumulateRepMetrics(getExerciseRuntime({ scoreResult }))) return;
       } else if (repCounter?.currentState !== window.REP_STATES?.ACTIVE) {
         return;
       }
@@ -567,7 +581,7 @@ cameraOverlay.innerHTML = cameraReadyHtml;
     }
 
     function updateViewInfo(angles) {
-      if (!viewInfoEl || !angles) return;
+      if ((!viewInfoEl && !phaseInfoEl) || !angles) return;
 
       const now = performance.now();
       if (now - state.lastViewInfoAt < 250) return; // DOM 업데이트 과다 방지
@@ -575,11 +589,20 @@ cameraOverlay.innerHTML = cameraReadyHtml;
 
       const view = angles.view || 'UNKNOWN';
       const source = angles.angleSource || 'UNKNOWN';
-      const text = `VIEW: ${view} / SRC: ${source}`;
+      const quality = angles.quality?.level || 'UNKNOWN';
+      const phase = repCounter?.currentPhase || window.REP_PHASES?.NEUTRAL || 'UNKNOWN';
+      const phaseText = `PHASE: ${phase}`;
+      const viewText = `VIEW: ${view} / SRC: ${source} / Q: ${quality}`;
 
-      if (text !== state.lastViewInfoText) {
-        state.lastViewInfoText = text;
-        viewInfoEl.textContent = text;
+      if (phaseText !== state.lastViewInfoText) {
+        state.lastViewInfoText = phaseText;
+        if (phaseInfoEl) {
+          phaseInfoEl.textContent = phaseText;
+        }
+      }
+
+      if (viewInfoEl && viewInfoEl.textContent !== viewText) {
+        viewInfoEl.textContent = viewText;
       }
     }
 
@@ -685,6 +708,8 @@ cameraOverlay.innerHTML = cameraReadyHtml;
             <span>${Math.round(item.score)}/${item.maxScore}</span>
           </div>
         `).join('');
+      } else if (scoreResult.gated && scoreResult.message) {
+        scoreBreakdownEl.innerHTML = `<div class="score-item"><span class="muted">${scoreResult.message}</span></div>`;
       } else if (scoreResult.score === 0) {
         scoreBreakdownEl.innerHTML = '<div class="score-item"><span class="muted">포즈 감지 중...</span></div>';
       } else if (!isTimeBased && !isRepInProgress) {

@@ -276,10 +276,18 @@ class PoseEngine {
       LANDMARKS.LEFT_ANKLE,
       LANDMARKS.RIGHT_ANKLE
     ];
+    const inFrameMargin = 0.05;
 
     const visibilities = keyIndices
       .map((idx) => landmarks?.[idx]?.visibility)
       .filter((value) => Number.isFinite(value));
+    const trackedPoints = keyIndices
+      .map((idx) => landmarks?.[idx])
+      .filter((point) => point && Number.isFinite(point.x) && Number.isFinite(point.y));
+    const inFramePoints = trackedPoints.filter((point) =>
+      point.x >= inFrameMargin && point.x <= (1 - inFrameMargin) &&
+      point.y >= inFrameMargin && point.y <= (1 - inFrameMargin)
+    );
 
     const avgVisibility = visibilities.length
       ? visibilities.reduce((sum, value) => sum + value, 0) / visibilities.length
@@ -287,12 +295,20 @@ class PoseEngine {
     const visibleRatio = keyIndices.length > 0
       ? visibilities.filter((value) => value >= 0.6).length / keyIndices.length
       : 0;
+    const trackedJointRatio = keyIndices.length > 0
+      ? trackedPoints.length / keyIndices.length
+      : 0;
+    const inFrameRatio = trackedPoints.length > 0
+      ? inFramePoints.length / trackedPoints.length
+      : 0;
     const viewStability = this.getViewStability(view);
 
     const score = Math.max(0, Math.min(1,
-      avgVisibility * 0.65 +
-      visibleRatio * 0.2 +
-      viewStability * 0.15
+      avgVisibility * 0.5 +
+      visibleRatio * 0.15 +
+      trackedJointRatio * 0.15 +
+      inFrameRatio * 0.1 +
+      viewStability * 0.1
     ));
 
     return {
@@ -301,6 +317,8 @@ class PoseEngine {
       factor: this.getQualityFactor(score),
       avgVisibility: Math.round(avgVisibility * 100) / 100,
       visibleRatio: Math.round(visibleRatio * 100) / 100,
+      trackedJointRatio: Math.round(trackedJointRatio * 100) / 100,
+      inFrameRatio: Math.round(inFrameRatio * 100) / 100,
       viewStability: Math.round(viewStability * 100) / 100
     };
   }
