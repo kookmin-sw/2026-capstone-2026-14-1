@@ -4,34 +4,55 @@
  */
 
 class SessionBuffer {
-  constructor(sessionId) {
+  constructor(sessionId, options = {}) {
     this.sessionId = sessionId;
     this.startTime = Date.now();
-    
+    this.exerciseCode = (options.exerciseCode || '').toString().trim().toLowerCase();
+    this.mode = (options.mode || 'FREE').toString().trim().toUpperCase();
+    this.selectedView = this.normalizeViewCode(options.selectedView);
+    this.resultBasisHint = this.normalizeResultBasis(options.resultBasis);
+
     // 점수 타임라인 (1초당 1개 샘플링)
     this.scoreTimeline = [];
     this.lastScoreTime = 0;
-    
+
     // 횟수 기록
     this.repRecords = [];
-    
+
     // 세트 기록
     this.setRecords = [];
     this.currentSetNumber = 1;
     this.currentSetReps = 0;
     this.currentSetStartTime = Date.now();
-    
+
     // 메트릭별 누적 데이터
     this.metricAccumulators = {};
     this.repMetricAccumulators = {};
-    
+
     // 이벤트 로그
     this.events = [];
-    
+
+    // ML phase 학습용 프레임 샘플
+    this.phaseFrames = [];
+    this.phaseSampleMs = 200;
+    this.lastPhaseFrameTime = -Infinity;
+    this.phaseDatasetMeta = {};
+    this.phaseDataset = null;
+
     // IndexedDB 키
     this.dbKey = `fitplus_session_${sessionId}`;
-    
+
     console.log('[SessionBuffer] 초기화:', sessionId);
+  }
+
+  normalizeViewCode(view) {
+    const normalized = (view || '').toString().trim().toUpperCase();
+    return ['FRONT', 'SIDE', 'DIAGONAL'].includes(normalized) ? normalized : null;
+  }
+
+  normalizeResultBasis(resultBasis) {
+    const normalized = (resultBasis || '').toString().trim().toUpperCase();
+    return ['REPS', 'DURATION'].includes(normalized) ? normalized : null;
   }
 
   /**
@@ -39,41 +60,60 @@ class SessionBuffer {
    */
   addScore(scoreResult) {
     const now = Date.now();
-    
+
     // 1초 간격으로 샘플링
     if (now - this.lastScoreTime >= 1000) {
+      const sampledBreakdown = (scoreResult.breakdown || []).map((item) => ({
+        key: item.key,
+        title: item.title || item.key,
+        score: Number.isFinite(item.score) ? item.score : null,
+        maxScore: Number.isFinite(item.maxScore) ? item.maxScore : null,
+        rawValue: Number.isFinite(item.rawValue) ? item.rawValue : (
+          Number.isFinite(item.actualValue) ? item.actualValue : null
+        ),
+        weight: Number.isFinite(item.weight) ? item.weight : null,
+        feedback: item.feedback || null
+      }));
+
       this.scoreTimeline.push({
         score: scoreResult.score,
         timestamp: now - this.startTime, // 상대 시간 (ms)
-        breakdown: scoreResult.breakdown?.map(b => ({
-          key: b.key,
-          score: b.score
-        }))
+        breakdown: sampledBreakdown
       });
       this.lastScoreTime = now;
-      
+
       // 메트릭별 누적
       if (scoreResult.breakdown) {
         for (const item of scoreResult.breakdown) {
+          if (!item?.key) continue;
           if (!this.metricAccumulators[item.key]) {
             this.metricAccumulators[item.key] = {
               metric_id: item.metric_id,
+              title: item.title || item.key,
+              maxScore: Number.isFinite(item.maxScore) ? item.maxScore : null,
               scores: [],
               rawValues: [],
               feedbackCount: 0
             };
           }
+          this.metricAccumulators[item.key].title = item.title || this.metricAccumulators[item.key].title || item.key;
+          if (Number.isFinite(item.maxScore)) {
+            this.metricAccumulators[item.key].maxScore = item.maxScore;
+          }
           this.metricAccumulators[item.key].scores.push(item.score);
           // 원본 각도값 누적
-          if (item.actualValue != null && Number.isFinite(item.actualValue)) {
-            this.metricAccumulators[item.key].rawValues.push(item.actualValue);
+          const rawValue = Number.isFinite(item.rawValue)
+            ? item.rawValue
+            : (Number.isFinite(item.actualValue) ? item.actualValue : null);
+          if (rawValue != null) {
+            this.metricAccumulators[item.key].rawValues.push(rawValue);
           }
           if (item.feedback) {
             this.metricAccumulators[item.key].feedbackCount++;
           }
         }
       }
-      
+
       // 주기적 백업
       if (this.scoreTimeline.length % 30 === 0) {
         this.saveToStorage();
@@ -98,7 +138,7 @@ class SessionBuffer {
     }
 
     this.currentSetReps++;
-    
+
     console.log(`[SessionBuffer] 횟수 기록: ${repRecord.repNumber}회`);
   }
 
@@ -113,16 +153,16 @@ class SessionBuffer {
       duration_sec: Math.round((Date.now() - this.currentSetStartTime) / 1000),
       rest_sec: restSeconds
     };
-    
+
     this.setRecords.push(setRecord);
-    
+
     // 다음 세트 준비
     this.currentSetNumber++;
     this.currentSetReps = 0;
     this.currentSetStartTime = Date.now();
-    
+
     console.log(`[SessionBuffer] 세트 완료:`, setRecord);
-    
+
     return setRecord;
   }
 
@@ -137,6 +177,42 @@ class SessionBuffer {
     });
   }
 
+  configurePhaseDataset(meta = {}) {
+    this.phaseDatasetMeta = {
+      ...this.phaseDatasetMeta,
+      ...meta
+    };
+  }
+
+  setPhaseDataset(dataset) {
+    this.phaseDataset = dataset || null;
+  }
+
+  addFrameSample(frameSample) {
+    if (!frameSample || typeof frameSample !== 'object') {
+      return;
+    }
+
+    const relativeTime = Number.isFinite(frameSample.timestamp_ms)
+      ? Math.max(0, Math.round(frameSample.timestamp_ms))
+      : (Date.now() - this.startTime);
+
+    if ((relativeTime - this.lastPhaseFrameTime) < this.phaseSampleMs) {
+      return;
+    }
+
+    this.phaseFrames.push({
+      frame_index: this.phaseFrames.length,
+      timestamp_ms: relativeTime,
+      ...frameSample
+    });
+    this.lastPhaseFrameTime = relativeTime;
+
+    if (this.phaseFrames.length % 60 === 0) {
+      this.saveToStorage();
+    }
+  }
+
   /**
    * 로컬 스토리지에 백업 저장
    */
@@ -145,14 +221,22 @@ class SessionBuffer {
       const data = {
         sessionId: this.sessionId,
         startTime: this.startTime,
+        exerciseCode: this.exerciseCode,
+        mode: this.mode,
+        selectedView: this.selectedView,
+        resultBasisHint: this.resultBasisHint,
         scoreTimeline: this.scoreTimeline,
         repRecords: this.repRecords,
         repMetricAccumulators: this.repMetricAccumulators,
         setRecords: this.setRecords,
         events: this.events,
+        phaseFrames: this.phaseFrames,
+        phaseSampleMs: this.phaseSampleMs,
+        phaseDatasetMeta: this.phaseDatasetMeta,
+        phaseDataset: this.phaseDataset,
         savedAt: Date.now()
       };
-      
+
       localStorage.setItem(this.dbKey, JSON.stringify(data));
     } catch (error) {
       console.warn('[SessionBuffer] 저장 실패:', error);
@@ -172,6 +256,17 @@ class SessionBuffer {
         this.repMetricAccumulators = parsed.repMetricAccumulators || {};
         this.setRecords = parsed.setRecords || [];
         this.events = parsed.events || [];
+        this.exerciseCode = parsed.exerciseCode || this.exerciseCode;
+        this.mode = parsed.mode || this.mode;
+        this.selectedView = this.normalizeViewCode(parsed.selectedView) || this.selectedView;
+        this.resultBasisHint = this.normalizeResultBasis(parsed.resultBasisHint) || this.resultBasisHint;
+        this.phaseFrames = parsed.phaseFrames || [];
+        this.phaseSampleMs = parsed.phaseSampleMs || 200;
+        this.phaseDatasetMeta = parsed.phaseDatasetMeta || {};
+        this.phaseDataset = parsed.phaseDataset || null;
+        this.lastPhaseFrameTime = this.phaseFrames.length > 0
+          ? (this.phaseFrames[this.phaseFrames.length - 1].timestamp_ms || 0)
+          : -Infinity;
         console.log('[SessionBuffer] 데이터 복구됨');
         return true;
       }
@@ -224,36 +319,42 @@ class SessionBuffer {
 
   /**
    * 메트릭별 결과 생성
-   * DB의 session_metric_result 테이블용
+   * DB의 session_snapshot_metric(FINAL) 저장용
    */
   generateMetricResults() {
     const results = [];
     const source = Object.keys(this.repMetricAccumulators).length > 0
       ? this.repMetricAccumulators
       : this.metricAccumulators;
-    
+
     for (const [key, data] of Object.entries(source)) {
       if (data.scores.length > 0) {
-        const avgScore = Math.round(
-          data.scores.reduce((a, b) => a + b, 0) / data.scores.length
-        );
-        
-        // 원본 각도값 평균 계산
-        let avgRaw = null;
-        if (data.rawValues && data.rawValues.length > 0) {
-          avgRaw = Math.round(
-            data.rawValues.reduce((a, b) => a + b, 0) / data.rawValues.length
-          );
-        }
-        
+        const scoreSum = data.scores.reduce((a, b) => a + b, 0);
+        const avgScore = Math.round((scoreSum / data.scores.length) * 100) / 100;
+        const rawValues = Array.isArray(data.rawValues) ? data.rawValues : [];
+        const avgRaw = rawValues.length > 0
+          ? Math.round((rawValues.reduce((a, b) => a + b, 0) / rawValues.length) * 100) / 100
+          : null;
+        const minRaw = rawValues.length > 0 ? Math.min(...rawValues) : null;
+        const maxRaw = rawValues.length > 0 ? Math.max(...rawValues) : null;
+
         results.push({
-          metric_id: data.metric_id,
-          score: avgScore,
-          raw: avgRaw
+          metric_key: key,
+          metric_name: data.title || key,
+          avg_score: avgScore,
+          avg_raw_value: avgRaw,
+          min_raw_value: minRaw,
+          max_raw_value: maxRaw,
+          sample_count: data.scores.length,
+          detail: {
+            metric_id: data.metric_id || null,
+            max_score: data.maxScore || null,
+            feedback_count: data.feedbackCount || 0
+          }
         });
       }
     }
-    
+
     return results;
   }
 
@@ -264,17 +365,27 @@ class SessionBuffer {
     if (!target[key]) {
       target[key] = {
         metric_id: item.metric_id,
+        title: item.title || key,
+        maxScore: Number.isFinite(item.maxScore) ? item.maxScore : null,
         scores: [],
         rawValues: [],
         feedbackCount: 0
       };
     }
 
+    target[key].title = item.title || target[key].title || key;
+    if (Number.isFinite(item.maxScore)) {
+      target[key].maxScore = item.maxScore;
+    }
+
     if (Number.isFinite(item.score)) {
       target[key].scores.push(item.score);
     }
-    if (Number.isFinite(item.rawValue)) {
-      target[key].rawValues.push(item.rawValue);
+    const rawValue = Number.isFinite(item.rawValue)
+      ? item.rawValue
+      : (Number.isFinite(item.actualValue) ? item.actualValue : null);
+    if (rawValue != null) {
+      target[key].rawValues.push(rawValue);
     }
     if (item.feedback) {
       target[key].feedbackCount++;
@@ -284,9 +395,57 @@ class SessionBuffer {
   /**
    * 서버 전송용 데이터 생성
    */
+  getResultPayload() {
+    const durationSec = this.getDuration();
+    const totalReps = this.getTotalReps();
+    let resultBasis = this.resultBasisHint;
+
+    if (!resultBasis) {
+      resultBasis = totalReps > 0 ? 'REPS' : 'DURATION';
+    }
+
+    const totalResultValue = resultBasis === 'REPS' ? totalReps : durationSec;
+    const totalResultUnit = resultBasis === 'REPS' ? 'COUNT' : 'SEC';
+
+    return {
+      result_basis: resultBasis,
+      total_result_value: totalResultValue,
+      total_result_unit: totalResultUnit,
+      duration_sec: durationSec,
+      total_reps: totalReps
+    };
+  }
+
+  generateInterimSnapshots(resultPayload) {
+    const resultUnit = resultPayload?.total_result_unit || 'COUNT';
+    return this.scoreTimeline.map((item) => ({
+      timestamp_ms: item.timestamp,
+      score: item.score,
+      result_unit: resultUnit,
+      breakdown: item.breakdown || [],
+      detail: {
+        source: 'score_timeline'
+      }
+    }));
+  }
+
   export() {
     const finalScore = this.calculateFinalScore();
-    
+    const resultPayload = this.getResultPayload();
+    const exportedPhaseDataset = this.phaseDataset || (this.phaseFrames.length > 0
+      ? {
+          schema_version: 1,
+          sample_ms: this.phaseSampleMs,
+          exercise_code: this.phaseDatasetMeta.exerciseCode || null,
+          capture_meta: {
+            collected_at: new Date().toISOString(),
+            ...this.phaseDatasetMeta
+          },
+          feature_frames: this.phaseFrames,
+          labels: []
+        }
+      : null);
+
     // 세트 기록이 없으면 기본 1세트 생성
     const setRecords = this.setRecords.length > 0 ? this.setRecords : [{
       set_no: 1,
@@ -294,29 +453,35 @@ class SessionBuffer {
       actual_reps: this.getTotalReps(),
       duration_sec: this.getDuration()
     }];
-    
+    const interimSnapshots = this.generateInterimSnapshots(resultPayload);
+
     return {
       // 기본 세션 정보
-      duration_sec: this.getDuration(),
-      total_reps: this.getTotalReps(),
+      selected_view: this.selectedView,
+      ...resultPayload,
       final_score: finalScore,
       summary_feedback: this.generateSummaryFeedback(finalScore),
-      
+
       // 상세 데이터 (detail JSON)
       detail: {
+        exercise_code: this.exerciseCode || null,
+        mode: this.mode,
+        selected_view: this.selectedView,
         score_timeline: this.scoreTimeline,
         rep_records: this.repRecords,
         set_records: setRecords,
         events: this.events,
+        phase_dataset: exportedPhaseDataset,
         stats: {
           avg_rep_score: this.calculateAvgRepScore(),
           best_rep: this.getBestRep(),
           total_sets: setRecords.length
         }
       },
-      
+
       // 별도 테이블용 데이터 (서버에서 처리)
       metric_results: this.generateMetricResults(),
+      interim_snapshots: interimSnapshots,
       set_records: setRecords,
       events: this.events
     };
@@ -336,7 +501,7 @@ class SessionBuffer {
    */
   getBestRep() {
     if (this.repRecords.length === 0) return null;
-    return this.repRecords.reduce((best, r) => 
+    return this.repRecords.reduce((best, r) =>
       (r.score || 0) > (best.score || 0) ? r : best
     , this.repRecords[0]);
   }
@@ -347,9 +512,9 @@ class SessionBuffer {
   generateSummaryFeedback(score) {
     const reps = this.getTotalReps();
     const duration = this.getDuration();
-    
+
     let feedback = '';
-    
+
     // 점수 기반 피드백
     if (score >= 90) {
       feedback = '완벽해요! 훌륭한 자세로 운동했습니다. 💪';
@@ -362,12 +527,12 @@ class SessionBuffer {
     } else {
       feedback = '자세 교정이 필요합니다. 운동 가이드를 참고해보세요.';
     }
-    
+
     // 추가 정보
     if (reps > 0) {
       feedback += ` ${reps}회 완료!`;
     }
-    
+
     return feedback;
   }
 }

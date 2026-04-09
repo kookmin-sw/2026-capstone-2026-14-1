@@ -7,23 +7,15 @@ const {
     createExercise,
     updateExercise,
     deleteExercise,
-    getMetrics,
-    createMetric,
-    updateMetric,
-    deleteMetric,
-    getScoringProfiles,
-    createScoringProfile,
-    getScoringProfileDetail,
-    updateScoringProfile,
-    deleteScoringProfile,
-    addProfileMetric,
-    removeProfileMetric,
     getUsers,
     updateUserStatus,
     getQuestTemplates,
     createQuestTemplate,
     updateQuestTemplate,
     deleteQuestTemplate,
+    createQuestAssignmentRule,
+    updateQuestAssignmentRule,
+    deleteQuestAssignmentRule,
     getTierRules,
     upsertTierRule
 } = require('../controllers/admin');
@@ -40,23 +32,6 @@ router.post('/exercises', createExercise);
 router.post('/exercises/:exercise_id', updateExercise);
 router.post('/exercises/:exercise_id/delete', deleteExercise);
 
-// 채점 지표 관리
-router.get('/metrics', getMetrics);
-router.post('/metrics', createMetric);
-router.post('/metrics/:metric_id', updateMetric);
-router.post('/metrics/:metric_id/delete', deleteMetric);
-
-// 채점 프로파일 관리
-router.get('/scoring', getScoringProfiles);
-router.post('/scoring', createScoringProfile);
-router.get('/scoring/:profile_id', getScoringProfileDetail);
-router.post('/scoring/:profile_id', updateScoringProfile);
-router.post('/scoring/:profile_id/delete', deleteScoringProfile);
-
-// 프로파일 지표 관리
-router.post('/scoring/:profile_id/metrics', addProfileMetric);
-router.post('/scoring/:profile_id/metrics/:metric_id/delete', removeProfileMetric);
-
 // 사용자 관리
 router.get('/users', getUsers);
 router.post('/users/:user_id/status', updateUserStatus);
@@ -64,6 +39,9 @@ router.post('/users/:user_id/status', updateUserStatus);
 // 퀘스트 템플릿 관리
 router.get('/quests', getQuestTemplates);
 router.post('/quests', createQuestTemplate);
+router.post('/quests/rules', createQuestAssignmentRule);
+router.post('/quests/rules/:rule_id', updateQuestAssignmentRule);
+router.post('/quests/rules/:rule_id/delete', deleteQuestAssignmentRule);
 router.post('/quests/:quest_template_id', updateQuestTemplate);
 router.post('/quests/:quest_template_id/delete', deleteQuestTemplate);
 

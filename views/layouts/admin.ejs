@@ -44,15 +44,15 @@
         <aside class="admin-sidebar">
           <nav class="sidebar-nav">
             <div class="sidebar-section">
+              <div class="sidebar-title">개요</div>
+              <a class="sidebar-link <%= currentTab === 'dashboard' ? 'active' : '' %>" href="/admin">
+                대시보드
+              </a>
+            </div>
+            <div class="sidebar-section">
               <div class="sidebar-title">콘텐츠 관리</div>
               <a class="sidebar-link <%= currentTab === 'exercises' ? 'active' : '' %>" href="/admin/exercises">
                 운동 관리
-              </a>
-              <a class="sidebar-link <%= currentTab === 'metrics' ? 'active' : '' %>" href="/admin/metrics">
-                채점 지표
-              </a>
-              <a class="sidebar-link <%= currentTab === 'scoring' ? 'active' : '' %>" href="/admin/scoring">
-                채점 프로파일
               </a>
             </div>
             <div class="sidebar-section">

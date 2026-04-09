@@ -81,7 +81,7 @@
           <div class="quest-card <%= quest.status === 'DONE' ? 'completed' : '' %>" data-quest-id="<%= quest.user_quest_id %>">
             <div class="quest-card-header">
               <span class="quest-type <%= quest.quest_template.type.toLowerCase() %>">
-                <%= quest.quest_template.type === 'DO' ? '수행' : quest.quest_template.type === 'QUALITY' ? '품질' : '습관' %>
+                <%= quest.type_label %>
               </span>
               <span class="quest-reward">+<%= quest.quest_template.reward_points %>P</span>
             </div>
@@ -93,20 +93,18 @@
             <% } else { %>
               <div class="quest-progress-bar">
                 <% 
-                  const condition = quest.quest_template.condition || {};
-                  const progress = quest.progress || {};
-                  const current = progress.current || 0;
-                  const target = condition.target || 1;
-                  const percent = Math.min(100, Math.round((current / target) * 100));
-                  const canClaim = current >= target;
+                  const progressView = quest.progress_view || {};
+                  const percent = progressView.percent || 0;
+                  const canClaim = progressView.canClaim;
+                  const unitLabel = progressView.unitLabel || '';
                 %>
                 <div class="progress">
                   <div class="progress-bar" style="width: <%= percent %>%"></div>
                 </div>
-                <span class="progress-text"><%= current %>/<%= target %></span>
+                <span class="progress-text"><%= progressView.currentDisplay || 0 %>/<%= progressView.targetDisplay || 0 %><%= unitLabel %></span>
               </div>
               <% if (canClaim) { %>
-                <button class="claim-btn" onclick="claimQuest('<%= quest.user_quest_id %>', <%= quest.quest_template.reward_points %>)">
+                <button class="claim-btn" onclick="claimQuest('<%= quest.user_quest_id %>', this)">
                   보상 받기
                 </button>
               <% } %>
@@ -137,7 +135,7 @@
           <div class="quest-card weekly <%= quest.status === 'DONE' ? 'completed' : '' %>" data-quest-id="<%= quest.user_quest_id %>">
             <div class="quest-card-header">
               <span class="quest-type <%= quest.quest_template.type.toLowerCase() %>">
-                <%= quest.quest_template.type === 'DO' ? '수행' : quest.quest_template.type === 'QUALITY' ? '품질' : '습관' %>
+                <%= quest.type_label %>
               </span>
               <span class="quest-reward">+<%= quest.quest_template.reward_points %>P</span>
             </div>
@@ -149,20 +147,18 @@
             <% } else { %>
               <div class="quest-progress-bar">
                 <% 
-                  const condition = quest.quest_template.condition || {};
-                  const progress = quest.progress || {};
-                  const current = progress.current || 0;
-                  const target = condition.target || 1;
-                  const percent = Math.min(100, Math.round((current / target) * 100));
-                  const canClaim = current >= target;
+                  const progressView = quest.progress_view || {};
+                  const percent = progressView.percent || 0;
+                  const canClaim = progressView.canClaim;
+                  const unitLabel = progressView.unitLabel || '';
                 %>
                 <div class="progress">
                   <div class="progress-bar weekly" style="width: <%= percent %>%"></div>
                 </div>
-                <span class="progress-text"><%= current %>/<%= target %></span>
+                <span class="progress-text"><%= progressView.currentDisplay || 0 %>/<%= progressView.targetDisplay || 0 %><%= unitLabel %></span>
               </div>
               <% if (canClaim) { %>
-                <button class="claim-btn weekly" onclick="claimQuest('<%= quest.user_quest_id %>', <%= quest.quest_template.reward_points %>)">
+                <button class="claim-btn weekly" onclick="claimQuest('<%= quest.user_quest_id %>', this)">
                   보상 받기
                 </button>
               <% } %>
@@ -320,6 +316,11 @@
   .quest-type.habit {
     background: rgba(139, 92, 246, 0.15);
     color: #8b5cf6;
+  }
+
+  .quest-type.challenge {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
   }
 
   .quest-reward {
@@ -602,8 +603,7 @@
 
 <script>
   // 퀘스트 보상 클레임
-  async function claimQuest(questId, points) {
-    const btn = event.target;
+  async function claimQuest(questId, btn) {
     btn.disabled = true;
     btn.textContent = '처리 중...';
 
@@ -637,7 +637,8 @@
         const pointsDisplay = document.querySelector('.metric');
         if (pointsDisplay) {
           const currentPoints = parseInt(pointsDisplay.textContent.replace(/,/g, '')) || 0;
-          pointsDisplay.textContent = (currentPoints + points).toLocaleString();
+          const awardedPoints = Number.isFinite(Number(data.points)) ? Number(data.points) : 0;
+          pointsDisplay.textContent = (currentPoints + awardedPoints).toLocaleString();
         }
 
         showToast(`${data.message}`, 'success');
@@ -677,3 +678,4 @@
     }, 3000);
   }
 </script>
+

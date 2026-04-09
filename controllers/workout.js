@@ -1,27 +1,16 @@
 const { supabase } = require('../config/db');
 const { updateQuestProgress } = require('./quest');
+const {
+    normalizePhaseDataset,
+    mergePhaseLabelsIntoDetail,
+    buildPhaseDatasetExport
+} = require('../utils/phase-dataset');
 
 const SESSION_STALE_HOURS = 12;
-
-const SCORING_PROFILE_SELECT = `
-    scoring_profile_id,
-    exercise_id,
-    version,
-    name,
-    scoring_profile_metric (
-        weight,
-        max_score,
-        rule,
-        order_no,
-        metric:metric_id (
-            metric_id,
-            key,
-            title,
-            description,
-            unit
-        )
-    )
-`;
+const VIEW_CODES = ['FRONT', 'SIDE', 'DIAGONAL'];
+const MODE_CODES = ['FREE', 'ROUTINE', 'LEARN'];
+const RESULT_BASIS_CODES = ['REPS', 'DURATION'];
+const RESULT_UNIT_CODES = ['COUNT', 'SEC'];
 
 const createApiError = (statusCode, message) => {
     const error = new Error(message);
@@ -37,25 +26,182 @@ const sendApiError = (res, error, fallbackMessage = '요청 처리 중 오류가
     });
 };
 
-const sortProfileMetrics = (profile) => {
-    if (!profile || !Array.isArray(profile.scoring_profile_metric)) return profile;
-    profile.scoring_profile_metric.sort((a, b) => (a.order_no || 0) - (b.order_no || 0));
-    return profile;
-};
+const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
-const toNonNegativeInt = (value, fallback = 0) => {
+const normalizeExerciseCode = (code) =>
+    String(code || '')
+        .trim()
+        .toLowerCase()
+        .replace(/-/g, '_');
+
+const sanitizeCodeForScript = (code) =>
+    String(code || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '');
+
+const toNullableNonNegativeInt = (value) => {
+    if (value == null || value === '') return null;
     const parsed = Number(value);
-    if (!Number.isFinite(parsed)) return fallback;
+    if (!Number.isFinite(parsed)) return null;
     return Math.max(0, Math.round(parsed));
 };
 
 const toBoundedScore = (value, fallback = 0) => {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return fallback;
-    return Math.max(0, Math.min(100, Math.round(parsed)));
+    return Math.max(0, Math.min(100, Math.round(parsed * 100) / 100));
 };
 
-const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const normalizeMode = (value) => {
+    const mode = String(value || 'FREE').trim().toUpperCase();
+    return MODE_CODES.includes(mode) ? mode : 'FREE';
+};
+
+const normalizeResultBasis = (value) => {
+    const basis = String(value || '').trim().toUpperCase();
+    return RESULT_BASIS_CODES.includes(basis) ? basis : null;
+};
+
+const normalizeResultUnit = (value) => {
+    const unit = String(value || '').trim().toUpperCase();
+    return RESULT_UNIT_CODES.includes(unit) ? unit : null;
+};
+
+const normalizeSelectedView = (value) => {
+    const selected = String(value || '').trim().toUpperCase();
+    return VIEW_CODES.includes(selected) ? selected : null;
+};
+
+const toSafeText = (value, maxLength = 2000) => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed.slice(0, maxLength) : null;
+};
+
+const computeDurationSecFromRange = (startedAtIso, endedAtIso = new Date().toISOString()) => {
+    const startMs = new Date(startedAtIso).getTime();
+    const endMs = new Date(endedAtIso).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return 0;
+    return Math.max(0, Math.round((endMs - startMs) / 1000));
+};
+
+const dedupeAndOrderViews = (viewRows = []) => {
+    const unique = new Set();
+    const ordered = [];
+
+    for (const code of VIEW_CODES) {
+        if (viewRows.some((row) => row?.view_code === code)) {
+            unique.add(code);
+            ordered.push(code);
+        }
+    }
+
+    for (const row of viewRows) {
+        const code = row?.view_code;
+        if (!code || unique.has(code)) continue;
+        unique.add(code);
+        ordered.push(code);
+    }
+
+    return ordered;
+};
+
+const buildAllowedViewInfo = (viewRows = []) => {
+    const allowedViews = dedupeAndOrderViews(viewRows);
+    const defaultView =
+        viewRows.find((row) => row?.is_default)?.view_code ||
+        allowedViews[0] ||
+        'FRONT';
+
+    return {
+        allowed_views: allowedViews.length > 0 ? allowedViews : ['FRONT'],
+        default_view: allowedViews.includes(defaultView) ? defaultView : (allowedViews[0] || 'FRONT')
+    };
+};
+
+const attachAllowedViewInfo = (exercise, viewRows = []) => ({
+    ...exercise,
+    ...buildAllowedViewInfo(viewRows)
+});
+
+const getAllowedViewMapByExerciseIds = async (exerciseIds) => {
+    if (!Array.isArray(exerciseIds) || exerciseIds.length === 0) return new Map();
+
+    const { data: viewRows, error } = await supabase
+        .from('exercise_allowed_view')
+        .select('exercise_id, view_code, is_default')
+        .in('exercise_id', exerciseIds);
+
+    if (error) {
+        throw createApiError(500, '허용 자세 정보를 불러오지 못했습니다.');
+    }
+
+    const map = new Map();
+    for (const row of viewRows || []) {
+        if (!map.has(row.exercise_id)) {
+            map.set(row.exercise_id, []);
+        }
+        map.get(row.exercise_id).push(row);
+    }
+
+    return map;
+};
+
+const getExerciseByCodeWithViews = async (exerciseCode) => {
+    const normalizedCode = String(exerciseCode || '').trim();
+    if (!normalizedCode) return null;
+
+    let exercise = null;
+    const { data: exactMatch } = await supabase
+        .from('exercise')
+        .select('exercise_id, code, name, description, is_active, default_target_type')
+        .eq('code', normalizedCode)
+        .maybeSingle();
+
+    if (exactMatch?.is_active) {
+        exercise = exactMatch;
+    } else {
+        const { data: ilikeMatch } = await supabase
+            .from('exercise')
+            .select('exercise_id, code, name, description, is_active, default_target_type')
+            .ilike('code', normalizedCode)
+            .maybeSingle();
+        if (ilikeMatch?.is_active) {
+            exercise = ilikeMatch;
+        }
+    }
+
+    if (!exercise) return null;
+
+    const viewMap = await getAllowedViewMapByExerciseIds([exercise.exercise_id]);
+    return attachAllowedViewInfo(exercise, viewMap.get(exercise.exercise_id) || []);
+};
+
+const getExerciseByIdWithViews = async (exerciseId) => {
+    const { data: exercise, error } = await supabase
+        .from('exercise')
+        .select('exercise_id, code, name, description, is_active, default_target_type')
+        .eq('exercise_id', exerciseId)
+        .single();
+
+    if (error || !exercise || !exercise.is_active) {
+        return null;
+    }
+
+    const viewMap = await getAllowedViewMapByExerciseIds([exercise.exercise_id]);
+    return attachAllowedViewInfo(exercise, viewMap.get(exercise.exercise_id) || []);
+};
+
+const getRuntimeScoringProfile = (exerciseCode) => {
+    const code = normalizeExerciseCode(exerciseCode);
+    return {
+        scoring_profile_id: null,
+        source: 'RUNTIME_JS',
+        exercise_code: code,
+        scoring_profile_metric: []
+    };
+};
 
 const getRoutineWithSteps = async (routineId, userId) => {
     const { data: routine, error } = await supabase
@@ -63,6 +209,7 @@ const getRoutineWithSteps = async (routineId, userId) => {
         .select(`
             routine_id,
             name,
+            is_active,
             routine_setup (
                 step_id,
                 order_no,
@@ -74,7 +221,9 @@ const getRoutineWithSteps = async (routineId, userId) => {
                     exercise_id,
                     code,
                     name,
-                    description
+                    description,
+                    default_target_type,
+                    is_active
                 )
             )
         `)
@@ -95,46 +244,28 @@ const getRoutineWithSteps = async (routineId, userId) => {
         throw createApiError(400, '루틴에 운동 단계가 없습니다.');
     }
 
+    const exerciseIds = [...new Set(
+        routine.routine_setup
+            .map((step) => step.exercise?.exercise_id)
+            .filter(Boolean)
+    )];
+
+    const viewMap = await getAllowedViewMapByExerciseIds(exerciseIds);
+
+    routine.routine_setup = routine.routine_setup.map((step) => {
+        const exercise = step.exercise || null;
+        const attachedExercise = exercise
+            ? attachAllowedViewInfo(exercise, viewMap.get(exercise.exercise_id) || [])
+            : null;
+
+        return {
+            ...step,
+            exercise: attachedExercise,
+            scoring_profile: getRuntimeScoringProfile(exercise?.code)
+        };
+    });
+
     return routine;
-};
-
-const getActiveScoringProfile = async (exerciseId, scoringProfileId = null) => {
-    let query = supabase
-        .from('scoring_profile')
-        .select(SCORING_PROFILE_SELECT)
-        .eq('exercise_id', exerciseId)
-        .eq('is_active', true);
-
-    if (scoringProfileId) {
-        query = query.eq('scoring_profile_id', scoringProfileId);
-    }
-
-    const { data: profile, error } = await query.single();
-    if (error || !profile) {
-        throw createApiError(400, '해당 운동의 활성 채점 프로필을 찾을 수 없습니다.');
-    }
-
-    return sortProfileMetrics(profile);
-};
-
-const getActiveScoringProfilesByExerciseIds = async (exerciseIds) => {
-    if (!exerciseIds.length) return new Map();
-
-    const { data: profiles, error } = await supabase
-        .from('scoring_profile')
-        .select(SCORING_PROFILE_SELECT)
-        .in('exercise_id', exerciseIds)
-        .eq('is_active', true);
-
-    if (error) {
-        throw createApiError(500, '루틴 채점 프로필을 불러오지 못했습니다.');
-    }
-
-    const byExercise = new Map();
-    for (const profile of profiles || []) {
-        byExercise.set(profile.exercise_id, sortProfileMetrics(profile));
-    }
-    return byExercise;
 };
 
 const cleanupStaleOpenSessions = async (userId) => {
@@ -142,126 +273,46 @@ const cleanupStaleOpenSessions = async (userId) => {
 
     const { data: staleSessions, error } = await supabase
         .from('workout_session')
-        .select('session_id, routine_instance_id')
+        .select('session_id')
         .eq('user_id', userId)
+        .eq('status', 'RUNNING')
         .is('ended_at', null)
         .lt('started_at', thresholdIso);
 
     if (error) {
-        throw createApiError(500, '기존 세션 정리 중 오류가 발생했습니다.');
+        throw createApiError(500, '기존 실행 중 세션 정리 중 오류가 발생했습니다.');
     }
 
-    if (!staleSessions || staleSessions.length === 0) return;
+    const staleIds = (staleSessions || []).map((row) => row.session_id);
+    if (staleIds.length === 0) return;
 
-    const sessionIds = staleSessions.map((session) => session.session_id);
-    const routineInstanceIds = [...new Set(
-        staleSessions
-            .map((session) => session.routine_instance_id)
-            .filter(Boolean)
-    )];
+    const endedAtIso = new Date().toISOString();
 
-    const nowIso = new Date().toISOString();
-
-    const { error: deleteMetricError } = await supabase
-        .from('session_metric_result')
-        .delete()
-        .in('session_id', sessionIds);
-    if (deleteMetricError) {
-        throw createApiError(500, '오래된 세션 메트릭 정리 중 오류가 발생했습니다.');
-    }
-
-    const { error: deleteSetError } = await supabase
-        .from('workout_set')
-        .delete()
-        .in('session_id', sessionIds);
-    if (deleteSetError) {
-        throw createApiError(500, '오래된 세트 정리 중 오류가 발생했습니다.');
-    }
-
-    const { error: deleteEventError } = await supabase
-        .from('session_event')
-        .delete()
-        .in('session_id', sessionIds);
-    if (deleteEventError) {
-        throw createApiError(500, '오래된 이벤트 정리 중 오류가 발생했습니다.');
-    }
-
-    const { error: deleteSessionError } = await supabase
+    const { error: updateError } = await supabase
         .from('workout_session')
-        .delete()
-        .in('session_id', sessionIds);
-    if (deleteSessionError) {
-        throw createApiError(500, '오래된 세션 정리 중 오류가 발생했습니다.');
+        .update({
+            status: 'ABORTED',
+            ended_at: endedAtIso,
+            updated_at: endedAtIso
+        })
+        .in('session_id', staleIds)
+        .eq('status', 'RUNNING');
+
+    if (updateError) {
+        throw createApiError(500, '기존 실행 중 세션을 중단 처리하지 못했습니다.');
     }
 
-    if (routineInstanceIds.length > 0) {
-        const { error: routineAbortError } = await supabase
-            .from('routine_instance')
-            .update({
-                ended_at: nowIso,
-                status: 'ABORTED'
-            })
-            .in('routine_instance_id', routineInstanceIds)
-            .eq('status', 'RUNNING');
-
-        if (routineAbortError) {
-            throw createApiError(500, '오래된 루틴 인스턴스 정리 중 오류가 발생했습니다.');
-        }
-    }
-};
-
-const normalizeMetricResults = (metricResults, sessionId) => {
-    if (!Array.isArray(metricResults) || metricResults.length === 0) return [];
-
-    return metricResults
-        .map((metric) => {
-            const metricId = typeof metric?.metric_id === 'string' ? metric.metric_id : null;
-            if (!metricId) return null;
-
-            const score = toNonNegativeInt(metric.score, 0);
-            const raw = metric.raw == null ? null : Math.round(Number(metric.raw));
-
-            return {
-                session_id: sessionId,
-                metric_id: metricId,
-                score,
-                raw: Number.isFinite(raw) ? raw : null
-            };
-        })
-        .filter(Boolean);
-};
-
-const normalizeSetRecords = (setRecords, sessionId, fallbackReps, fallbackDuration) => {
-    const inputRows = Array.isArray(setRecords) ? setRecords : [];
-    const normalizedRows = inputRows
-        .map((setRecord, index) => {
-            const phase = setRecord?.phase === 'REST' ? 'REST' : 'WORK';
-            const setNo = Math.max(1, toNonNegativeInt(setRecord?.set_no, index + 1));
-            const targetReps = setRecord?.target_reps == null ? null : toNonNegativeInt(setRecord.target_reps, 0);
-            const actualReps = toNonNegativeInt(setRecord?.actual_reps, 0);
-            const durationSec = setRecord?.duration_sec == null ? null : toNonNegativeInt(setRecord.duration_sec, 0);
-
-            return {
-                session_id: sessionId,
-                set_no: setNo,
-                phase,
-                target_reps: targetReps,
-                actual_reps: actualReps,
-                duration_sec: durationSec
-            };
-        })
-        .filter(Boolean);
-
-    if (normalizedRows.length > 0) return normalizedRows;
-
-    return [{
+    const staleEventRows = staleIds.map((sessionId) => ({
         session_id: sessionId,
-        set_no: 1,
-        phase: 'WORK',
-        target_reps: null,
-        actual_reps: toNonNegativeInt(fallbackReps, 0),
-        duration_sec: toNonNegativeInt(fallbackDuration, 0)
-    }];
+        type: 'SESSION_ABORT_STALE',
+        payload: {
+            reason: 'STALE_TIMEOUT',
+            stale_hours: SESSION_STALE_HOURS
+        },
+        event_time: endedAtIso
+    }));
+
+    await supabase.from('session_event').insert(staleEventRows);
 };
 
 const normalizeEvents = (events, sessionId, startedAtIso) => {
@@ -275,7 +326,7 @@ const normalizeEvents = (events, sessionId, startedAtIso) => {
             const type = typeof event?.type === 'string' ? event.type.trim() : '';
             if (!type) return null;
 
-            const timestampMs = Number(event?.timestamp);
+            const timestampMs = Number(event?.timestamp ?? event?.timestamp_ms);
             const hasRelativeTimestamp = Number.isFinite(timestampMs) && timestampMs >= 0;
             const eventTime = hasRelativeTimestamp
                 ? new Date(sessionStartMs + Math.round(timestampMs)).toISOString()
@@ -283,37 +334,168 @@ const normalizeEvents = (events, sessionId, startedAtIso) => {
 
             return {
                 session_id: sessionId,
-                type: type.slice(0, 120),
-                payload: event?.payload ?? null,
+                type: type.slice(0, 50),
+                payload: isPlainObject(event?.payload) ? event.payload : (event?.payload ?? {}),
                 event_time: eventTime
             };
         })
         .filter(Boolean);
 };
 
-const buildSafeDetail = (detail, setRows, eventRows) => {
-    const source = isPlainObject(detail) ? detail : {};
-    const setRecords = setRows.map((setRow) => ({
-        set_no: setRow.set_no,
-        phase: setRow.phase,
-        target_reps: setRow.target_reps,
-        actual_reps: setRow.actual_reps,
-        duration_sec: setRow.duration_sec
-    }));
-    const events = eventRows.map((eventRow) => ({
-        type: eventRow.type,
-        payload: eventRow.payload,
-        event_time: eventRow.event_time
-    }));
+const normalizeSnapshotBreakdownMetrics = (breakdown) => {
+    if (!Array.isArray(breakdown)) return [];
+
+    return breakdown
+        .map((item, index) => {
+            const metricKey = toSafeText(item?.metric_key || item?.key || item?.metric_id || `metric_${index + 1}`, 100);
+            if (!metricKey) return null;
+
+            const metricName =
+                toSafeText(item?.metric_name || item?.title || metricKey, 100) ||
+                metricKey;
+
+            const avgScore = item?.avg_score != null
+                ? Number(item.avg_score)
+                : (item?.score != null ? Number(item.score) : null);
+
+            const rawValue = item?.avg_raw_value != null
+                ? Number(item.avg_raw_value)
+                : (item?.rawValue != null
+                    ? Number(item.rawValue)
+                    : (item?.raw != null
+                        ? Number(item.raw)
+                        : (item?.actualValue != null ? Number(item.actualValue) : null)));
+
+            const minRaw = item?.min_raw_value != null
+                ? Number(item.min_raw_value)
+                : (Number.isFinite(rawValue) ? rawValue : null);
+
+            const maxRaw = item?.max_raw_value != null
+                ? Number(item.max_raw_value)
+                : (Number.isFinite(rawValue) ? rawValue : null);
+
+            const sampleCount = item?.sample_count != null
+                ? Math.max(0, Math.round(Number(item.sample_count)))
+                : (Number.isFinite(avgScore) || Number.isFinite(rawValue) ? 1 : 0);
+
+            return {
+                metric_key: metricKey,
+                metric_name: metricName,
+                avg_score: Number.isFinite(avgScore) ? Math.max(0, Math.min(100, avgScore)) : null,
+                avg_raw_value: Number.isFinite(rawValue) ? rawValue : null,
+                min_raw_value: Number.isFinite(minRaw) ? minRaw : null,
+                max_raw_value: Number.isFinite(maxRaw) ? maxRaw : null,
+                sample_count: sampleCount,
+                detail: isPlainObject(item?.detail)
+                    ? item.detail
+                    : {
+                        max_score: Number.isFinite(Number(item?.maxScore)) ? Number(item.maxScore) : null,
+                        weight: Number.isFinite(Number(item?.weight)) ? Number(item.weight) : null,
+                        feedback: toSafeText(item?.feedback, 500)
+                    }
+            };
+        })
+        .filter(Boolean);
+};
+
+const normalizeFinalMetricResults = (metricResults) => {
+    if (!Array.isArray(metricResults) || metricResults.length === 0) return [];
+    return normalizeSnapshotBreakdownMetrics(metricResults);
+};
+
+const normalizeInterimSnapshots = (payload, startedAtIso) => {
+    const explicitSnapshots = Array.isArray(payload?.interim_snapshots)
+        ? payload.interim_snapshots
+        : [];
+
+    const timelineSnapshots = explicitSnapshots.length === 0 && Array.isArray(payload?.detail?.score_timeline)
+        ? payload.detail.score_timeline
+        : [];
+
+    const sourceSnapshots = explicitSnapshots.length > 0
+        ? explicitSnapshots
+        : timelineSnapshots.map((item) => ({
+            timestamp_ms: item?.timestamp,
+            score: item?.score,
+            breakdown: item?.breakdown
+        }));
+
+    if (sourceSnapshots.length === 0) return [];
+
+    const startedMs = new Date(startedAtIso).getTime();
+
+    return sourceSnapshots
+        .map((snapshot, index) => {
+            const timestampMs = Number(snapshot?.timestamp_ms ?? snapshot?.timestamp);
+            const hasRelativeTimestamp = Number.isFinite(timestampMs) && timestampMs >= 0;
+            const recordedAt = hasRelativeTimestamp
+                ? new Date(startedMs + Math.round(timestampMs)).toISOString()
+                : new Date().toISOString();
+
+            const score = snapshot?.score == null ? null : Number(snapshot.score);
+            const breakdownMetrics = normalizeSnapshotBreakdownMetrics(snapshot?.breakdown || []);
+
+            return {
+                snapshot_no: index + 1,
+                snapshot_type: 'INTERIM',
+                recorded_at: recordedAt,
+                score: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null,
+                result_value: toNullableNonNegativeInt(snapshot?.result_value),
+                result_unit: normalizeResultUnit(snapshot?.result_unit),
+                summary_feedback: toSafeText(snapshot?.summary_feedback, 500),
+                detail: isPlainObject(snapshot?.detail) ? snapshot.detail : {},
+                metrics: breakdownMetrics
+            };
+        })
+        .filter(Boolean);
+};
+
+const buildFinalDetail = (payload, normalizedEvents, normalizedInterimSnapshots) => {
+    const sourceDetail = isPlainObject(payload?.detail) ? payload.detail : {};
+    const setRecords = Array.isArray(payload?.set_records) ? payload.set_records : [];
 
     return {
-        ...source,
+        ...sourceDetail,
+        selected_view: normalizeSelectedView(payload?.selected_view) || null,
         set_records: setRecords,
-        events,
-        save_meta: {
-            saved_at: new Date().toISOString(),
-            schema_version: 2
+        event_count: normalizedEvents.length,
+        interim_snapshot_count: normalizedInterimSnapshots.length,
+        saved_at: new Date().toISOString(),
+        schema_version: 3
+    };
+};
+
+const inferResultFields = (payload, session, endedAtIso) => {
+    let resultBasis = normalizeResultBasis(payload?.result_basis);
+    let totalResultValue = toNullableNonNegativeInt(payload?.total_result_value);
+    let totalResultUnit = normalizeResultUnit(payload?.total_result_unit);
+
+    const legacyTotalReps = toNullableNonNegativeInt(payload?.total_reps);
+    const legacyDurationSec = toNullableNonNegativeInt(payload?.duration_sec);
+    const computedDurationSec = computeDurationSecFromRange(session.started_at, endedAtIso);
+
+    if (!resultBasis) {
+        resultBasis = legacyTotalReps != null ? 'REPS' : 'DURATION';
+    }
+
+    if (resultBasis === 'REPS') {
+        if (!totalResultUnit) totalResultUnit = 'COUNT';
+        if (totalResultValue == null) {
+            totalResultValue = legacyTotalReps != null ? legacyTotalReps : 0;
         }
+    } else {
+        if (!totalResultUnit) totalResultUnit = 'SEC';
+        if (totalResultValue == null) {
+            totalResultValue = legacyDurationSec != null ? legacyDurationSec : computedDurationSec;
+        }
+    }
+
+    return {
+        result_basis: resultBasis,
+        total_result_value: totalResultValue,
+        total_result_unit: totalResultUnit,
+        duration_sec: legacyDurationSec != null ? legacyDurationSec : computedDurationSec,
+        total_reps: legacyTotalReps != null ? legacyTotalReps : (resultBasis === 'REPS' ? totalResultValue : 0)
     };
 };
 
@@ -324,10 +506,19 @@ const getOwnedSession = async (sessionId, userId) => {
             session_id,
             user_id,
             exercise_id,
-            routine_instance_id,
+            set_id,
+            mode,
+            status,
+            selected_view,
+            result_basis,
+            total_result_value,
+            total_result_unit,
+            final_score,
+            summary_feedback,
             started_at,
             ended_at,
             exercise:exercise_id (
+                exercise_id,
                 code,
                 name
             )
@@ -343,61 +534,100 @@ const getOwnedSession = async (sessionId, userId) => {
     return session;
 };
 
+const getOwnedSessionWithDetail = async (sessionId, userId) => {
+    const session = await getOwnedSession(sessionId, userId);
+
+    const { data: finalSnapshot, error: snapshotError } = await supabase
+        .from('session_snapshot')
+        .select('session_snapshot_id')
+        .eq('session_id', sessionId)
+        .eq('snapshot_type', 'FINAL')
+        .order('snapshot_no', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (snapshotError) {
+        throw createApiError(500, '최종 스냅샷 조회에 실패했습니다.');
+    }
+
+    if (!finalSnapshot?.session_snapshot_id) {
+        return {
+            ...session,
+            final_snapshot_id: null,
+            detail: {}
+        };
+    }
+
+    const { data: snapshotScore, error: scoreError } = await supabase
+        .from('session_snapshot_score')
+        .select('detail')
+        .eq('session_snapshot_id', finalSnapshot.session_snapshot_id)
+        .maybeSingle();
+
+    if (scoreError) {
+        throw createApiError(500, '최종 스냅샷 상세 조회에 실패했습니다.');
+    }
+
+    return {
+        ...session,
+        final_snapshot_id: finalSnapshot.session_snapshot_id,
+        detail: isPlainObject(snapshotScore?.detail) ? snapshotScore.detail : {}
+    };
+};
+
 const assertSessionWritable = async (sessionId, userId) => {
     const session = await getOwnedSession(sessionId, userId);
-    if (session.ended_at) {
+    if (session.ended_at || session.status !== 'RUNNING') {
         throw createApiError(409, '이미 종료된 세션입니다.');
     }
     return session;
 };
 
-// 자유 운동 목록 페이지
 const getFreeWorkoutPage = async (req, res, next) => {
     try {
         const { data: exercises, error } = await supabase
             .from('exercise')
-            .select('exercise_id, code, name, description')
+            .select('exercise_id, code, name, description, default_target_type')
             .eq('is_active', true)
             .order('name');
 
         if (error) throw error;
 
+        const exerciseRows = exercises || [];
+        const viewMap = await getAllowedViewMapByExerciseIds(exerciseRows.map((item) => item.exercise_id));
+        const enriched = exerciseRows.map((exercise) =>
+            attachAllowedViewInfo(exercise, viewMap.get(exercise.exercise_id) || [])
+        );
+
         res.render('workout/free', {
             title: '자유 운동',
             activeTab: 'workout',
-            exercises: exercises || []
+            exercises: enriched
         });
     } catch (error) {
         next(error);
     }
 };
 
-// 자유 운동 세션 페이지
 const getFreeWorkoutSession = async (req, res, next) => {
     try {
         const { exerciseCode } = req.params;
+        const exercise = await getExerciseByCodeWithViews(exerciseCode);
 
-        const { data: exercise, error: exerciseError } = await supabase
-            .from('exercise')
-            .select('exercise_id, code, name, description')
-            .eq('code', exerciseCode)
-            .eq('is_active', true)
-            .single();
-
-        if (exerciseError || !exercise) {
+        if (!exercise) {
             return res.redirect('/workout/free?error=운동을 찾을 수 없습니다');
         }
-
-        const scoringProfile = await getActiveScoringProfile(exercise.exercise_id);
 
         res.render('workout/session', {
             title: `${exercise.name} - 자유 운동`,
             activeTab: 'workout',
             mode: 'FREE',
             exercise,
-            scoringProfile,
+            scoringProfile: getRuntimeScoringProfile(exercise.code),
             routine: null,
             routineInstance: null,
+            exerciseModuleScript: `${sanitizeCodeForScript(exercise.code).replace(/_/g, '-')}-exercise.js`,
+            exerciseModuleScripts: null,
             layout: 'layouts/workout'
         });
     } catch (error) {
@@ -405,38 +635,33 @@ const getFreeWorkoutSession = async (req, res, next) => {
     }
 };
 
-// 루틴 운동 세션 페이지
 const getRoutineWorkoutSession = async (req, res, next) => {
     try {
         const { routineId } = req.params;
         const userId = req.user.user_id;
         const routine = await getRoutineWithSteps(routineId, userId);
 
-        const exerciseIds = [...new Set(
-            routine.routine_setup
-                .map((step) => step.exercise?.exercise_id)
-                .filter(Boolean)
-        )];
-        const profilesByExercise = await getActiveScoringProfilesByExerciseIds(exerciseIds);
-
-        routine.routine_setup = routine.routine_setup.map((step) => ({
-            ...step,
-            scoring_profile: profilesByExercise.get(step.exercise?.exercise_id) || null
-        }));
-
         const firstStep = routine.routine_setup[0];
-        if (!firstStep?.exercise || !firstStep?.scoring_profile) {
-            return res.redirect('/routine?error=루틴 시작에 필요한 채점 프로필이 없습니다');
+        if (!firstStep?.exercise) {
+            return res.redirect('/routine?error=루틴 시작에 필요한 운동 정보가 없습니다');
         }
+
+        const moduleScriptSet = new Set();
+        routine.routine_setup.forEach((step) => {
+            const code = sanitizeCodeForScript(step?.exercise?.code || '');
+            if (code) moduleScriptSet.add(`${code.replace(/_/g, '-')}-exercise.js`);
+        });
 
         res.render('workout/session', {
             title: `${routine.name} - 루틴 운동`,
             activeTab: 'workout',
             mode: 'ROUTINE',
             exercise: firstStep.exercise,
-            scoringProfile: firstStep.scoring_profile,
+            scoringProfile: firstStep.scoring_profile || getRuntimeScoringProfile(firstStep.exercise.code),
             routine,
             routineInstance: null,
+            exerciseModuleScript: null,
+            exerciseModuleScripts: Array.from(moduleScriptSet),
             layout: 'layouts/workout'
         });
     } catch (error) {
@@ -444,85 +669,61 @@ const getRoutineWorkoutSession = async (req, res, next) => {
     }
 };
 
-// 운동 세션 시작 API
 const startWorkoutSession = async (req, res) => {
     try {
         const userId = req.user.user_id;
-        const mode = req.body?.mode === 'ROUTINE' ? 'ROUTINE' : 'FREE';
-        let { exercise_id: exerciseId, scoring_profile_id: scoringProfileId } = req.body || {};
-        let routineInstance = null;
+        const mode = normalizeMode(req.body?.mode);
+        const exerciseId = Number(req.body?.exercise_id);
+        const setId = toNullableNonNegativeInt(req.body?.set_id);
 
         await cleanupStaleOpenSessions(userId);
 
-        if (!exerciseId) {
+        if (!Number.isFinite(exerciseId)) {
             throw createApiError(400, 'exercise_id는 필수입니다.');
         }
 
-        const { data: exercise, error: exerciseError } = await supabase
-            .from('exercise')
-            .select('exercise_id, is_active')
-            .eq('exercise_id', exerciseId)
-            .single();
-
-        if (exerciseError || !exercise || !exercise.is_active) {
+        const exercise = await getExerciseByIdWithViews(exerciseId);
+        if (!exercise) {
             throw createApiError(400, '유효하지 않은 운동입니다.');
         }
 
-        if (mode === 'ROUTINE') {
-            const routineId = req.body?.routine_id;
-            if (!routineId) {
-                throw createApiError(400, '루틴 모드에서는 routine_id가 필요합니다.');
-            }
+        const requestedView = normalizeSelectedView(req.body?.selected_view);
+        const allowedViews = Array.isArray(exercise.allowed_views) ? exercise.allowed_views : ['FRONT'];
+        const defaultView = exercise.default_view || allowedViews[0] || 'FRONT';
 
-            const routine = await getRoutineWithSteps(routineId, userId);
-            const firstStep = routine.routine_setup[0];
-            const firstExerciseId = firstStep?.exercise?.exercise_id;
-
-            if (!firstExerciseId) {
-                throw createApiError(400, '루틴 첫 단계 운동 정보가 없습니다.');
-            }
-
-            if (exerciseId !== firstExerciseId) {
-                throw createApiError(400, '루틴 첫 단계 운동과 요청된 운동이 일치하지 않습니다.');
-            }
-
-            const scoringProfile = await getActiveScoringProfile(firstExerciseId, scoringProfileId || null);
-            scoringProfileId = scoringProfile.scoring_profile_id;
-
-            const { data: createdRoutineInstance, error: routineInstanceError } = await supabase
-                .from('routine_instance')
-                .insert({ routine_id: routineId })
-                .select()
-                .single();
-
-            if (routineInstanceError || !createdRoutineInstance) {
-                throw createApiError(500, '루틴 인스턴스 생성에 실패했습니다.');
-            }
-
-            routineInstance = createdRoutineInstance;
-        } else {
-            if (!scoringProfileId) {
-                throw createApiError(400, 'scoring_profile_id는 필수입니다.');
-            }
-
-            await getActiveScoringProfile(exerciseId, scoringProfileId);
+        if (requestedView && !allowedViews.includes(requestedView)) {
+            throw createApiError(400, '선택한 자세가 운동 허용 자세 목록에 없습니다.');
         }
 
-        const sessionData = {
+        const selectedView = requestedView || defaultView;
+
+        const insertPayload = {
             user_id: userId,
-            exercise_id: exerciseId,
-            scoring_profile_id: scoringProfileId,
-            mode
+            exercise_id: exercise.exercise_id,
+            set_id: mode === 'ROUTINE' ? setId : null,
+            mode,
+            status: 'RUNNING',
+            selected_view: selectedView
         };
-
-        if (routineInstance?.routine_instance_id) {
-            sessionData.routine_instance_id = routineInstance.routine_instance_id;
-        }
 
         const { data: session, error: sessionError } = await supabase
             .from('workout_session')
-            .insert(sessionData)
-            .select()
+            .insert(insertPayload)
+            .select(`
+                session_id,
+                user_id,
+                exercise_id,
+                set_id,
+                mode,
+                status,
+                selected_view,
+                started_at,
+                exercise:exercise_id (
+                    exercise_id,
+                    code,
+                    name
+                )
+            `)
             .single();
 
         if (sessionError || !session) {
@@ -531,46 +732,20 @@ const startWorkoutSession = async (req, res) => {
 
         return res.json({
             success: true,
-            session,
-            routineInstance
+            session
         });
     } catch (error) {
         return sendApiError(res, error, '운동 세션 시작에 실패했습니다.');
     }
 };
 
-// 운동 세션 종료 API
 const endWorkoutSession = async (req, res) => {
     try {
         const { sessionId } = req.params;
         const userId = req.user.user_id;
-        const {
-            duration_sec: durationSec,
-            total_reps: totalReps,
-            final_score: finalScore,
-            summary_feedback: summaryFeedback,
-            detail,
-            exercise_code: exerciseCode,
-            sets,
-            metric_results: metricResults,
-            set_records: setRecords,
-            events
-        } = req.body || {};
-
         const session = await getOwnedSession(sessionId, userId);
-        if (session.ended_at) {
-            if (session.routine_instance_id) {
-                await supabase
-                    .from('routine_instance')
-                    .update({
-                        status: 'DONE',
-                        ended_at: session.ended_at,
-                        total_score: toBoundedScore(finalScore, 0)
-                    })
-                    .eq('routine_instance_id', session.routine_instance_id)
-                    .eq('status', 'RUNNING');
-            }
 
+        if (session.ended_at || session.status === 'DONE') {
             return res.json({
                 success: true,
                 alreadyEnded: true,
@@ -578,63 +753,24 @@ const endWorkoutSession = async (req, res) => {
             });
         }
 
-        const now = Date.now();
-        const fallbackDuration = toNonNegativeInt(
-            Math.round((now - new Date(session.started_at).getTime()) / 1000),
-            0
-        );
-
-        const safeDurationSec = toNonNegativeInt(durationSec, fallbackDuration);
-        const safeTotalReps = toNonNegativeInt(totalReps, 0);
-        const safeFinalScore = toBoundedScore(finalScore, 0);
-        const safeSummaryFeedback = typeof summaryFeedback === 'string'
-            ? summaryFeedback.trim().slice(0, 2000)
-            : null;
-
-        const normalizedMetricRows = normalizeMetricResults(metricResults, sessionId);
-        const normalizedSetRows = normalizeSetRecords(
-            setRecords,
-            sessionId,
-            safeTotalReps,
-            safeDurationSec
-        );
-        const normalizedEventRows = normalizeEvents(events, sessionId, session.started_at);
-        const safeDetail = buildSafeDetail(detail, normalizedSetRows, normalizedEventRows);
         const endedAtIso = new Date().toISOString();
+        const finalScore = toBoundedScore(req.body?.final_score, 0);
+        const summaryFeedback = toSafeText(req.body?.summary_feedback, 2000);
 
-        // 기존 하위 레코드 정리 후 재삽입 (재시도 시 중복 방지)
-        const { error: deleteMetricError } = await supabase
-            .from('session_metric_result')
+        const selectedView = normalizeSelectedView(req.body?.selected_view) || session.selected_view;
+        const resultFields = inferResultFields(req.body || {}, session, endedAtIso);
+
+        const normalizedInterimSnapshots = normalizeInterimSnapshots(req.body || {}, session.started_at);
+        const normalizedFinalMetrics = normalizeFinalMetricResults(req.body?.metric_results || []);
+        const normalizedEvents = normalizeEvents(req.body?.events || [], sessionId, session.started_at);
+        const finalDetail = buildFinalDetail(req.body || {}, normalizedEvents, normalizedInterimSnapshots);
+
+        const { error: deleteSnapshotError } = await supabase
+            .from('session_snapshot')
             .delete()
             .eq('session_id', sessionId);
-        if (deleteMetricError) {
-            throw createApiError(500, '기존 메트릭 정리 중 오류가 발생했습니다.');
-        }
-
-        if (normalizedMetricRows.length > 0) {
-            const { error: insertMetricError } = await supabase
-                .from('session_metric_result')
-                .upsert(normalizedMetricRows, { onConflict: 'session_id,metric_id' });
-            if (insertMetricError) {
-                throw createApiError(500, '메트릭 저장 중 오류가 발생했습니다.');
-            }
-        }
-
-        const { error: deleteSetError } = await supabase
-            .from('workout_set')
-            .delete()
-            .eq('session_id', sessionId);
-        if (deleteSetError) {
-            throw createApiError(500, '기존 세트 정리 중 오류가 발생했습니다.');
-        }
-
-        if (normalizedSetRows.length > 0) {
-            const { error: insertSetError } = await supabase
-                .from('workout_set')
-                .insert(normalizedSetRows);
-            if (insertSetError) {
-                throw createApiError(500, '세트 저장 중 오류가 발생했습니다.');
-            }
+        if (deleteSnapshotError) {
+            throw createApiError(500, '기존 스냅샷 정리에 실패했습니다.');
         }
 
         const { error: deleteEventError } = await supabase
@@ -642,33 +778,158 @@ const endWorkoutSession = async (req, res) => {
             .delete()
             .eq('session_id', sessionId);
         if (deleteEventError) {
-            throw createApiError(500, '기존 이벤트 정리 중 오류가 발생했습니다.');
+            throw createApiError(500, '기존 이벤트 정리에 실패했습니다.');
         }
 
-        if (normalizedEventRows.length > 0) {
+        if (normalizedEvents.length > 0) {
             const { error: insertEventError } = await supabase
                 .from('session_event')
-                .insert(normalizedEventRows);
+                .insert(normalizedEvents);
             if (insertEventError) {
-                throw createApiError(500, '이벤트 저장 중 오류가 발생했습니다.');
+                throw createApiError(500, '세션 이벤트 저장에 실패했습니다.');
+            }
+        }
+
+        const finalSnapshotNo = normalizedInterimSnapshots.length + 1;
+        const snapshotHeaders = [
+            ...normalizedInterimSnapshots.map((snapshot) => ({
+                session_id: sessionId,
+                snapshot_no: snapshot.snapshot_no,
+                snapshot_type: 'INTERIM',
+                recorded_at: snapshot.recorded_at
+            })),
+            {
+                session_id: sessionId,
+                snapshot_no: finalSnapshotNo,
+                snapshot_type: 'FINAL',
+                recorded_at: endedAtIso
+            }
+        ];
+
+        const { data: insertedSnapshots, error: insertSnapshotError } = await supabase
+            .from('session_snapshot')
+            .insert(snapshotHeaders)
+            .select('session_snapshot_id, snapshot_no, snapshot_type');
+
+        if (insertSnapshotError || !insertedSnapshots?.length) {
+            throw createApiError(500, '스냅샷 헤더 저장에 실패했습니다.');
+        }
+
+        const snapshotIdByNo = new Map(
+            insertedSnapshots.map((snapshot) => [snapshot.snapshot_no, snapshot.session_snapshot_id])
+        );
+
+        const snapshotScoreRows = [];
+        const snapshotMetricRows = [];
+
+        for (const interim of normalizedInterimSnapshots) {
+            const interimSnapshotId = snapshotIdByNo.get(interim.snapshot_no);
+            if (!interimSnapshotId) continue;
+
+            snapshotScoreRows.push({
+                session_snapshot_id: interimSnapshotId,
+                score: interim.score,
+                result_basis: resultFields.result_basis,
+                result_value: interim.result_value,
+                result_unit: interim.result_unit || resultFields.total_result_unit,
+                summary_feedback: interim.summary_feedback,
+                detail: interim.detail || {}
+            });
+
+            for (const metric of interim.metrics) {
+                snapshotMetricRows.push({
+                    session_snapshot_id: interimSnapshotId,
+                    metric_key: metric.metric_key,
+                    metric_name: metric.metric_name,
+                    avg_score: metric.avg_score,
+                    avg_raw_value: metric.avg_raw_value,
+                    min_raw_value: metric.min_raw_value,
+                    max_raw_value: metric.max_raw_value,
+                    sample_count: metric.sample_count,
+                    detail: metric.detail || {}
+                });
+            }
+        }
+
+        const finalSnapshotId = snapshotIdByNo.get(finalSnapshotNo);
+        if (!finalSnapshotId) {
+            throw createApiError(500, '최종 스냅샷 생성에 실패했습니다.');
+        }
+
+        snapshotScoreRows.push({
+            session_snapshot_id: finalSnapshotId,
+            score: finalScore,
+            result_basis: resultFields.result_basis,
+            result_value: resultFields.total_result_value,
+            result_unit: resultFields.total_result_unit,
+            summary_feedback: summaryFeedback,
+            detail: finalDetail
+        });
+
+        for (const metric of normalizedFinalMetrics) {
+            snapshotMetricRows.push({
+                session_snapshot_id: finalSnapshotId,
+                metric_key: metric.metric_key,
+                metric_name: metric.metric_name,
+                avg_score: metric.avg_score,
+                avg_raw_value: metric.avg_raw_value,
+                min_raw_value: metric.min_raw_value,
+                max_raw_value: metric.max_raw_value,
+                sample_count: metric.sample_count,
+                detail: metric.detail || {}
+            });
+        }
+
+        if (snapshotScoreRows.length > 0) {
+            const { error: insertScoreError } = await supabase
+                .from('session_snapshot_score')
+                .insert(snapshotScoreRows);
+            if (insertScoreError) {
+                throw createApiError(500, '스냅샷 점수 저장에 실패했습니다.');
+            }
+        }
+
+        if (snapshotMetricRows.length > 0) {
+            const { error: insertMetricError } = await supabase
+                .from('session_snapshot_metric')
+                .insert(snapshotMetricRows);
+            if (insertMetricError) {
+                throw createApiError(500, '스냅샷 메트릭 저장에 실패했습니다.');
             }
         }
 
         const { data: updatedSession, error: updateSessionError } = await supabase
             .from('workout_session')
             .update({
+                status: 'DONE',
                 ended_at: endedAtIso,
-                duration_sec: safeDurationSec,
-                total_reps: safeTotalReps,
-                final_score: safeFinalScore,
-                summary_feedback: safeSummaryFeedback,
-                detail: safeDetail
+                selected_view: selectedView,
+                result_basis: resultFields.result_basis,
+                total_result_value: resultFields.total_result_value,
+                total_result_unit: resultFields.total_result_unit,
+                final_score: finalScore,
+                summary_feedback: summaryFeedback,
+                updated_at: endedAtIso
             })
             .eq('session_id', sessionId)
             .eq('user_id', userId)
             .select(`
-                *,
-                exercise:exercise_id (code, name)
+                session_id,
+                mode,
+                status,
+                selected_view,
+                result_basis,
+                total_result_value,
+                total_result_unit,
+                final_score,
+                summary_feedback,
+                started_at,
+                ended_at,
+                exercise:exercise_id (
+                    exercise_id,
+                    code,
+                    name
+                )
             `)
             .single();
 
@@ -676,28 +937,13 @@ const endWorkoutSession = async (req, res) => {
             throw createApiError(500, '세션 종료 저장에 실패했습니다.');
         }
 
-        if (updatedSession.routine_instance_id) {
-            const { error: updateRoutineInstanceError } = await supabase
-                .from('routine_instance')
-                .update({
-                    ended_at: endedAtIso,
-                    status: 'DONE',
-                    total_score: safeFinalScore
-                })
-                .eq('routine_instance_id', updatedSession.routine_instance_id);
-
-            if (updateRoutineInstanceError) {
-                throw createApiError(500, '루틴 인스턴스 완료 처리에 실패했습니다.');
-            }
-        }
-
         try {
             await updateQuestProgress(userId, {
-                exercise_code: updatedSession.exercise?.code || exerciseCode,
-                duration_sec: safeDurationSec,
-                total_reps: safeTotalReps,
-                final_score: safeFinalScore,
-                sets: sets || normalizedSetRows.length
+                exercise_code: updatedSession.exercise?.code || session.exercise?.code,
+                duration_sec: resultFields.duration_sec,
+                total_reps: resultFields.total_reps,
+                final_score: finalScore,
+                sets: Array.isArray(req.body?.set_records) ? req.body.set_records.length : 1
             });
         } catch (questError) {
             console.error('Quest progress update failed:', questError);
@@ -712,67 +958,52 @@ const endWorkoutSession = async (req, res) => {
     }
 };
 
-// 운동 세션 중단 API
 const abortWorkoutSession = async (req, res) => {
     try {
         const { sessionId } = req.params;
         const userId = req.user.user_id;
         const session = await getOwnedSession(sessionId, userId);
 
-        if (session.ended_at) {
+        if (session.ended_at || session.status !== 'RUNNING') {
             return res.json({
                 success: true,
                 alreadyEnded: true
             });
         }
 
-        const { error: deleteMetricError } = await supabase
-            .from('session_metric_result')
-            .delete()
-            .eq('session_id', sessionId);
-        if (deleteMetricError) {
-            throw createApiError(500, '세션 중단 중 메트릭 정리에 실패했습니다.');
-        }
+        const endedAtIso = new Date().toISOString();
+        const selectedView = normalizeSelectedView(req.body?.selected_view) || session.selected_view;
+        const resultFields = inferResultFields(req.body || {}, session, endedAtIso);
 
-        const { error: deleteSetError } = await supabase
-            .from('workout_set')
-            .delete()
-            .eq('session_id', sessionId);
-        if (deleteSetError) {
-            throw createApiError(500, '세션 중단 중 세트 정리에 실패했습니다.');
-        }
-
-        const { error: deleteEventError } = await supabase
-            .from('session_event')
-            .delete()
-            .eq('session_id', sessionId);
-        if (deleteEventError) {
-            throw createApiError(500, '세션 중단 중 이벤트 정리에 실패했습니다.');
-        }
-
-        const { error: deleteSessionError } = await supabase
+        const { error: updateSessionError } = await supabase
             .from('workout_session')
-            .delete()
+            .update({
+                status: 'ABORTED',
+                ended_at: endedAtIso,
+                selected_view: selectedView,
+                result_basis: resultFields.result_basis,
+                total_result_value: resultFields.total_result_value,
+                total_result_unit: resultFields.total_result_unit,
+                updated_at: endedAtIso
+            })
             .eq('session_id', sessionId)
             .eq('user_id', userId);
-        if (deleteSessionError) {
+
+        if (updateSessionError) {
             throw createApiError(500, '세션 중단 처리에 실패했습니다.');
         }
 
-        if (session.routine_instance_id) {
-            const { error: routineAbortError } = await supabase
-                .from('routine_instance')
-                .update({
-                    ended_at: new Date().toISOString(),
-                    status: 'ABORTED'
-                })
-                .eq('routine_instance_id', session.routine_instance_id)
-                .eq('status', 'RUNNING');
-
-            if (routineAbortError) {
-                throw createApiError(500, '루틴 중단 처리에 실패했습니다.');
-            }
-        }
+        const reason = toSafeText(req.body?.reason || 'USER_ABORT', 120);
+        await supabase.from('session_event').insert({
+            session_id: sessionId,
+            type: 'SESSION_ABORT',
+            payload: {
+                reason,
+                duration_sec: resultFields.duration_sec,
+                total_reps: resultFields.total_reps
+            },
+            event_time: endedAtIso
+        });
 
         return res.json({
             success: true,
@@ -783,53 +1014,19 @@ const abortWorkoutSession = async (req, res) => {
     }
 };
 
-// 운동 세트 기록 API
 const recordWorkoutSet = async (req, res) => {
-    try {
-        const { sessionId } = req.params;
-        const userId = req.user.user_id;
-        await assertSessionWritable(sessionId, userId);
-
-        const phase = req.body?.phase === 'REST' ? 'REST' : 'WORK';
-        const setNo = Math.max(1, toNonNegativeInt(req.body?.set_no, 1));
-        const targetReps = req.body?.target_reps == null ? null : toNonNegativeInt(req.body.target_reps, 0);
-        const actualReps = toNonNegativeInt(req.body?.actual_reps, 0);
-        const durationSec = req.body?.duration_sec == null ? null : toNonNegativeInt(req.body.duration_sec, 0);
-
-        const { data: workoutSet, error } = await supabase
-            .from('workout_set')
-            .insert({
-                session_id: sessionId,
-                set_no: setNo,
-                phase,
-                target_reps: targetReps,
-                actual_reps: actualReps,
-                duration_sec: durationSec
-            })
-            .select()
-            .single();
-
-        if (error || !workoutSet) {
-            throw createApiError(500, '세트 저장에 실패했습니다.');
-        }
-
-        return res.json({ success: true, workoutSet });
-    } catch (error) {
-        return sendApiError(res, error, '세트 저장에 실패했습니다.');
-    }
-};
-
-// 세션 이벤트 기록 API
-const recordSessionEvent = async (req, res) => {
     try {
         const { sessionId } = req.params;
         const userId = req.user.user_id;
         const session = await assertSessionWritable(sessionId, userId);
 
-        const type = typeof req.body?.type === 'string' ? req.body.type.trim() : '';
-        if (!type) {
-            throw createApiError(400, 'type은 필수입니다.');
-        }
+        const payload = {
+            set_no: toNullableNonNegativeInt(req.body?.set_no),
+            phase: toSafeText(req.body?.phase, 50),
+            target_reps: toNullableNonNegativeInt(req.body?.target_reps),
+            actual_reps: toNullableNonNegativeInt(req.body?.actual_reps),
+            duration_sec: toNullableNonNegativeInt(req.body?.duration_sec)
+        };
 
         const timestampMs = Number(req.body?.timestamp);
         const hasRelativeTimestamp = Number.isFinite(timestampMs) && timestampMs >= 0;
@@ -841,8 +1038,50 @@ const recordSessionEvent = async (req, res) => {
             .from('session_event')
             .insert({
                 session_id: sessionId,
-                type: type.slice(0, 120),
-                payload: req.body?.payload ?? null,
+                type: 'SET_RECORD',
+                payload,
+                event_time: eventTime
+            })
+            .select()
+            .single();
+
+        if (error || !event) {
+            throw createApiError(500, '세트 기록 저장에 실패했습니다.');
+        }
+
+        return res.json({ success: true, event });
+    } catch (error) {
+        return sendApiError(res, error, '세트 기록 저장에 실패했습니다.');
+    }
+};
+
+const recordSessionEvent = async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const userId = req.user.user_id;
+        const session = await assertSessionWritable(sessionId, userId);
+
+        const type = toSafeText(req.body?.type, 50);
+        if (!type) {
+            throw createApiError(400, 'type은 필수입니다.');
+        }
+
+        const timestampMs = Number(req.body?.timestamp);
+        const hasRelativeTimestamp = Number.isFinite(timestampMs) && timestampMs >= 0;
+        const eventTime = hasRelativeTimestamp
+            ? new Date(new Date(session.started_at).getTime() + Math.round(timestampMs)).toISOString()
+            : new Date().toISOString();
+
+        const payload = isPlainObject(req.body?.payload)
+            ? req.body.payload
+            : (req.body?.payload ?? {});
+
+        const { data: event, error } = await supabase
+            .from('session_event')
+            .insert({
+                session_id: sessionId,
+                type,
+                payload,
                 event_time: eventTime
             })
             .select()
@@ -858,7 +1097,60 @@ const recordSessionEvent = async (req, res) => {
     }
 };
 
-// 운동 결과 페이지
+const getPhaseDataset = async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const userId = req.user.user_id;
+        const session = await getOwnedSessionWithDetail(sessionId, userId);
+        const dataset = buildPhaseDatasetExport(session);
+
+        if (!dataset.samples.length) {
+            throw createApiError(404, '해당 세션에는 phase dataset이 없습니다.');
+        }
+
+        return res.json({
+            success: true,
+            dataset
+        });
+    } catch (error) {
+        return sendApiError(res, error, 'phase dataset 조회에 실패했습니다.');
+    }
+};
+
+const savePhaseLabels = async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const userId = req.user.user_id;
+        const session = await getOwnedSessionWithDetail(sessionId, userId);
+
+        if (!session.final_snapshot_id) {
+            throw createApiError(404, '최종 스냅샷을 찾을 수 없습니다.');
+        }
+
+        const { detail, dataset } = mergePhaseLabelsIntoDetail(session.detail, req.body);
+
+        const { error: updateError } = await supabase
+            .from('session_snapshot_score')
+            .update({ detail })
+            .eq('session_snapshot_id', session.final_snapshot_id);
+
+        if (updateError) {
+            throw createApiError(500, 'phase 라벨 저장에 실패했습니다.');
+        }
+
+        return res.json({
+            success: true,
+            labeling: {
+                status: dataset.labeling_status,
+                labeled_frames: dataset.capture_meta.labeled_frame_count,
+                total_frames: dataset.capture_meta.frame_count
+            }
+        });
+    } catch (error) {
+        return sendApiError(res, error, 'phase 라벨 저장에 실패했습니다.');
+    }
+};
+
 const getWorkoutResult = async (req, res, next) => {
     try {
         const { sessionId } = req.params;
@@ -869,27 +1161,19 @@ const getWorkoutResult = async (req, res, next) => {
             .select(`
                 session_id,
                 mode,
-                started_at,
-                ended_at,
-                duration_sec,
-                total_reps,
+                status,
+                selected_view,
+                result_basis,
+                total_result_value,
+                total_result_unit,
                 final_score,
                 summary_feedback,
-                detail,
+                started_at,
+                ended_at,
                 exercise:exercise_id (
                     exercise_id,
                     code,
                     name
-                ),
-                session_metric_result (
-                    score,
-                    raw,
-                    metric:metric_id (
-                        metric_id,
-                        key,
-                        title,
-                        unit
-                    )
                 )
             `)
             .eq('session_id', sessionId)
@@ -900,24 +1184,86 @@ const getWorkoutResult = async (req, res, next) => {
             return res.redirect('/?error=세션을 찾을 수 없습니다');
         }
 
+        const { data: finalSnapshot } = await supabase
+            .from('session_snapshot')
+            .select('session_snapshot_id, snapshot_no, snapshot_type, recorded_at')
+            .eq('session_id', sessionId)
+            .eq('snapshot_type', 'FINAL')
+            .order('snapshot_no', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        const snapshotId = finalSnapshot?.session_snapshot_id || null;
+
+        let snapshotScore = null;
+        let snapshotMetrics = [];
+
+        if (snapshotId) {
+            const [{ data: scoreRow }, { data: metricRows }] = await Promise.all([
+                supabase
+                    .from('session_snapshot_score')
+                    .select('score, result_basis, result_value, result_unit, summary_feedback, detail')
+                    .eq('session_snapshot_id', snapshotId)
+                    .maybeSingle(),
+                supabase
+                    .from('session_snapshot_metric')
+                    .select('metric_key, metric_name, avg_score, avg_raw_value, min_raw_value, max_raw_value, sample_count, detail')
+                    .eq('session_snapshot_id', snapshotId)
+                    .order('avg_score', { ascending: false })
+            ]);
+
+            snapshotScore = scoreRow || null;
+            snapshotMetrics = metricRows || [];
+        }
+
+        const snapshotDetail = isPlainObject(snapshotScore?.detail) ? snapshotScore.detail : {};
+        const mergedResultBasis = session.result_basis || snapshotScore?.result_basis || 'REPS';
+        const mergedResultValue = session.total_result_value ?? snapshotScore?.result_value ?? 0;
+        const mergedResultUnit = session.total_result_unit || snapshotScore?.result_unit || (mergedResultBasis === 'REPS' ? 'COUNT' : 'SEC');
+
+        const durationSec = computeDurationSecFromRange(
+            session.started_at,
+            session.ended_at || new Date().toISOString()
+        );
+
+        const totalReps = mergedResultBasis === 'REPS' || mergedResultUnit === 'COUNT'
+            ? mergedResultValue
+            : 0;
+
+        const resultSession = {
+            ...session,
+            result_basis: mergedResultBasis,
+            total_result_value: mergedResultValue,
+            total_result_unit: mergedResultUnit,
+            final_score: session.final_score ?? snapshotScore?.score ?? 0,
+            summary_feedback: session.summary_feedback || snapshotScore?.summary_feedback,
+            duration_sec: durationSec,
+            total_reps: totalReps,
+            detail: {
+                ...snapshotDetail,
+                phase_dataset: normalizePhaseDataset(snapshotDetail.phase_dataset)
+            },
+            session_snapshot_metric: snapshotMetrics
+        };
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
         const { data: todaySessions } = await supabase
             .from('workout_session')
-            .select('duration_sec')
+            .select('started_at, ended_at')
             .eq('user_id', userId)
-            .gte('started_at', today.toISOString())
-            .not('duration_sec', 'is', null);
+            .eq('status', 'DONE')
+            .gte('started_at', today.toISOString());
 
-        const totalTodayMinutes = todaySessions
-            ? Math.round(todaySessions.reduce((sum, row) => sum + (row.duration_sec || 0), 0) / 60)
-            : 0;
+        const totalTodayMinutes = (todaySessions || []).reduce((sum, row) => {
+            return sum + Math.round(computeDurationSecFromRange(row.started_at, row.ended_at) / 60);
+        }, 0);
 
         res.render('workout/result', {
             title: '운동 결과',
             activeTab: 'workout',
-            session,
+            session: resultSession,
             totalTodayMinutes
         });
     } catch (error) {
@@ -925,29 +1271,28 @@ const getWorkoutResult = async (req, res, next) => {
     }
 };
 
-// 운동 목록 API (채점 프로필 포함)
 const getExercises = async (req, res, next) => {
     try {
         const { data: exercises, error } = await supabase
             .from('exercise')
-            .select(`
-                exercise_id,
-                code,
-                name,
-                description,
-                scoring_profile (
-                    scoring_profile_id,
-                    version,
-                    name,
-                    is_active
-                )
-            `)
+            .select('exercise_id, code, name, description, default_target_type')
             .eq('is_active', true)
             .order('name');
 
         if (error) throw error;
 
-        res.json(exercises || []);
+        const exerciseRows = exercises || [];
+        const viewMap = await getAllowedViewMapByExerciseIds(exerciseRows.map((item) => item.exercise_id));
+
+        const enriched = exerciseRows.map((exercise) => {
+            const withViews = attachAllowedViewInfo(exercise, viewMap.get(exercise.exercise_id) || []);
+            return {
+                ...withViews,
+                runtime_scoring_profile: getRuntimeScoringProfile(exercise.code)
+            };
+        });
+
+        res.json(enriched);
     } catch (error) {
         next(error);
     }
@@ -962,6 +1307,8 @@ module.exports = {
     abortWorkoutSession,
     recordWorkoutSet,
     recordSessionEvent,
+    getPhaseDataset,
+    savePhaseLabels,
     getWorkoutResult,
     getExercises
 };

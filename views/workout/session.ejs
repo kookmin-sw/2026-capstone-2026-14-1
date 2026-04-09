@@ -1,4 +1,39 @@
-<% const isRoutineMode=mode==='ROUTINE' ; const currentExercise=exercise; %>
+<%
+  const isRoutineMode = mode === 'ROUTINE';
+  const currentExercise = exercise;
+  const allowedViews = Array.isArray(currentExercise?.allowed_views) && currentExercise.allowed_views.length > 0
+    ? currentExercise.allowed_views
+    : ['FRONT'];
+  const defaultView = currentExercise?.default_view && allowedViews.includes(currentExercise.default_view)
+    ? currentExercise.default_view
+    : allowedViews[0];
+  const viewLabels = {
+    FRONT: '정면',
+    SIDE: '측면',
+    DIAGONAL: '대각선'
+  };
+  const normalizeScriptName = (value) => String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '')
+    .replace(/_/g, '-');
+  const fallbackModuleScripts = [];
+  const firstScript = normalizeScriptName(currentExercise?.code);
+  if (firstScript) fallbackModuleScripts.push(`${firstScript}-exercise.js`);
+  if (isRoutineMode && routine?.routine_setup) {
+    routine.routine_setup.forEach((step) => {
+      const code = normalizeScriptName(step?.exercise?.code);
+      if (!code) return;
+      const filename = `${code}-exercise.js`;
+      if (!fallbackModuleScripts.includes(filename)) {
+        fallbackModuleScripts.push(filename);
+      }
+    });
+  }
+  const moduleScripts = Array.isArray(exerciseModuleScripts) && exerciseModuleScripts.length > 0
+    ? exerciseModuleScripts
+    : (exerciseModuleScript ? [exerciseModuleScript] : fallbackModuleScripts);
+%>
 
   <!-- MediaPipe Pose CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
@@ -7,7 +42,9 @@
   <!-- FitPlus AI 모듈 (순서 유지) -->
   <script src="/js/workout/one-euro-filter.js"></script>
   <script src="/js/workout/exercise-registry.js"></script>
-  <script src="/js/workout/exercises/squat-exercise.js"></script>
+  <% moduleScripts.forEach((scriptName) => { %>
+    <script src="/js/workout/exercises/<%= scriptName %>"></script>
+  <% }) %>
   <script src="/js/workout/pose-engine.js"></script>
   <script src="/js/workout/scoring-engine.js"></script>
   <script src="/js/workout/rep-counter.js"></script>
@@ -70,6 +107,21 @@
             <button type="button" class="ghost source-btn" data-source="mobile_rear">휴대폰 카메라</button>
           </div>
           <p class="source-select-hint muted">휴대폰은 브라우저에서 후면 카메라를 사용합니다. PC에서는 웹캠 또는 화면 공유를 선택하세요.</p>
+        </div>
+
+        <div class="source-select" id="viewSelect" role="group" aria-label="채점 자세 선택">
+          <span class="source-select-label muted">채점 자세</span>
+          <div class="source-select-buttons">
+            <% allowedViews.forEach((viewCode) => { %>
+              <button
+                type="button"
+                class="ghost source-btn <%= viewCode === defaultView ? 'active' : '' %>"
+                data-view="<%= viewCode %>">
+                <%= viewLabels[viewCode] || viewCode %>
+              </button>
+            <% }) %>
+          </div>
+          <p class="source-select-hint muted">운동 시작 전에 허용된 자세 중 하나를 선택하세요. 선택한 자세가 세션 기록과 채점 로직에 함께 반영됩니다.</p>
         </div>
 
         <!-- 카메라 컨트롤 -->
@@ -170,6 +222,7 @@
     const workoutData = {
       mode: '<%= mode %>',
       exercise: <%- JSON.stringify(currentExercise) %>,
+      selectedView: '<%= defaultView %>',
       scoringProfile: <%- scoringProfile ? JSON.stringify(scoringProfile) : 'null' %>,
     <% if (isRoutineMode) { %>
       routine: <%- JSON.stringify(routine) %>,

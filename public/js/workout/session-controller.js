@@ -12,6 +12,7 @@ async function initSession(workoutData) {
   const state = {
     phase: 'PREPARING',
     sessionId: null,
+    selectedView: null,
     currentSet: 1,
     currentRep: 0,
     currentStepIndex: 0,
@@ -50,6 +51,27 @@ async function initSession(workoutData) {
   const startBtn = document.getElementById('startBtn');
   const pauseBtn = document.getElementById('pauseBtn');
   const finishBtn = document.getElementById('finishBtn');
+  const viewSelectRoot = document.getElementById('viewSelect');
+
+  const normalizeViewCode = (value) => {
+    const normalized = (value || '').toString().trim().toUpperCase();
+    return ['FRONT', 'SIDE', 'DIAGONAL'].includes(normalized) ? normalized : null;
+  };
+
+  function getAllowedViews(exercise = workoutData.exercise) {
+    const allowed = Array.isArray(exercise?.allowed_views) ? exercise.allowed_views : [];
+    const normalized = allowed
+      .map((code) => normalizeViewCode(code))
+      .filter(Boolean);
+    return normalized.length > 0 ? normalized : ['FRONT'];
+  }
+
+  function resolveDefaultView(exercise = workoutData.exercise) {
+    const allowed = getAllowedViews(exercise);
+    const defaultView = normalizeViewCode(exercise?.default_view);
+    if (defaultView && allowed.includes(defaultView)) return defaultView;
+    return allowed[0] || 'FRONT';
+  }
 
   let isEndingSession = false;
   let pendingSessionPayload = null;
@@ -62,6 +84,7 @@ async function initSession(workoutData) {
 
   let noPersonCount = 0;
   const NO_PERSON_THRESHOLD = 30;
+  state.selectedView = normalizeViewCode(workoutData.selectedView) || resolveDefaultView();
 
   function getCurrentExerciseCode() {
     return ((workoutData.exercise && workoutData.exercise.code) || '')
@@ -72,12 +95,13 @@ async function initSession(workoutData) {
   }
 
   function bindEnginesToCurrentExercise() {
-    if (!workoutData.exercise || !workoutData.scoringProfile) {
+    if (!workoutData.exercise) {
       return false;
     }
 
-    scoringEngine = new ScoringEngine(workoutData.scoringProfile, {
-      exerciseCode: workoutData.exercise.code
+    scoringEngine = new ScoringEngine(workoutData.scoringProfile || null, {
+      exerciseCode: workoutData.exercise.code,
+      selectedView: state.selectedView
     });
     exerciseModule = window.WorkoutExerciseRegistry?.get(workoutData.exercise.code) || null;
 
@@ -93,6 +117,7 @@ async function initSession(workoutData) {
       exerciseModule,
       repCounter,
       scoringEngine,
+      selectedView: state.selectedView,
       state,
       ...extra
     };
@@ -114,7 +139,7 @@ async function initSession(workoutData) {
       await poseEngine.initialize();
 
       if (!bindEnginesToCurrentExercise()) {
-        throw new Error('운동 또는 채점 프로필 정보가 없습니다.');
+        throw new Error('운동 정보를 불러오지 못했습니다.');
       }
 
       poseEngine.onPoseDetected = handlePoseDetected;
@@ -188,6 +213,36 @@ async function initSession(workoutData) {
     });
   }
 
+  function applySelectedView(nextView) {
+    const normalized = normalizeViewCode(nextView);
+    const allowed = getAllowedViews();
+    const fallback = resolveDefaultView();
+    state.selectedView = normalized && allowed.includes(normalized) ? normalized : fallback;
+
+    if (!viewSelectRoot) return;
+
+    viewSelectRoot.querySelectorAll('[data-view]').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-view') === state.selectedView);
+    });
+  }
+
+  function setupViewSelectors() {
+    if (!viewSelectRoot) return;
+    applySelectedView(state.selectedView);
+
+    viewSelectRoot.querySelectorAll('[data-view]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (state.phase !== 'PREPARING') return;
+        const next = btn.getAttribute('data-view');
+        if (!next) return;
+        applySelectedView(next);
+        if (scoringEngine?.setSelectedView) {
+          scoringEngine.setSelectedView(state.selectedView);
+        }
+      });
+    });
+  }
+
   async function startWorkout() {
     const prevOverlayHtml = cameraOverlay.innerHTML;
     const prevOverlayHidden = cameraOverlay.hidden;
@@ -198,13 +253,17 @@ async function initSession(workoutData) {
     startBtn.hidden = true;
     startBtn.disabled = true;
 
+    if (!state.selectedView) {
+      state.selectedView = resolveDefaultView();
+    }
+
     try {
       const response = await fetch('/api/workout/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           exercise_id: workoutData.exercise.exercise_id,
-          scoring_profile_id: workoutData.scoringProfile?.scoring_profile_id,
+          selected_view: state.selectedView,
           mode: workoutData.mode,
           routine_id: workoutData.routine?.routine_id || null
         })
@@ -216,6 +275,7 @@ async function initSession(workoutData) {
       }
 
       state.sessionId = data.session.session_id;
+      state.selectedView = normalizeViewCode(data.session.selected_view) || state.selectedView;
       hasUnloadAbortSent = false;
       pendingSessionPayload = null;
       if (data.routineInstance) {
@@ -223,14 +283,30 @@ async function initSession(workoutData) {
       }
       state.phase = 'WORKING';
 
-      sessionBuffer = new SessionBuffer(state.sessionId);
-      sessionBuffer.addEvent('SESSION_START', { exercise: workoutData.exercise.code });
+      sessionBuffer = new SessionBuffer(state.sessionId, {
+        exerciseCode: workoutData.exercise.code,
+        mode: workoutData.mode,
+        selectedView: state.selectedView,
+        resultBasis: repCounter?.pattern?.isTimeBased ? 'DURATION' : 'REPS'
+      });
+      sessionBuffer.configurePhaseDataset({
+        exerciseCode: getCurrentExerciseCode(),
+        mode: workoutData.mode,
+        selectedView: state.selectedView,
+        scoringProfileId: workoutData.scoringProfile?.scoring_profile_id || null,
+        scoringProfileVersion: workoutData.scoringProfile?.version || null
+      });
+      sessionBuffer.addEvent('SESSION_START', {
+        exercise: workoutData.exercise.code,
+        selected_view: state.selectedView
+      });
 
       updateStatus('running', '운동 중');
       cameraOverlay.hidden = true;
       startBtn.hidden = true;
       const sourceSelectEl = document.getElementById('sourceSelect');
       if (sourceSelectEl) sourceSelectEl.hidden = true;
+      if (viewSelectRoot) viewSelectRoot.hidden = true;
       pauseBtn.disabled = false;
       finishBtn.disabled = false;
       finishBtn.textContent = '운동 종료';
@@ -280,6 +356,10 @@ async function initSession(workoutData) {
 
     const frameGate = getFrameGateResult(angles);
     if (!frameGate.isReady) {
+      collectPhaseFrame(angles, {
+        gated: true,
+        frameGate
+      });
       if (poseEngine && poseEngine.setVisualFeedback) {
         poseEngine.setVisualFeedback([]);
       }
@@ -318,6 +398,11 @@ async function initSession(workoutData) {
     if (sessionBuffer) {
       sessionBuffer.addScore(liveScoreResult);
     }
+    collectPhaseFrame(angles, {
+      frameGate,
+      rawScore: rawScoreResult.score,
+      liveScore: liveScoreResult.score
+    });
 
     const shouldCheckFeedback = repCounter?.pattern?.isTimeBased ? true : repCounter?.isInProgress();
     if (shouldCheckFeedback) {
@@ -384,6 +469,58 @@ async function initSession(workoutData) {
     return scoreResult;
   }
 
+  function roundMetric(value, digits = 1) {
+    if (!Number.isFinite(value)) return null;
+    const base = 10 ** digits;
+    return Math.round(value * base) / base;
+  }
+
+  function buildPhaseFrameSample(angles, extra = {}) {
+    const kneeAlignment = angles?.kneeAlignment || {};
+    const primaryAngle = repCounter?.pattern?.primaryAngle
+      ? repCounter.getAngleValue(angles, repCounter.pattern.primaryAngle)
+      : null;
+    const kneeAngle = repCounter?.getAngleValue ? repCounter.getAngleValue(angles, 'knee_angle') : null;
+    const hipAngle = repCounter?.getAngleValue ? repCounter.getAngleValue(angles, 'hip_angle') : null;
+    const spineAngle = repCounter?.getAngleValue ? repCounter.getAngleValue(angles, 'spine_angle') : null;
+    const kneeAlignmentAvg = Number.isFinite(kneeAlignment.left) && Number.isFinite(kneeAlignment.right)
+      ? (Math.abs(kneeAlignment.left) + Math.abs(kneeAlignment.right)) / 2
+      : null;
+
+    return {
+      exercise_code: getCurrentExerciseCode(),
+      rep_state: repCounter?.currentState || window.REP_STATES?.NEUTRAL || 'UNKNOWN',
+      rule_phase: repCounter?.currentPhase || window.REP_PHASES?.NEUTRAL || 'UNKNOWN',
+      view: angles?.view || 'UNKNOWN',
+      angle_source: angles?.angleSource || 'UNKNOWN',
+      current_score: Number.isFinite(extra.liveScore) ? Math.round(extra.liveScore) : null,
+      quality_score: roundMetric(angles?.quality?.score, 3),
+      quality_level: angles?.quality?.level || 'UNKNOWN',
+      tracked_joint_ratio: roundMetric(angles?.quality?.trackedJointRatio, 3),
+      in_frame_ratio: roundMetric(angles?.quality?.inFrameRatio, 3),
+      bottom_reached: Boolean(repCounter?.bottomReached),
+      ascent_started: Boolean(repCounter?.ascentStarted),
+      gated: Boolean(extra.gated),
+      features: {
+        primary_angle: roundMetric(primaryAngle),
+        knee_angle: roundMetric(kneeAngle),
+        hip_angle: roundMetric(hipAngle),
+        spine_angle: roundMetric(spineAngle),
+        left_knee: roundMetric(angles?.leftKnee),
+        right_knee: roundMetric(angles?.rightKnee),
+        knee_symmetry: Number.isFinite(angles?.leftKnee) && Number.isFinite(angles?.rightKnee)
+          ? roundMetric(Math.abs(angles.leftKnee - angles.rightKnee))
+          : null,
+        knee_alignment: roundMetric(kneeAlignmentAvg, 3)
+      }
+    };
+  }
+
+  function collectPhaseFrame(angles, extra = {}) {
+    if (!sessionBuffer || !angles) return;
+    sessionBuffer.addFrameSample(buildPhaseFrameSample(angles, extra));
+  }
+
   function updateRepMetricBuffer(scoreResult) {
     const isTimeBased = repCounter?.pattern?.isTimeBased;
     if (isTimeBased) return;
@@ -429,8 +566,9 @@ async function initSession(workoutData) {
     const source = angles.angleSource || 'UNKNOWN';
     const quality = angles.quality?.level || 'UNKNOWN';
     const phase = repCounter?.currentPhase || window.REP_PHASES?.NEUTRAL || 'UNKNOWN';
+    const selectedView = state.selectedView || 'N/A';
     const phaseText = `PHASE: ${phase}`;
-    const viewText = `VIEW: ${view} / SRC: ${source} / Q: ${quality}`;
+    const viewText = `VIEW: ${view} / SELECTED: ${selectedView} / SRC: ${source} / Q: ${quality}`;
 
     if (phaseText !== state.lastViewInfoText) {
       state.lastViewInfoText = phaseText;
@@ -470,6 +608,7 @@ async function initSession(workoutData) {
         duration: repRecord.duration,
         phase: repRecord.phase || null,
         view: repRecord.view || null,
+        selected_view: state.selectedView,
         confidence: repRecord.confidence?.level || null,
         feedback: repRecord.feedback || null
       });
@@ -604,17 +743,26 @@ async function initSession(workoutData) {
   function switchRoutineStep(stepIndex) {
     const step = workoutData.routine?.routine_setup?.[stepIndex];
     const nextExercise = step?.exercise;
-    const nextScoringProfile = step?.scoring_profile;
 
-    if (!nextExercise || !nextScoringProfile) {
+    if (!nextExercise) {
       return false;
     }
 
     workoutData.exercise = nextExercise;
-    workoutData.scoringProfile = nextScoringProfile;
+    workoutData.scoringProfile = step?.scoring_profile || null;
+    state.selectedView = resolveDefaultView(nextExercise);
 
     if (!bindEnginesToCurrentExercise()) {
       return false;
+    }
+    if (sessionBuffer) {
+      sessionBuffer.configurePhaseDataset({
+        exerciseCode: getCurrentExerciseCode(),
+        mode: workoutData.mode,
+        selectedView: state.selectedView,
+        scoringProfileId: workoutData.scoringProfile?.scoring_profile_id || null,
+        scoringProfileVersion: workoutData.scoringProfile?.version || null
+      });
     }
 
     resetStepUiState();
@@ -623,7 +771,8 @@ async function initSession(workoutData) {
       sessionBuffer.addEvent('ROUTINE_STEP_CHANGE', {
         stepIndex,
         exercise_id: nextExercise.exercise_id,
-        exercise_code: nextExercise.code
+        exercise_code: nextExercise.code,
+        selected_view: state.selectedView
       });
     }
 
@@ -807,6 +956,10 @@ async function initSession(workoutData) {
         (sessionBuffer
           ? sessionBuffer.export()
           : {
+              selected_view: state.selectedView,
+              result_basis: 'REPS',
+              total_result_value: state.currentRep,
+              total_result_unit: 'COUNT',
               duration_sec: state.totalTime,
               total_reps: state.currentRep,
               final_score: state.liveScore || 0,
@@ -874,6 +1027,7 @@ async function initSession(workoutData) {
     hasUnloadAbortSent = true;
     const payload = JSON.stringify({
       reason,
+      selected_view: state.selectedView,
       duration_sec: state.totalTime || 0,
       total_reps: state.currentRep || 0
     });
@@ -908,6 +1062,7 @@ async function initSession(workoutData) {
   window.forceExit = forceExit;
 
   setupSourceSelectors();
+  setupViewSelectors();
   await connectCameraSource(selectedCameraSource);
 }
 
