@@ -4,6 +4,10 @@
     days: Number.isFinite(Number(bootstrap.initialDays)) ? Number(bootstrap.initialDays) : 30
   };
 
+  const modeLabelMap = { FREE: '자율 운동', ROUTINE: '루틴 운동', LEARN: '학습 모드' };
+  const statusLabelMap = { DONE: '완료', ABORTED: '중단' };
+  const viewLabelMap = { FRONT: '정면', SIDE: '측면', DIAGONAL: '대각선' };
+
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (char) => ({
       '&': '&amp;',
@@ -12,6 +16,17 @@
       '"': '&quot;',
       "'": '&#39;'
     }[char]));
+  }
+
+  function safeJsonPreview(value, maxLength = 110) {
+    try {
+      const text = JSON.stringify(value);
+      if (!text) return '-';
+      if (text.length <= maxLength) return text;
+      return `${text.slice(0, maxLength)}...`;
+    } catch (_error) {
+      return '-';
+    }
   }
 
   function formatNumber(value) {
@@ -33,6 +48,13 @@
     if (basis === 'REPS' || unit === 'COUNT') return `${formatNumber(value)}회`;
     if (basis === 'DURATION' || unit === 'SEC') return `${formatNumber(value)}초`;
     return formatNumber(value);
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '-';
+    return parsed.toLocaleString('ko-KR');
   }
 
   function pad2(value) {
@@ -65,12 +87,24 @@
 
   function setInsightLoading(message) {
     const html = `<div class="chart-empty">${escapeHtml(message)}</div>`;
+    const metrics = document.getElementById('insightMetrics');
     const scoreChart = document.getElementById('scoreChart');
     const timeChart = document.getElementById('timeChart');
+    const activityStrip = document.getElementById('activityStrip');
     const breakdown = document.getElementById('exerciseBreakdown');
 
+    if (metrics) {
+      metrics.innerHTML = Array.from({ length: 5 }).map(() => `
+        <div class="insight-metric">
+          <span class="metric-name">로딩 중</span>
+          <strong class="metric-value">-</strong>
+          <span class="metric-note">${escapeHtml(message)}</span>
+        </div>
+      `).join('');
+    }
     if (scoreChart) scoreChart.innerHTML = html;
     if (timeChart) timeChart.innerHTML = html;
+    if (activityStrip) activityStrip.innerHTML = html;
     if (breakdown) breakdown.innerHTML = html;
   }
 
@@ -218,7 +252,13 @@
     `).join('');
   }
 
-  function renderMiniBarChart(targetId, rows, key, maxValue, suffix) {
+  function buildLinePath(points) {
+    return points
+      .map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+      .join(' ');
+  }
+
+  function renderLineChart(targetId, rows, key, options) {
     const target = document.getElementById(targetId);
     if (!target) return;
 
@@ -228,22 +268,110 @@
       return;
     }
 
-    const labelStep = rows.length > 60 ? 10 : rows.length > 30 ? 7 : rows.length > 14 ? 4 : 1;
+    const maxValue = Math.max(Number(options.maxValue) || 0, 1);
+    const width = Math.max(560, rows.length * 18);
+    const height = 220;
+    const padX = 18;
+    const padTop = 18;
+    const padBottom = 28;
+    const usableHeight = Math.max(1, height - padTop - padBottom);
+    const denominator = Math.max(rows.length - 1, 1);
+
+    const points = rows.map((row, index) => {
+      const value = Math.max(0, Number(row[key] || 0));
+      const x = padX + (index / denominator) * (width - (padX * 2));
+      const y = (height - padBottom) - ((value / maxValue) * usableHeight);
+      return { x, y, value };
+    });
+
+    const linePath = buildLinePath(points);
+    const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(2)},${height - padBottom} L${points[0].x.toFixed(2)},${height - padBottom} Z`;
+    const pointStep = rows.length > 54 ? 9 : rows.length > 36 ? 6 : rows.length > 18 ? 4 : 2;
+    const visiblePoints = points.filter((_, index) => index === 0 || index === rows.length - 1 || index % pointStep === 0);
+    const gradientId = `${targetId}-gradient-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const firstLabel = toDateLabel(rows[0].date);
+    const midLabel = toDateLabel(rows[Math.floor(rows.length / 2)].date);
+    const lastLabel = toDateLabel(rows[rows.length - 1].date);
+
     target.innerHTML = `
-      <div class="mini-bar-chart">
-        ${rows.map((row, index) => {
-          const value = Number(row[key] || 0);
-          const height = Math.max(6, Math.round((value / Math.max(maxValue, 1)) * 100));
-          const label = (index % labelStep === 0 || index === rows.length - 1) ? toDateLabel(row.date) : '';
-          return `
-            <div class="mini-bar-item">
-              <div class="mini-bar-wrap" title="${escapeHtml(String(value))}${escapeHtml(suffix)}">
-                <span class="mini-bar" style="height:${height}%"></span>
-              </div>
-              <span class="mini-bar-label">${escapeHtml(label)}</span>
-            </div>
-          `;
-        }).join('')}
+      <div class="line-chart-shell" style="--line-color:${escapeHtml(options.color)}; --line-fill:${escapeHtml(options.fill)};">
+        <div class="line-chart-scroll">
+          <svg
+            class="line-chart-svg"
+            width="${width}"
+            height="${height}"
+            viewBox="0 0 ${width} ${height}"
+            role="img"
+            aria-label="${escapeHtml(options.label || '추이 차트')}"
+            preserveAspectRatio="none"
+          >
+            <defs>
+              <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="${escapeHtml(options.color)}" stop-opacity="0.34"></stop>
+                <stop offset="100%" stop-color="${escapeHtml(options.color)}" stop-opacity="0"></stop>
+              </linearGradient>
+            </defs>
+            <line
+              x1="${padX}"
+              x2="${width - padX}"
+              y1="${height - padBottom}"
+              y2="${height - padBottom}"
+              stroke="rgba(148, 163, 184, 0.45)"
+              stroke-width="1"
+            ></line>
+            <path class="line-series-area" d="${areaPath}" fill="url(#${gradientId})"></path>
+            <path class="line-series-stroke" d="${linePath}"></path>
+            ${visiblePoints.map((point) => `
+              <circle
+                class="line-series-dot"
+                cx="${point.x.toFixed(2)}"
+                cy="${point.y.toFixed(2)}"
+                r="3"
+              ></circle>
+            `).join('')}
+          </svg>
+        </div>
+        <div class="line-chart-caption">
+          <span>${escapeHtml(firstLabel)}</span>
+          <span>${escapeHtml(midLabel)}</span>
+          <span>${escapeHtml(`${lastLabel} · 최대 ${formatNumber(maxValue)}${options.unit}`)}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderActivityStrip(rows) {
+    const target = document.getElementById('activityStrip');
+    if (!target) return;
+
+    const hasData = rows.some((row) => row.count > 0);
+    if (!hasData) {
+      target.innerHTML = '<div class="chart-empty">활동 데이터가 없습니다.</div>';
+      return;
+    }
+
+    const maxCount = Math.max(...rows.map((row) => Number(row.count || 0)), 1);
+    const cells = rows.map((row) => {
+      const count = Number(row.count || 0);
+      const intensity = count > 0 ? count / maxCount : 0;
+      const title = `${toDateLabel(row.date)} · ${formatNumber(count)}회 · ${formatNumber(row.totalMinutes || 0)}분 · 평균 ${formatNumber(row.avgScore || 0)}점`;
+      return `
+        <span
+          class="activity-cell ${count > 0 ? 'active' : ''}"
+          style="--activity:${Math.max(0, Math.min(1, intensity)).toFixed(2)}"
+          title="${escapeHtml(title)}"
+        ></span>
+      `;
+    }).join('');
+
+    target.innerHTML = `
+      <div class="activity-strip-shell">
+        <div class="activity-strip-grid">${cells}</div>
+        <div class="activity-strip-legend">
+          <span>낮음</span>
+          <span>일별 세션 수가 높을수록 진해집니다</span>
+          <span>높음</span>
+        </div>
       </div>
     `;
   }
@@ -257,26 +385,37 @@
       return;
     }
 
-    const top = exercises.slice(0, 6);
+    const top = exercises.slice(0, 8);
     const maxCount = Math.max(...top.map((item) => Number(item.count || 0)), 1);
+    const totalCount = top.reduce((sum, item) => sum + Number(item.count || 0), 0);
 
-    target.innerHTML = top.map((item) => {
-      const count = Number(item.count || 0);
-      const width = ((count / maxCount) * 100).toFixed(1);
-      const summary = `${formatNumber(count)}회 · ${formatNumber(item.totalMinutes || 0)}분 · 평균 ${formatNumber(item.avgScore || 0)}점`;
+    target.innerHTML = `
+      <div class="distribution-list">
+        ${top.map((item) => {
+          const count = Number(item.count || 0);
+          const width = ((count / maxCount) * 100).toFixed(1);
+          const share = totalCount > 0 ? ((count / totalCount) * 100).toFixed(1) : '0.0';
+          const meta = `${formatNumber(count)}회 · ${formatNumber(item.totalMinutes || 0)}분`;
+          const score = `평균 ${formatNumber(item.avgScore || 0)}점 · 최고 ${formatNumber(item.bestScore || 0)}점`;
 
-      return `
-        <div class="exercise-row">
-          <div class="exercise-row-header">
-            <span class="exercise-name">${escapeHtml(item.name || '운동')}</span>
-            <span class="exercise-summary">${escapeHtml(summary)}</span>
-          </div>
-          <div class="exercise-track">
-            <span class="exercise-fill" style="width:${width}%"></span>
-          </div>
-        </div>
-      `;
-    }).join('');
+          return `
+            <article class="distribution-row">
+              <div class="distribution-head">
+                <span class="distribution-name">${escapeHtml(item.name || '운동')}</span>
+                <span class="distribution-share">${escapeHtml(share)}%</span>
+              </div>
+              <div class="distribution-track">
+                <span class="distribution-fill" style="width:${width}%"></span>
+              </div>
+              <div class="distribution-foot">
+                <span class="distribution-meta">${escapeHtml(meta)}</span>
+                <span class="distribution-score">${escapeHtml(score)}</span>
+              </div>
+            </article>
+          `;
+        }).join('')}
+      </div>
+    `;
   }
 
   async function loadHistoryInsights(days = insightState.days) {
@@ -296,14 +435,21 @@
       const summary = buildSummary(daily, days);
 
       renderInsightMetrics(summary);
-      renderMiniBarChart('scoreChart', daily, 'avgScore', 100, '점');
-      renderMiniBarChart(
-        'timeChart',
-        daily,
-        'totalMinutes',
-        Math.max(...daily.map((row) => row.totalMinutes), 10),
-        '분'
-      );
+      renderLineChart('scoreChart', daily, 'avgScore', {
+        maxValue: 100,
+        unit: '점',
+        label: '평균 점수 추이',
+        color: '#2563eb',
+        fill: 'rgba(37, 99, 235, 0.2)'
+      });
+      renderLineChart('timeChart', daily, 'totalMinutes', {
+        maxValue: Math.max(...daily.map((row) => Number(row.totalMinutes || 0)), 10),
+        unit: '분',
+        label: '운동 시간 추이',
+        color: '#059669',
+        fill: 'rgba(5, 150, 105, 0.2)'
+      });
+      renderActivityStrip(daily);
       renderExerciseBreakdown(payload.exercises || []);
       renderTrendHint('scoreTrendHint', summary.scoreDelta, '점');
       renderTrendHint('timeTrendHint', summary.minuteDelta, '%');
@@ -331,14 +477,66 @@
         if (['score_timeline', 'rep_records', 'set_records', 'events'].includes(key)) return false;
         return ['string', 'number', 'boolean'].includes(typeof value);
       })
-      .slice(0, 8);
+      .slice(0, 10);
   }
 
   function renderSimpleList(rows, emptyMessage) {
     if (!rows.length) {
       return `<div class="chart-empty">${escapeHtml(emptyMessage)}</div>`;
     }
-    return `<div class="simple-list">${rows.join('')}</div>`;
+    return `<div class="detail-simple-list">${rows.join('')}</div>`;
+  }
+
+  function renderMetricList(metrics) {
+    if (!metrics.length) {
+      return '<div class="chart-empty">메트릭 기록이 없습니다.</div>';
+    }
+
+    return `
+      <div class="detail-metric-list">
+        ${metrics.map((metric) => {
+          const score = Number(metric.avg_score || 0);
+          const scorePercent = Math.max(0, Math.min(100, Math.round(score)));
+          const rawText = metric.avg_raw_value == null
+            ? '-'
+            : `${metric.avg_raw_value} (min ${metric.min_raw_value ?? '-'} / max ${metric.max_raw_value ?? '-'})`;
+          return `
+            <article class="detail-metric-item">
+              <div class="detail-metric-head">
+                <span>${escapeHtml(metric.metric_name || metric.metric_key || '항목')}</span>
+                <strong>${formatNumber(score)}점</strong>
+              </div>
+              <div class="detail-metric-meta">샘플 ${formatNumber(metric.sample_count || 0)} · raw ${escapeHtml(rawText)}</div>
+              <div class="detail-track">
+                <span class="detail-fill" style="width:${scorePercent}%"></span>
+              </div>
+            </article>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  function setText(id, value) {
+    const element = document.getElementById(id);
+    if (element) element.textContent = value;
+  }
+
+  function updateVisibleSummary() {
+    const items = Array.from(document.querySelectorAll('.history-item'));
+    const doneItems = items.filter((item) => String(item.dataset.sessionStatus || '').toUpperCase() === 'DONE');
+    const abortedItems = items.filter((item) => String(item.dataset.sessionStatus || '').toUpperCase() === 'ABORTED');
+    const scores = doneItems
+      .map((item) => Number(item.dataset.sessionScore || 0))
+      .filter((score) => Number.isFinite(score));
+    const avgScore = scores.length
+      ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
+      : 0;
+
+    setText('visibleSessionCount', formatNumber(items.length));
+    setText('visibleDoneCount', formatNumber(doneItems.length));
+    setText('visibleAbortedCount', formatNumber(abortedItems.length));
+    setText('visibleAvgScore', formatNumber(avgScore));
   }
 
   async function viewDetail(sessionId) {
@@ -366,50 +564,68 @@
       const repRecords = Array.isArray(payload.rep_records) ? payload.rep_records : [];
       const setRecords = Array.isArray(payload.set_records) ? payload.set_records : [];
       const sessionEvents = Array.isArray(payload.session_events) ? payload.session_events : [];
-      const routineContext = payload.routine_context || null;
+      const detailEvents = Array.isArray(payload.detail_events) ? payload.detail_events : [];
+      const routineContext = payload.routine_context || {};
       const detail = payload.detail || {};
 
       title.textContent = `${session.exercise?.name || '운동'} · 세션 #${session.session_id || '-'}`;
 
-      const resultText = formatResultValue(
-        session.result_basis,
-        session.total_result_value,
-        session.total_result_unit
-      );
-
-      const metricRows = metrics.map((metric) => {
-        const score = Number(metric.avg_score || 0);
-        const scorePercent = Math.max(0, Math.min(100, Math.round(score)));
-        const rawText = metric.avg_raw_value == null ? '-'
-          : `${metric.avg_raw_value} (min ${metric.min_raw_value ?? '-'} / max ${metric.max_raw_value ?? '-'})`;
-
-        return `
-          <div class="metric-item">
-            <div class="metric-header">
-              <span>${escapeHtml(metric.metric_name || metric.metric_key || '항목')}</span>
-              <strong>${formatNumber(score)}점</strong>
-            </div>
-            <div class="metric-meta">샘플 ${formatNumber(metric.sample_count || 0)} · raw ${escapeHtml(String(rawText))}</div>
-            <div class="metric-track">
-              <span class="metric-fill" style="width:${scorePercent}%"></span>
-            </div>
-          </div>
-        `;
-      });
+      const statCards = [
+        {
+          label: '운동',
+          value: session.exercise?.name || '운동',
+          note: session.final_snapshot ? `FINAL #${session.final_snapshot.snapshot_no}` : 'FINAL 스냅샷 없음'
+        },
+        {
+          label: '상태',
+          value: statusLabelMap[String(session.status || '').toUpperCase()] || session.status || '-',
+          note: '세션 종료 상태'
+        },
+        {
+          label: '모드',
+          value: modeLabelMap[String(session.mode || '').toUpperCase()] || session.mode || '-',
+          note: '세션 실행 모드'
+        },
+        {
+          label: '뷰',
+          value: viewLabelMap[String(session.selected_view || '').toUpperCase()] || session.selected_view || '-',
+          note: '선택 자세'
+        },
+        {
+          label: '대표 결과',
+          value: formatResultValue(session.result_basis, session.total_result_value, session.total_result_unit),
+          note: `${session.result_basis || '-'} / ${session.total_result_unit || '-'}`
+        },
+        {
+          label: '운동 시간',
+          value: formatDuration(session.duration_sec || 0),
+          note: '세션 구간 기준'
+        },
+        {
+          label: '최종 점수',
+          value: `${formatNumber(session.final_score || 0)}점`,
+          note: 'workout_session + FINAL 기준'
+        },
+        {
+          label: '실행 시각',
+          value: formatDateTime(session.started_at),
+          note: `종료 ${formatDateTime(session.ended_at)}`
+        }
+      ];
 
       const timelineRows = timeline
         .slice()
         .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0))
         .slice(-14)
         .map((item) => `
-          <div class="simple-item">
+          <div class="detail-simple-item">
             <span>${formatRelativeMs(item.timestamp || 0)}</span>
             <strong>${formatNumber(item.score || 0)}점</strong>
           </div>
         `);
 
-      const repRows = repRecords.slice(-12).reverse().map((rep) => `
-        <div class="simple-item">
+      const repRows = repRecords.slice(-14).reverse().map((rep) => `
+        <div class="detail-simple-item">
           <span>${formatNumber(rep.repNumber || rep.rep_no || 0)}회차</span>
           <strong>${formatNumber(rep.score || 0)}점</strong>
         </div>
@@ -420,138 +636,128 @@
         const actualRaw = set.actual_reps ?? set.actual_value ?? null;
         const setNoText = Number.isFinite(Number(setNoRaw)) ? `${formatNumber(setNoRaw)}세트` : '-';
         const actualText = Number.isFinite(Number(actualRaw)) ? formatNumber(actualRaw) : '-';
-        const durationSec = set.duration_sec ?? 0;
+        const durationSec = Number(set.duration_sec || 0);
         return `
-          <div class="simple-item">
+          <div class="detail-simple-item">
             <span>${setNoText} · 수행 ${actualText} · ${formatDuration(durationSec)}</span>
             <strong>${escapeHtml(String(set.phase || set.status || 'WORK'))}</strong>
           </div>
         `;
       });
 
-      const eventRows = sessionEvents.slice(0, 12).map((event) => {
+      const eventRows = sessionEvents.slice(0, 14).map((event) => {
         const eventTime = event.event_time
           ? new Date(event.event_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
           : '-';
         return `
-          <div class="simple-item">
+          <div class="detail-simple-item">
             <span>${escapeHtml(eventTime)} · ${escapeHtml(event.type || 'EVENT')}</span>
-            <strong>${escapeHtml(JSON.stringify(event.payload || {}).slice(0, 40))}</strong>
+            <strong>${escapeHtml(safeJsonPreview(event.payload || {}))}</strong>
           </div>
         `;
       });
 
+      const detailEventRows = detailEvents.slice(0, 12).map((event) => `
+        <div class="detail-simple-item">
+          <span>${escapeHtml(String(event.type || event.event || 'DETAIL_EVENT'))}</span>
+          <strong>${escapeHtml(safeJsonPreview(event))}</strong>
+        </div>
+      `);
+
       const detailEntries = extractPrimitiveDetailEntries(detail);
       const detailEntryRows = detailEntries.map(([key, value]) => `
-        <div class="key-value-item">
+        <div class="detail-key-item">
           <label>${escapeHtml(key)}</label>
           <div>${escapeHtml(String(value))}</div>
         </div>
       `);
 
-      const routineContextHtml = routineContext && (routineContext.workout_set || routineContext.routine)
+      const routineEntries = [];
+      if (routineContext.routine?.name) routineEntries.push(['루틴 이름', routineContext.routine.name]);
+      if (routineContext.routine_instance?.status) routineEntries.push(['루틴 인스턴스 상태', routineContext.routine_instance.status]);
+      if (Number.isFinite(Number(routineContext.workout_set?.set_no))) {
+        routineEntries.push(['세트 번호', `${formatNumber(routineContext.workout_set.set_no)}세트`]);
+      }
+      if (routineContext.workout_set?.status) routineEntries.push(['세트 상태', routineContext.workout_set.status]);
+      if (Number.isFinite(Number(routineContext.step_instance?.order_no))) {
+        routineEntries.push(['스텝 순서', `${formatNumber(routineContext.step_instance.order_no)}번`]);
+      }
+
+      const routineContextHtml = routineEntries.length
         ? `
-          <div class="detail-block">
+          <section class="detail-panel">
             <h4>루틴/세트 컨텍스트</h4>
-            <div class="detail-section-grid">
-              <div class="detail-item">
-                <label>루틴 이름</label>
-                <div class="value">${escapeHtml(routineContext.routine?.name || '-')}</div>
-              </div>
-              <div class="detail-item">
-                <label>세트 번호</label>
-                <div class="value">${Number.isFinite(Number(routineContext.workout_set?.set_no))
-                  ? `${formatNumber(routineContext.workout_set.set_no)}세트`
-                  : '-'}</div>
-              </div>
-              <div class="detail-item">
-                <label>세트 상태</label>
-                <div class="value">${escapeHtml(routineContext.workout_set?.status || '-')}</div>
-              </div>
+            <div class="detail-key-grid">
+              ${routineEntries.map(([key, value]) => `
+                <div class="detail-key-item">
+                  <label>${escapeHtml(key)}</label>
+                  <div>${escapeHtml(String(value))}</div>
+                </div>
+              `).join('')}
             </div>
-          </div>
+          </section>
         `
         : '';
 
       body.innerHTML = `
-        <section class="detail-section-grid">
-          <div class="detail-item">
-            <label>운동</label>
-            <div class="value">${escapeHtml(session.exercise?.name || '운동')}</div>
-          </div>
-          <div class="detail-item">
-            <label>상태</label>
-            <div class="value">${escapeHtml(session.status || '-')}</div>
-          </div>
-          <div class="detail-item">
-            <label>모드</label>
-            <div class="value">${escapeHtml(session.mode || '-')}</div>
-          </div>
-          <div class="detail-item">
-            <label>결과</label>
-            <div class="value">${escapeHtml(resultText)}</div>
-          </div>
-          <div class="detail-item">
-            <label>운동 시간</label>
-            <div class="value">${escapeHtml(formatDuration(session.duration_sec || 0))}</div>
-          </div>
-          <div class="detail-item">
-            <label>최종 점수</label>
-            <div class="value">${formatNumber(session.final_score || 0)}점</div>
-          </div>
-          <div class="detail-item">
-            <label>자세</label>
-            <div class="value">${escapeHtml(session.selected_view || '-')}</div>
-          </div>
-          <div class="detail-item">
-            <label>시작 시각</label>
-            <div class="value">${escapeHtml(session.started_at ? new Date(session.started_at).toLocaleString('ko-KR') : '-')}</div>
-          </div>
-          <div class="detail-item">
-            <label>종료 시각</label>
-            <div class="value">${escapeHtml(session.ended_at ? new Date(session.ended_at).toLocaleString('ko-KR') : '-')}</div>
-          </div>
+        <section class="detail-top-grid">
+          ${statCards.map((card) => `
+            <article class="detail-stat-card">
+              <label>${escapeHtml(card.label)}</label>
+              <strong>${escapeHtml(card.value)}</strong>
+              <small>${escapeHtml(card.note)}</small>
+            </article>
+          `).join('')}
         </section>
 
         ${session.summary_feedback ? `
-          <div class="detail-block">
+          <section class="detail-panel">
             <h4>요약 피드백</h4>
             <p class="detail-feedback">${escapeHtml(session.summary_feedback).replace(/\n/g, '<br>')}</p>
-          </div>
+          </section>
         ` : ''}
 
-        <div class="detail-block">
+        <section class="detail-panel">
           <h4>FINAL 스냅샷 메트릭</h4>
-          ${renderSimpleList(metricRows, '메트릭 기록이 없습니다.')}
-        </div>
+          ${renderMetricList(metrics)}
+        </section>
 
-        <div class="detail-block">
-          <h4>점수 타임라인</h4>
-          ${renderSimpleList(timelineRows, '타임라인 데이터가 없습니다.')}
-        </div>
+        <section class="detail-dual-grid">
+          <article class="detail-panel">
+            <h4>점수 타임라인</h4>
+            ${renderSimpleList(timelineRows, '타임라인 데이터가 없습니다.')}
+          </article>
+          <article class="detail-panel">
+            <h4>반복 기록</h4>
+            ${renderSimpleList(repRows, '반복 기록이 없습니다.')}
+          </article>
+        </section>
 
-        <div class="detail-block">
-          <h4>반복 기록</h4>
-          ${renderSimpleList(repRows, '반복 기록이 없습니다.')}
-        </div>
+        <section class="detail-dual-grid">
+          <article class="detail-panel">
+            <h4>세트 기록</h4>
+            ${renderSimpleList(setRows, '세트 기록이 없습니다.')}
+          </article>
+          <article class="detail-panel">
+            <h4>세션 이벤트</h4>
+            ${renderSimpleList(eventRows, '이벤트 기록이 없습니다.')}
+          </article>
+        </section>
 
-        <div class="detail-block">
-          <h4>세트 기록</h4>
-          ${renderSimpleList(setRows, '세트 기록이 없습니다.')}
-        </div>
-
-        <div class="detail-block">
-          <h4>세션 이벤트</h4>
-          ${renderSimpleList(eventRows, '이벤트 기록이 없습니다.')}
-        </div>
+        ${detailEventRows.length ? `
+          <section class="detail-panel">
+            <h4>상세 이벤트(detail.events)</h4>
+            ${renderSimpleList(detailEventRows, '상세 이벤트가 없습니다.')}
+          </section>
+        ` : ''}
 
         ${routineContextHtml}
 
         ${detailEntryRows.length ? `
-          <div class="detail-block">
+          <section class="detail-panel">
             <h4>기타 Detail 필드</h4>
-            <div class="key-value-grid">${detailEntryRows.join('')}</div>
-          </div>
+            <div class="detail-key-grid">${detailEntryRows.join('')}</div>
+          </section>
         ` : ''}
       `;
     } catch (error) {
@@ -577,19 +783,22 @@
         throw new Error(payload.error || '삭제에 실패했습니다.');
       }
 
-      const row = document.querySelector(`[data-session-id="${sessionId}"]`);
+      const row = document.querySelector(`.history-item[data-session-id="${sessionId}"]`);
       if (row) {
         row.style.opacity = '0';
-        row.style.transform = 'translateY(-6px)';
+        row.style.transform = 'translateY(-8px)';
         setTimeout(() => {
           row.remove();
-          const remaining = document.querySelectorAll('.history-row');
+          const remaining = document.querySelectorAll('.history-item');
           if (remaining.length === 0) {
             window.location.reload();
+            return;
           }
+          updateVisibleSummary();
         }, 180);
       } else {
         window.location.reload();
+        return;
       }
 
       loadHistoryInsights(insightState.days);
@@ -626,5 +835,6 @@
   window.closeModal = closeModal;
   window.deleteSession = deleteSession;
 
+  updateVisibleSummary();
   loadHistoryInsights(insightState.days);
 })();
