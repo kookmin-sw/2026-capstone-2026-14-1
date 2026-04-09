@@ -18,7 +18,7 @@
         <p><%= session.summary_feedback || '운동을 완료했습니다!' %></p>
       </div>
       <% if (session.final_score >= 80) { %>
-<span class="badge" style="background: #22c55e;">훈륭해요!</span>
+<span class="badge" style="background: #22c55e;">훌륭해요!</span>
       <% } else if (session.final_score >= 60) { %>
         <span class="badge" style="background: #eab308;">좋아요!</span>
       <% } else { %>
@@ -42,7 +42,17 @@
         </div>
         <div class="stat">
           <span>총 횟수</span>
-          <strong><%= session.total_reps || 0 %>회</strong>
+          <strong>
+            <% if ((session.result_basis === 'REPS' || session.total_result_unit === 'COUNT')) { %>
+              <%= session.total_result_value || session.total_reps || 0 %>회
+            <% } else { %>
+              -
+            <% } %>
+          </strong>
+        </div>
+        <div class="stat">
+          <span>선택 자세</span>
+          <strong><%= session.selected_view || '-' %></strong>
         </div>
         <div class="stat">
           <span>운동 종류</span>
@@ -57,17 +67,17 @@
   </div>
 
   <!-- 세부 점수 -->
-  <% if (session.session_metric_result && session.session_metric_result.length > 0) { %>
+  <% if (session.session_snapshot_metric && session.session_snapshot_metric.length > 0) { %>
     <div class="card">
       <div class="card-header">
         <h3>세부 점수</h3>
         <span class="muted">각 평가 항목별 점수</span>
       </div>
       <ul class="detail-list">
-        <% session.session_metric_result.forEach(result => { %>
+        <% session.session_snapshot_metric.forEach(result => { %>
           <li>
-            <span><%= result.metric.title %></span>
-            <strong><%= result.score %>점</strong>
+            <span><%= result.metric_name %></span>
+            <strong><%= result.avg_score %>점</strong>
           </li>
         <% }); %>
       </ul>

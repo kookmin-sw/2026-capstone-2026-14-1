@@ -10,25 +10,53 @@
         <div class="empty-state">
             <div class="empty-state-icon">🏋️</div>
             <div class="empty-state-title">등록된 운동이 없습니다</div>
-            <p>새로운 운동을 추가해보세요.</p>
+            <p>새로운 운동 메타데이터를 추가해보세요.</p>
         </div>
     <% } else { %>
         <table class="admin-table">
             <thead>
                 <tr>
-                    <th>코드</th>
-                    <th>이름</th>
-                    <th>설명</th>
+                    <th>코드 / 이름</th>
+                    <th>목표 타입 / 허용 자세</th>
+                    <th>정렬</th>
                     <th>상태</th>
                     <th>관리</th>
                 </tr>
             </thead>
             <tbody>
                 <% exercises.forEach(exercise => { %>
+                    <% const allowedViews = exercise.allowed_views || []; %>
+                    <% const defaultView = exercise.default_view || ''; %>
                     <tr>
-                        <td><code><%= exercise.code %></code></td>
-                        <td><strong><%= exercise.name %></strong></td>
-                        <td><%= exercise.description || '-' %></td>
+                        <td>
+                            <div><code><%= exercise.code %></code></div>
+                            <div style="margin-top: 6px;"><strong><%= exercise.name %></strong></div>
+                            <% if (exercise.description) { %>
+                                <div style="margin-top: 6px; color: #64748b;"><%= exercise.description %></div>
+                            <% } %>
+                            <% if (exercise.thumbnail_url) { %>
+                                <div style="margin-top: 6px;">
+                                    <a href="<%= exercise.thumbnail_url %>" target="_blank" rel="noopener noreferrer">썸네일 보기</a>
+                                </div>
+                            <% } %>
+                        </td>
+                        <td>
+                            <div style="margin-bottom: 8px;">
+                                <span class="badge badge-info"><%= exercise.default_target_type %></span>
+                            </div>
+                            <% if (allowedViews.length > 0) { %>
+                                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                    <% allowedViews.forEach(viewCode => { %>
+                                        <span class="badge <%= defaultView === viewCode ? 'badge-success' : 'badge-info' %>">
+                                            <%= viewCode %><%= defaultView === viewCode ? ' (기본)' : '' %>
+                                        </span>
+                                    <% }) %>
+                                </div>
+                            <% } else { %>
+                                <span style="color: #94a3b8;">설정 없음</span>
+                            <% } %>
+                        </td>
+                        <td><%= exercise.sort_order %></td>
                         <td>
                             <% if (exercise.is_active) { %>
                                 <span class="badge badge-success">활성</span>
@@ -38,7 +66,21 @@
                         </td>
                         <td>
                             <div class="action-btns">
-                                <button class="btn btn-sm btn-secondary" onclick="openEditModal('<%= exercise.exercise_id %>', '<%= exercise.code %>', '<%= exercise.name %>', '<%= exercise.description || '' %>', <%= exercise.is_active %>)">
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-secondary"
+                                    data-exercise-id="<%= exercise.exercise_id %>"
+                                    data-code="<%= exercise.code %>"
+                                    data-name="<%= exercise.name %>"
+                                    data-description="<%= exercise.description || '' %>"
+                                    data-sort-order="<%= exercise.sort_order %>"
+                                    data-target-type="<%= exercise.default_target_type %>"
+                                    data-thumbnail-url="<%= exercise.thumbnail_url || '' %>"
+                                    data-is-active="<%= exercise.is_active ? '1' : '0' %>"
+                                    data-allowed-views="<%= allowedViews.join(',') %>"
+                                    data-default-view="<%= defaultView %>"
+                                    onclick="openEditModal(this)"
+                                >
                                     수정
                                 </button>
                                 <form action="/admin/exercises/<%= exercise.exercise_id %>/delete" method="POST" style="display:inline;" onsubmit="return confirm('정말 삭제하시겠습니까?');">
@@ -73,6 +115,39 @@
             <div class="form-group">
                 <label class="form-label">설명</label>
                 <textarea name="description" class="form-textarea" placeholder="운동에 대한 설명..."></textarea>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label class="form-label">기본 목표 타입 *</label>
+                    <select name="default_target_type" class="form-select" required>
+                        <% (targetTypes || []).forEach(type => { %>
+                            <option value="<%= type %>" <%= type === 'REPS' ? 'selected' : '' %>><%= type %></option>
+                        <% }) %>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">정렬 순서 *</label>
+                    <input type="number" name="sort_order" class="form-input" value="0" />
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">썸네일 URL</label>
+                <input type="url" name="thumbnail_url" class="form-input" placeholder="https://..." />
+            </div>
+            <div class="form-group">
+                <label class="form-label">허용 자세 *</label>
+                <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                    <% (viewCodes || []).forEach((viewCode, idx) => { %>
+                        <label style="display:flex; gap:8px; align-items:center;">
+                            <input type="checkbox" name="allowed_views" value="<%= viewCode %>" data-form="add" <%= idx === 0 ? 'checked' : '' %> />
+                            <span><%= viewCode %></span>
+                        </label>
+                    <% }) %>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">기본 자세 *</label>
+                <select name="default_view" id="add_default_view" class="form-select" required></select>
             </div>
             <div class="form-group">
                 <label class="toggle">
@@ -109,6 +184,39 @@
                 <label class="form-label">설명</label>
                 <textarea name="description" id="edit_description" class="form-textarea"></textarea>
             </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label class="form-label">기본 목표 타입 *</label>
+                    <select name="default_target_type" id="edit_default_target_type" class="form-select" required>
+                        <% (targetTypes || []).forEach(type => { %>
+                            <option value="<%= type %>"><%= type %></option>
+                        <% }) %>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">정렬 순서 *</label>
+                    <input type="number" name="sort_order" id="edit_sort_order" class="form-input" />
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">썸네일 URL</label>
+                <input type="url" name="thumbnail_url" id="edit_thumbnail_url" class="form-input" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">허용 자세 *</label>
+                <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                    <% (viewCodes || []).forEach(viewCode => { %>
+                        <label style="display:flex; gap:8px; align-items:center;">
+                            <input type="checkbox" name="allowed_views" value="<%= viewCode %>" data-form="edit" />
+                            <span><%= viewCode %></span>
+                        </label>
+                    <% }) %>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">기본 자세 *</label>
+                <select name="default_view" id="edit_default_view" class="form-select" required></select>
+            </div>
             <div class="form-group">
                 <label class="toggle">
                     <input type="checkbox" name="is_active" id="edit_is_active" />
@@ -125,12 +233,69 @@
 </div>
 
 <script>
-function openEditModal(id, code, name, description, isActive) {
-    document.getElementById('editForm').action = '/admin/exercises/' + id;
-    document.getElementById('edit_code').value = code;
-    document.getElementById('edit_name').value = name;
-    document.getElementById('edit_description').value = description;
-    document.getElementById('edit_is_active').checked = isActive;
+function syncDefaultViewOptions(formType, preferredValue) {
+    const checkboxes = Array.from(document.querySelectorAll(`input[name="allowed_views"][data-form="${formType}"]`));
+    const selectedViews = checkboxes.filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.value);
+    const selectEl = document.getElementById(`${formType}_default_view`);
+    const previousValue = preferredValue || selectEl.value;
+
+    selectEl.innerHTML = '';
+
+    if (selectedViews.length === 0) {
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = '허용 자세를 먼저 선택하세요';
+        selectEl.appendChild(emptyOption);
+        selectEl.disabled = true;
+        return;
+    }
+
+    selectedViews.forEach((viewCode) => {
+        const option = document.createElement('option');
+        option.value = viewCode;
+        option.textContent = viewCode;
+        selectEl.appendChild(option);
+    });
+
+    selectEl.disabled = false;
+    selectEl.value = selectedViews.includes(previousValue) ? previousValue : selectedViews[0];
+}
+
+function bindAllowedViewHandlers(formType) {
+    const checkboxes = Array.from(document.querySelectorAll(`input[name="allowed_views"][data-form="${formType}"]`));
+    checkboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', () => syncDefaultViewOptions(formType));
+    });
+}
+
+function openEditModal(button) {
+    const dataset = button.dataset;
+    const allowedViews = (dataset.allowedViews || '').split(',').filter(Boolean);
+    const editForm = document.getElementById('editForm');
+
+    editForm.action = '/admin/exercises/' + dataset.exerciseId;
+    document.getElementById('edit_code').value = dataset.code || '';
+    document.getElementById('edit_name').value = dataset.name || '';
+    document.getElementById('edit_description').value = dataset.description || '';
+    document.getElementById('edit_sort_order').value = dataset.sortOrder || '0';
+    document.getElementById('edit_default_target_type').value = dataset.targetType || 'REPS';
+    document.getElementById('edit_thumbnail_url').value = dataset.thumbnailUrl || '';
+    document.getElementById('edit_is_active').checked = dataset.isActive === '1';
+
+    document
+        .querySelectorAll('input[name="allowed_views"][data-form="edit"]')
+        .forEach((checkbox) => {
+            checkbox.checked = allowedViews.includes(checkbox.value);
+        });
+
+    syncDefaultViewOptions('edit', dataset.defaultView || '');
     document.getElementById('editModal').style.display = 'flex';
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    bindAllowedViewHandlers('add');
+    bindAllowedViewHandlers('edit');
+    syncDefaultViewOptions('add');
+    syncDefaultViewOptions('edit');
+});
 </script>

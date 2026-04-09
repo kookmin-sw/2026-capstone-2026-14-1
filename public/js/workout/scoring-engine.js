@@ -11,9 +11,13 @@ class ScoringEngine {
    */
   constructor(scoringProfile, options = {}) {
     this.profile = scoringProfile;
-    this.metrics = scoringProfile?.scoring_profile_metric || [];
     this.exerciseCode = this.normalizeExerciseCode(options.exerciseCode);
     this.exerciseModule = window.WorkoutExerciseRegistry?.get(this.exerciseCode) || null;
+    this.selectedView = this.normalizeSelectedView(options.selectedView);
+    const moduleFallbackMetrics = this.exerciseModule?.getDefaultProfileMetrics?.() || [];
+    this.metrics = scoringProfile?.scoring_profile_metric?.length
+      ? scoringProfile.scoring_profile_metric
+      : moduleFallbackMetrics;
 
     // 점수 히스토리 (평균 계산용)
     this.scoreHistory = [];
@@ -21,6 +25,18 @@ class ScoringEngine {
 
     console.log('[ScoringEngine] 초기화:', this.metrics.length, '개 지표');
     console.log('[ScoringEngine] 프로필:', scoringProfile);
+  }
+
+  normalizeSelectedView(view) {
+    const normalized = (view || '')
+      .toString()
+      .trim()
+      .toUpperCase();
+    return ['FRONT', 'SIDE', 'DIAGONAL'].includes(normalized) ? normalized : null;
+  }
+
+  setSelectedView(view) {
+    this.selectedView = this.normalizeSelectedView(view);
   }
 
   normalizeExerciseCode(code) {
@@ -537,11 +553,15 @@ class ScoringEngine {
   }
 
   scoreRep(repRecord) {
+    const repContext = this.selectedView && !repRecord?.selectedView
+      ? { ...repRecord, selectedView: this.selectedView }
+      : repRecord;
+
     if (this.exerciseModule?.scoreRep) {
-      return this.exerciseModule.scoreRep(this, repRecord);
+      return this.exerciseModule.scoreRep(this, repContext);
     }
 
-    return repRecord;
+    return repContext;
   }
 
   getProfileMetricConfig(metricKey, fallbackTitle, fallbackMaxScore = 100) {

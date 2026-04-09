@@ -1,4 +1,5 @@
 const { supabase } = require('../config/db');
+const { buildQuestCardModel, refreshAllActiveQuestProgress } = require('./quest');
 
 // 오늘 날짜 범위
 const getTodayRange = () => {
@@ -25,6 +26,17 @@ const getWeekRange = () => {
     sunday.setHours(23, 59, 59, 999);
     
     return { start: monday, end: sunday };
+};
+
+const getSessionDurationSec = (session) => {
+    const startedAt = session?.started_at ? new Date(session.started_at) : null;
+    const endedAt = session?.ended_at ? new Date(session.ended_at) : null;
+
+    if (startedAt && endedAt) {
+        return Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000));
+    }
+
+    return 0;
 };
 
 // 한국 날짜 형식
@@ -172,6 +184,11 @@ const getHomePage = async (req, res, next) => {
         }
         
         const userId = user.user_id;
+        try {
+            await refreshAllActiveQuestProgress(userId);
+        } catch (questSyncError) {
+            console.error('Home quest progress sync error:', questSyncError);
+        }
         const today = getTodayRange();
         const week = getWeekRange();
         
@@ -193,8 +210,9 @@ const getHomePage = async (req, res, next) => {
             // 오늘 운동 세션
             supabase
                 .from('workout_session')
-                .select('duration_sec, final_score')
+                .select('started_at, ended_at, final_score, status')
                 .eq('user_id', userId)
+                .eq('status', 'DONE')
                 .not('ended_at', 'is', null)
                 .gte('started_at', today.start.toISOString())
                 .lte('started_at', today.end.toISOString()),
@@ -279,57 +297,22 @@ const getHomePage = async (req, res, next) => {
         // 오늘 운동 통계
         let todayMinutes = 0;
         if (todaySessionsResult.data) {
-            const totalSecs = todaySessionsResult.data.reduce((sum, s) => sum + (s.duration_sec || 0), 0);
+            const totalSecs = todaySessionsResult.data.reduce(
+                (sum, session) => sum + getSessionDurationSec(session),
+                0
+            );
             todayMinutes = Math.round(totalSecs / 60);
         }
         
         // 일일 퀘스트 처리 (scope === 'DAILY')
         const dailyQuests = (dailyQuestsResult.data || [])
             .filter(q => q.quest_template?.scope === 'DAILY')
-            .map(q => {
-                const condition = q.quest_template?.condition || {};
-                const progress = q.progress || {};
-                
-                // condition에서 target 추출 (target 필드를 우선 확인)
-                let target = condition.target || condition.count || condition.minutes || condition.score || condition.days || 1;
-                let currentProgress = progress.current || progress.count || 0;
-                let progressType = q.quest_template?.type; // DO, QUALITY, HABIT
-                
-                return {
-                    questId: q.user_quest_id,
-                    title: q.quest_template?.title || '퀘스트',
-                    progress: currentProgress,
-                    target: target,
-                    progressType: progressType,
-                    status: q.status,
-                    reward: q.quest_template?.reward_points || 0,
-                    condition: condition
-                };
-            });
+            .map(buildQuestCardModel);
         
         // 주간 퀘스트 처리 (scope === 'WEEKLY')
         const weeklyQuests = (weeklyQuestsResult.data || [])
             .filter(q => q.quest_template?.scope === 'WEEKLY')
-            .map(q => {
-                const condition = q.quest_template?.condition || {};
-                const progress = q.progress || {};
-                
-                // condition에서 target 추출 (target 필드를 우선 확인)
-                let target = condition.target || condition.count || condition.minutes || condition.score || condition.days || 1;
-                let currentProgress = progress.current || progress.count || 0;
-                let progressType = q.quest_template?.type;
-                
-                return {
-                    questId: q.user_quest_id,
-                    title: q.quest_template?.title || '퀘스트',
-                    progress: currentProgress,
-                    target: target,
-                    progressType: progressType,
-                    status: q.status,
-                    reward: q.quest_template?.reward_points || 0,
-                    condition: condition
-                };
-            });
+            .map(buildQuestCardModel);
         
         // 루틴
         const routines = routinesResult.data || [];
@@ -428,3 +411,4 @@ module.exports = {
     getHomePage,
     formatKoreanDate
 };
+

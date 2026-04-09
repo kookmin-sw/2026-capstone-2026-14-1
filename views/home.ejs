@@ -36,13 +36,7 @@
           <% dailyQuests.slice(0, 3).forEach(quest => { %>
             <li class="<%= quest.status === 'DONE' || quest.progress >= quest.target ? 'completed' : '' %>">
               <span><%= quest.title %></span>
-              <% if (quest.progressType === 'QUALITY') { %>
-                <span class="muted"><%= quest.progress >= quest.target ? '완료' : '미완료' %></span>
-              <% } else if (quest.progressType === 'HABIT') { %>
-                <span class="muted"><%= quest.progress %>/<%= quest.target %>일</span>
-              <% } else { %>
-                <span class="muted"><%= quest.progress %>/<%= quest.target %></span>
-              <% } %>
+              <span class="muted"><%= quest.progress %>/<%= quest.target %><%= quest.progressUnit || '' %></span>
             </li>
           <% }); %>
         <% } else { %>
@@ -76,13 +70,7 @@
           <% weeklyQuests.slice(0, 3).forEach(quest => { %>
             <li class="<%= quest.status === 'DONE' || quest.progress >= quest.target ? 'completed' : '' %>">
               <span><%= quest.title %></span>
-              <% if (quest.progressType === 'QUALITY') { %>
-                <span class="muted"><%= quest.progress >= quest.target ? '완료' : '미완료' %></span>
-              <% } else if (quest.progressType === 'HABIT') { %>
-                <span class="muted"><%= quest.progress %>/<%= quest.target %>일</span>
-              <% } else { %>
-                <span class="muted"><%= quest.progress %>/<%= quest.target %></span>
-              <% } %>
+              <span class="muted"><%= quest.progress %>/<%= quest.target %><%= quest.progressUnit || '' %></span>
             </li>
           <% }); %>
         <% } else { %>
@@ -290,3 +278,4 @@
     <% } %>
   }
 </script>
+
