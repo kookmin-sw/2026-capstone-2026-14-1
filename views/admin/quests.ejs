@@ -1,35 +1,76 @@
+<%
+const tierMap = {};
+(tiers || []).forEach((tier) => {
+  tierMap[tier.tier] = tier.name;
+});
+
+const scopeLabels = { DAILY: '일일', WEEKLY: '주간' };
+const typeLabels = { DO: '수행', QUALITY: '품질', HABIT: '습관', CHALLENGE: '도전' };
+const difficultyLabels = { EASY: '쉬움', NORMAL: '보통', HARD: '어려움' };
+
+const scopes = (questScopes && questScopes.length > 0) ? questScopes : ['DAILY', 'WEEKLY'];
+const types = (questTypes && questTypes.length > 0) ? questTypes : ['DO', 'QUALITY', 'HABIT', 'CHALLENGE'];
+const difficulties = (questDifficulties && questDifficulties.length > 0) ? questDifficulties : ['EASY', 'NORMAL', 'HARD'];
+const categories = (questCategories && questCategories.length > 0) ? questCategories : ['GENERAL', 'DO', 'QUALITY', 'HABIT', 'CHALLENGE'];
+
+const tierText = (tier) => (tier === null || tier === undefined)
+  ? null
+  : `티어 ${tier}${tierMap[tier] ? ' - ' + tierMap[tier] : ''}`;
+
+const tierRangeText = (minTier, maxTier) => {
+  const minLabel = tierText(minTier);
+  const maxLabel = tierText(maxTier);
+  if (!minLabel && !maxLabel) return '전체 티어';
+  if (minLabel && maxLabel) return `${minLabel} ~ ${maxLabel}`;
+  if (minLabel) return `${minLabel} 이상`;
+  return `${maxLabel} 이하`;
+};
+%>
+
+<datalist id="quest-category-options">
+  <% categories.forEach((category) => { %>
+    <option value="<%= category %>"></option>
+  <% }) %>
+</datalist>
+
 <div class="admin-header">
   <h1>퀘스트 관리</h1>
-  <p class="admin-subtitle">일일/주간 퀘스트 템플릿을 관리합니다.</p>
+  <p class="admin-subtitle">퀘스트 템플릿과 슬롯 기반 선발 규칙을 함께 관리합니다.</p>
 </div>
 
-<% if (success) { %>
-  <div class="alert success"><%= success %></div>
-<% } %>
-<% if (error) { %>
-  <div class="alert error"><%= error %></div>
-<% } %>
-
-<!-- 새 퀘스트 추가 폼 -->
+<!-- 퀘스트 템플릿 생성 -->
 <div class="admin-card">
   <div class="admin-card-header">
     <h2 class="admin-card-title">새 퀘스트 템플릿</h2>
   </div>
   <form action="/admin/quests" method="POST" class="admin-form">
-    <div class="form-row">
+    <div class="form-row form-row-five">
       <div class="form-group">
         <label class="form-label">범위 *</label>
         <select name="scope" class="form-select" required>
-          <option value="DAILY">일일</option>
-          <option value="WEEKLY">주간</option>
+          <% scopes.forEach((scope) => { %>
+            <option value="<%= scope %>"><%= scopeLabels[scope] || scope %></option>
+          <% }) %>
         </select>
       </div>
       <div class="form-group">
         <label class="form-label">유형 *</label>
         <select name="type" class="form-select" required>
-          <option value="DO">수행 (DO)</option>
-          <option value="QUALITY">품질 (QUALITY)</option>
-          <option value="HABIT">습관 (HABIT)</option>
+          <% types.forEach((type) => { %>
+            <option value="<%= type %>"><%= typeLabels[type] || type %> (<%= type %>)</option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">카테고리 *</label>
+        <input type="text" name="category" class="form-input" list="quest-category-options" value="GENERAL" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">난이도 *</label>
+        <select name="difficulty" class="form-select" required>
+          <% difficulties.forEach((difficulty) => { %>
+            <option value="<%= difficulty %>" <%= difficulty === 'NORMAL' ? 'selected' : '' %>><%= difficultyLabels[difficulty] || difficulty %></option>
+          <% }) %>
         </select>
       </div>
       <div class="form-group">
@@ -37,25 +78,50 @@
         <input type="number" name="reward_points" class="form-input" value="100" min="0" required />
       </div>
     </div>
+
+    <div class="form-row form-row-five">
+      <div class="form-group">
+        <label class="form-label">최소 티어</label>
+        <select name="min_tier" class="form-select">
+          <option value="">전체</option>
+          <% (tiers || []).forEach((tier) => { %>
+            <option value="<%= tier.tier %>">티어 <%= tier.tier %> - <%= tier.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">최대 티어</label>
+        <select name="max_tier" class="form-select">
+          <option value="">전체</option>
+          <% (tiers || []).forEach((tier) => { %>
+            <option value="<%= tier.tier %>">티어 <%= tier.tier %> - <%= tier.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">선발 가중치 *</label>
+        <input type="number" name="selection_weight" class="form-input" value="100" min="1" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">쿨다운(일) *</label>
+        <input type="number" name="cooldown_days" class="form-input" value="0" min="0" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">배타 그룹</label>
+        <input type="text" name="exclusive_group" class="form-input" placeholder="예: DAILY_HARD_LIMIT" />
+      </div>
+    </div>
+
     <div class="form-group">
       <label class="form-label">제목 *</label>
       <input type="text" name="title" class="form-input" placeholder="오늘 운동 3회 완료하기" required />
     </div>
     <div class="form-group">
       <label class="form-label">조건 (JSON)</label>
-      <textarea name="condition" class="form-textarea" rows="3" placeholder='{"metric": "workout_count", "target": 3}'></textarea>
-      <div class="form-hint">
-        사용 가능한 metric: workout_count, exercise_code, total_reps, duration_min, sets, score_above, avg_score, weekly_days
-      </div>
+      <textarea name="condition" class="form-textarea" rows="3" placeholder='{"metric":"workout_count","target":3}'></textarea>
+      <div class="form-hint">예시 metric: workout_count, exercise_code, total_reps, duration_min, sets, score_above, avg_score, weekly_days</div>
     </div>
     <div class="form-row">
-      <div class="form-group">
-        <label class="toggle">
-          <input type="checkbox" name="is_default" />
-          <span class="toggle-slider"></span>
-        </label>
-        <span class="toggle-label">기본 퀘스트 (자동 할당)</span>
-      </div>
       <div class="form-group">
         <label class="toggle">
           <input type="checkbox" name="is_active" checked />
@@ -64,11 +130,11 @@
         <span class="toggle-label">활성화</span>
       </div>
     </div>
-    <button type="submit" class="btn primary">퀘스트 추가</button>
+    <button type="submit" class="btn primary">퀘스트 템플릿 추가</button>
   </form>
 </div>
 
-<!-- 퀘스트 목록 -->
+<!-- 퀘스트 템플릿 목록 -->
 <div class="admin-card">
   <div class="admin-card-header">
     <h2 class="admin-card-title">퀘스트 템플릿 목록</h2>
@@ -79,83 +145,119 @@
     <p class="empty-message">등록된 퀘스트 템플릿이 없습니다.</p>
   <% } else { %>
     <div class="quest-template-list">
-      <% templates.forEach(template => { %>
+      <% templates.forEach((template) => { %>
         <div class="quest-template-item <%= !template.is_active ? 'inactive' : '' %>">
           <div class="quest-template-header">
             <div class="quest-template-badges">
-              <span class="scope-badge <%= template.scope.toLowerCase() %>">
-                <%= template.scope === 'DAILY' ? '일일' : '주간' %>
-              </span>
-              <span class="type-badge <%= template.type.toLowerCase() %>">
-                <%= template.type === 'DO' ? '수행' : template.type === 'QUALITY' ? '품질' : '습관' %>
-              </span>
-              <% if (template.is_default) { %>
-                <span class="default-badge">기본</span>
-              <% } %>
+              <span class="scope-badge <%= String(template.scope || '').toLowerCase() %>"><%= scopeLabels[template.scope] || template.scope %></span>
+              <span class="type-badge <%= String(template.type || '').toLowerCase() %>"><%= typeLabels[template.type] || template.type %></span>
+              <span class="category-badge"><%= template.category %></span>
+              <span class="difficulty-badge <%= String(template.difficulty || '').toLowerCase() %>"><%= difficultyLabels[template.difficulty] || template.difficulty %></span>
+              <span class="tier-range-badge <%= (template.min_tier === null && template.max_tier === null) ? 'all' : '' %>"><%= tierRangeText(template.min_tier, template.max_tier) %></span>
               <% if (!template.is_active) { %>
                 <span class="inactive-badge">비활성</span>
               <% } %>
             </div>
             <span class="reward-points">+<%= template.reward_points %>P</span>
           </div>
-          
+
           <h3 class="quest-template-title"><%= template.title %></h3>
-          
+
+          <div class="meta-grid">
+            <div><strong>가중치:</strong> <%= template.selection_weight %></div>
+            <div><strong>쿨다운:</strong> <%= template.cooldown_days %>일</div>
+            <div><strong>배타 그룹:</strong> <%= template.exclusive_group || '-' %></div>
+          </div>
+
           <div class="quest-template-condition">
-            <code><%= JSON.stringify(template.condition) %></code>
+            <code><%= JSON.stringify(template.condition || {}) %></code>
           </div>
 
           <div class="quest-template-actions">
-            <button type="button" class="btn ghost small" onclick="editQuest('<%= template.quest_template_id %>')">
-              수정
-            </button>
+            <button type="button" class="btn ghost small" onclick="editQuest('<%= template.quest_template_id %>')">수정</button>
             <form action="/admin/quests/<%= template.quest_template_id %>/delete" method="POST" style="display: inline;">
-              <button type="submit" class="btn danger small" onclick="return confirm('정말 삭제하시겠습니까?')">
-                삭제
-              </button>
+              <button type="submit" class="btn danger small" onclick="return confirm('정말 삭제하시겠습니까?')">삭제</button>
             </form>
           </div>
 
-          <!-- 수정 폼 (숨김) -->
-          <form id="edit-form-<%= template.quest_template_id %>" class="edit-form hidden" 
-                action="/admin/quests/<%= template.quest_template_id %>" method="POST">
-            <div class="form-row">
+          <form id="edit-form-<%= template.quest_template_id %>" class="edit-form hidden" action="/admin/quests/<%= template.quest_template_id %>" method="POST">
+            <div class="form-row form-row-five">
               <div class="form-group">
                 <label class="form-label">범위</label>
                 <select name="scope" class="form-select">
-                  <option value="DAILY" <%= template.scope === 'DAILY' ? 'selected' : '' %>>일일</option>
-                  <option value="WEEKLY" <%= template.scope === 'WEEKLY' ? 'selected' : '' %>>주간</option>
+                  <% scopes.forEach((scope) => { %>
+                    <option value="<%= scope %>" <%= template.scope === scope ? 'selected' : '' %>><%= scopeLabels[scope] || scope %></option>
+                  <% }) %>
                 </select>
               </div>
               <div class="form-group">
                 <label class="form-label">유형</label>
                 <select name="type" class="form-select">
-                  <option value="DO" <%= template.type === 'DO' ? 'selected' : '' %>>수행</option>
-                  <option value="QUALITY" <%= template.type === 'QUALITY' ? 'selected' : '' %>>품질</option>
-                  <option value="HABIT" <%= template.type === 'HABIT' ? 'selected' : '' %>>습관</option>
+                  <% types.forEach((type) => { %>
+                    <option value="<%= type %>" <%= template.type === type ? 'selected' : '' %>><%= typeLabels[type] || type %></option>
+                  <% }) %>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">카테고리</label>
+                <input type="text" name="category" class="form-input" list="quest-category-options" value="<%= template.category %>" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">난이도</label>
+                <select name="difficulty" class="form-select">
+                  <% difficulties.forEach((difficulty) => { %>
+                    <option value="<%= difficulty %>" <%= template.difficulty === difficulty ? 'selected' : '' %>><%= difficultyLabels[difficulty] || difficulty %></option>
+                  <% }) %>
                 </select>
               </div>
               <div class="form-group">
                 <label class="form-label">보상</label>
-                <input type="number" name="reward_points" class="form-input" value="<%= template.reward_points %>" />
+                <input type="number" name="reward_points" class="form-input" value="<%= template.reward_points %>" min="0" />
               </div>
             </div>
+
+            <div class="form-row form-row-five">
+              <div class="form-group">
+                <label class="form-label">최소 티어</label>
+                <select name="min_tier" class="form-select">
+                  <option value="" <%= template.min_tier === null || template.min_tier === undefined ? 'selected' : '' %>>전체</option>
+                  <% (tiers || []).forEach((tier) => { %>
+                    <option value="<%= tier.tier %>" <%= template.min_tier === tier.tier ? 'selected' : '' %>>티어 <%= tier.tier %> - <%= tier.name %></option>
+                  <% }) %>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">최대 티어</label>
+                <select name="max_tier" class="form-select">
+                  <option value="" <%= template.max_tier === null || template.max_tier === undefined ? 'selected' : '' %>>전체</option>
+                  <% (tiers || []).forEach((tier) => { %>
+                    <option value="<%= tier.tier %>" <%= template.max_tier === tier.tier ? 'selected' : '' %>>티어 <%= tier.tier %> - <%= tier.name %></option>
+                  <% }) %>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">선발 가중치</label>
+                <input type="number" name="selection_weight" class="form-input" value="<%= template.selection_weight %>" min="1" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">쿨다운(일)</label>
+                <input type="number" name="cooldown_days" class="form-input" value="<%= template.cooldown_days %>" min="0" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">배타 그룹</label>
+                <input type="text" name="exclusive_group" class="form-input" value="<%= template.exclusive_group || '' %>" />
+              </div>
+            </div>
+
             <div class="form-group">
               <label class="form-label">제목</label>
               <input type="text" name="title" class="form-input" value="<%= template.title %>" />
             </div>
             <div class="form-group">
               <label class="form-label">조건 (JSON)</label>
-              <textarea name="condition" class="form-textarea" rows="2"><%= JSON.stringify(template.condition) %></textarea>
+              <textarea name="condition" class="form-textarea" rows="2"><%= JSON.stringify(template.condition || {}) %></textarea>
             </div>
             <div class="form-row">
-              <div class="form-group">
-                <label class="toggle">
-                  <input type="checkbox" name="is_default" <%= template.is_default ? 'checked' : '' %> />
-                  <span class="toggle-slider"></span>
-                </label>
-                <span class="toggle-label">기본</span>
-              </div>
               <div class="form-group">
                 <label class="toggle">
                   <input type="checkbox" name="is_active" <%= template.is_active ? 'checked' : '' %> />
@@ -175,37 +277,218 @@
   <% } %>
 </div>
 
+<!-- 슬롯 규칙 생성 -->
+<div class="admin-card">
+  <div class="admin-card-header">
+    <h2 class="admin-card-title">슬롯 선발 규칙 추가</h2>
+  </div>
+  <form action="/admin/quests/rules" method="POST" class="admin-form">
+    <div class="form-row form-row-six">
+      <div class="form-group">
+        <label class="form-label">범위 *</label>
+        <select name="scope" class="form-select" required>
+          <% scopes.forEach((scope) => { %>
+            <option value="<%= scope %>"><%= scopeLabels[scope] || scope %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">슬롯 번호 *</label>
+        <input type="number" name="slot_no" class="form-input" value="1" min="1" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">카테고리 *</label>
+        <input type="text" name="category" class="form-input" list="quest-category-options" value="GENERAL" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">유형 *</label>
+        <select name="type" class="form-select" required>
+          <% types.forEach((type) => { %>
+            <option value="<%= type %>"><%= typeLabels[type] || type %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">선발 개수 *</label>
+        <input type="number" name="count" class="form-input" value="1" min="1" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">활성</label>
+        <label class="toggle">
+          <input type="checkbox" name="is_active" checked />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">최소 티어</label>
+        <select name="min_tier" class="form-select">
+          <option value="">전체</option>
+          <% (tiers || []).forEach((tier) => { %>
+            <option value="<%= tier.tier %>">티어 <%= tier.tier %> - <%= tier.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">최대 티어</label>
+        <select name="max_tier" class="form-select">
+          <option value="">전체</option>
+          <% (tiers || []).forEach((tier) => { %>
+            <option value="<%= tier.tier %>">티어 <%= tier.tier %> - <%= tier.name %></option>
+          <% }) %>
+        </select>
+      </div>
+    </div>
+    <button type="submit" class="btn primary">슬롯 규칙 추가</button>
+  </form>
+</div>
+
+<!-- 슬롯 규칙 목록 -->
+<div class="admin-card">
+  <div class="admin-card-header">
+    <h2 class="admin-card-title">슬롯 선발 규칙 목록</h2>
+    <span class="badge"><%= assignmentRules.length %>개</span>
+  </div>
+
+  <% if (assignmentRules.length === 0) { %>
+    <p class="empty-message">등록된 슬롯 선발 규칙이 없습니다.</p>
+  <% } else { %>
+    <div class="rule-list">
+      <% assignmentRules.forEach((rule) => { %>
+        <div class="rule-item <%= !rule.is_active ? 'inactive' : '' %>">
+          <div class="rule-main">
+            <div class="quest-template-badges">
+              <span class="scope-badge <%= String(rule.scope || '').toLowerCase() %>"><%= scopeLabels[rule.scope] || rule.scope %></span>
+              <span class="slot-badge">Slot <%= rule.slot_no %></span>
+              <span class="type-badge <%= String(rule.type || '').toLowerCase() %>"><%= typeLabels[rule.type] || rule.type %></span>
+              <span class="category-badge"><%= rule.category %></span>
+              <span class="tier-range-badge <%= (rule.min_tier === null && rule.max_tier === null) ? 'all' : '' %>"><%= tierRangeText(rule.min_tier, rule.max_tier) %></span>
+              <% if (!rule.is_active) { %>
+                <span class="inactive-badge">비활성</span>
+              <% } %>
+            </div>
+            <div class="rule-count">선발 <strong><%= rule.count %>개</strong></div>
+          </div>
+          <div class="quest-template-actions">
+            <button type="button" class="btn ghost small" onclick="editRule('<%= rule.rule_id %>')">수정</button>
+            <form action="/admin/quests/rules/<%= rule.rule_id %>/delete" method="POST" style="display:inline;">
+              <button type="submit" class="btn danger small" onclick="return confirm('정말 삭제하시겠습니까?')">삭제</button>
+            </form>
+          </div>
+
+          <form id="rule-edit-form-<%= rule.rule_id %>" class="edit-form hidden" action="/admin/quests/rules/<%= rule.rule_id %>" method="POST">
+            <div class="form-row form-row-six">
+              <div class="form-group">
+                <label class="form-label">범위</label>
+                <select name="scope" class="form-select">
+                  <% scopes.forEach((scope) => { %>
+                    <option value="<%= scope %>" <%= rule.scope === scope ? 'selected' : '' %>><%= scopeLabels[scope] || scope %></option>
+                  <% }) %>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">슬롯 번호</label>
+                <input type="number" name="slot_no" class="form-input" min="1" value="<%= rule.slot_no %>" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">카테고리</label>
+                <input type="text" name="category" class="form-input" list="quest-category-options" value="<%= rule.category %>" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">유형</label>
+                <select name="type" class="form-select">
+                  <% types.forEach((type) => { %>
+                    <option value="<%= type %>" <%= rule.type === type ? 'selected' : '' %>><%= typeLabels[type] || type %></option>
+                  <% }) %>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">선발 개수</label>
+                <input type="number" name="count" class="form-input" min="1" value="<%= rule.count %>" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">활성</label>
+                <label class="toggle">
+                  <input type="checkbox" name="is_active" <%= rule.is_active ? 'checked' : '' %> />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">최소 티어</label>
+                <select name="min_tier" class="form-select">
+                  <option value="" <%= rule.min_tier === null || rule.min_tier === undefined ? 'selected' : '' %>>전체</option>
+                  <% (tiers || []).forEach((tier) => { %>
+                    <option value="<%= tier.tier %>" <%= rule.min_tier === tier.tier ? 'selected' : '' %>>티어 <%= tier.tier %> - <%= tier.name %></option>
+                  <% }) %>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">최대 티어</label>
+                <select name="max_tier" class="form-select">
+                  <option value="" <%= rule.max_tier === null || rule.max_tier === undefined ? 'selected' : '' %>>전체</option>
+                  <% (tiers || []).forEach((tier) => { %>
+                    <option value="<%= tier.tier %>" <%= rule.max_tier === tier.tier ? 'selected' : '' %>>티어 <%= tier.tier %> - <%= tier.name %></option>
+                  <% }) %>
+                </select>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn primary small">저장</button>
+              <button type="button" class="btn ghost small" onclick="cancelRuleEdit('<%= rule.rule_id %>')">취소</button>
+            </div>
+          </form>
+        </div>
+      <% }) %>
+    </div>
+  <% } %>
+</div>
+
 <style>
-  .quest-template-list {
+  .quest-template-list,
+  .rule-list {
     display: flex;
     flex-direction: column;
     gap: 16px;
   }
 
-  .quest-template-item {
+  .quest-template-item,
+  .rule-item {
     background: var(--input-bg, #f8fafc);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 16px;
   }
 
-  .quest-template-item.inactive {
-    opacity: 0.6;
+  .quest-template-item.inactive,
+  .rule-item.inactive {
+    opacity: 0.7;
   }
 
-  .quest-template-header {
+  .quest-template-header,
+  .rule-main {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    gap: 12px;
+    margin-bottom: 10px;
   }
 
   .quest-template-badges {
     display: flex;
     gap: 8px;
+    flex-wrap: wrap;
   }
 
-  .scope-badge, .type-badge, .default-badge, .inactive-badge {
+  .scope-badge,
+  .type-badge,
+  .category-badge,
+  .difficulty-badge,
+  .tier-range-badge,
+  .slot-badge,
+  .inactive-badge {
     padding: 4px 10px;
     border-radius: 999px;
     font-size: 11px;
@@ -214,37 +497,72 @@
 
   .scope-badge.daily {
     background: rgba(59, 130, 246, 0.15);
-    color: #3b82f6;
+    color: #2563eb;
   }
 
   .scope-badge.weekly {
-    background: rgba(139, 92, 246, 0.15);
-    color: #8b5cf6;
+    background: rgba(16, 185, 129, 0.16);
+    color: #047857;
   }
 
   .type-badge.do {
-    background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
+    background: rgba(245, 158, 11, 0.2);
+    color: #b45309;
   }
 
   .type-badge.quality {
-    background: rgba(245, 158, 11, 0.15);
-    color: #f59e0b;
+    background: rgba(14, 165, 233, 0.16);
+    color: #0c4a6e;
   }
 
   .type-badge.habit {
-    background: rgba(236, 72, 153, 0.15);
-    color: #ec4899;
+    background: rgba(34, 197, 94, 0.16);
+    color: #166534;
   }
 
-  .default-badge {
-    background: var(--primary);
-    color: white;
+  .type-badge.challenge {
+    background: rgba(239, 68, 68, 0.15);
+    color: #991b1b;
+  }
+
+  .category-badge {
+    background: rgba(100, 116, 139, 0.18);
+    color: #334155;
+  }
+
+  .difficulty-badge.easy {
+    background: rgba(34, 197, 94, 0.15);
+    color: #166534;
+  }
+
+  .difficulty-badge.normal {
+    background: rgba(59, 130, 246, 0.15);
+    color: #1d4ed8;
+  }
+
+  .difficulty-badge.hard {
+    background: rgba(239, 68, 68, 0.15);
+    color: #991b1b;
+  }
+
+  .tier-range-badge {
+    background: rgba(2, 132, 199, 0.15);
+    color: #0e7490;
+  }
+
+  .tier-range-badge.all {
+    background: rgba(100, 116, 139, 0.15);
+    color: #475569;
+  }
+
+  .slot-badge {
+    background: rgba(168, 85, 247, 0.16);
+    color: #6b21a8;
   }
 
   .inactive-badge {
-    background: var(--ghost-bg, #f1f5f9);
-    color: var(--muted);
+    background: rgba(148, 163, 184, 0.2);
+    color: #475569;
   }
 
   .reward-points {
@@ -254,8 +572,17 @@
   }
 
   .quest-template-title {
-    margin: 0 0 12px 0;
+    margin: 0 0 10px 0;
     font-size: 16px;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    color: var(--muted);
   }
 
   .quest-template-condition {
@@ -268,16 +595,18 @@
     border-radius: 6px;
     font-size: 12px;
     color: var(--text);
+    word-break: break-word;
   }
 
   .quest-template-actions {
     display: flex;
     gap: 8px;
+    align-items: center;
   }
 
   .edit-form {
-    margin-top: 16px;
-    padding-top: 16px;
+    margin-top: 14px;
+    padding-top: 14px;
     border-top: 1px dashed var(--border);
   }
 
@@ -287,8 +616,16 @@
 
   .form-row {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
+  }
+
+  .form-row-five {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .form-row-six {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .form-actions {
@@ -307,6 +644,11 @@
     resize: vertical;
   }
 
+  .rule-count {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
   .toggle-label {
     margin-left: 8px;
     font-size: 14px;
@@ -315,6 +657,31 @@
   .btn.small {
     padding: 6px 12px;
     font-size: 13px;
+  }
+
+  @media (max-width: 1200px) {
+    .form-row-five,
+    .form-row-six {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 900px) {
+    .form-row,
+    .form-row-five,
+    .form-row-six,
+    .meta-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 640px) {
+    .form-row,
+    .form-row-five,
+    .form-row-six,
+    .meta-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
 
@@ -325,5 +692,13 @@
 
   function cancelEdit(id) {
     document.getElementById(`edit-form-${id}`).classList.add('hidden');
+  }
+
+  function editRule(id) {
+    document.getElementById(`rule-edit-form-${id}`).classList.remove('hidden');
+  }
+
+  function cancelRuleEdit(id) {
+    document.getElementById(`rule-edit-form-${id}`).classList.add('hidden');
   }
 </script>

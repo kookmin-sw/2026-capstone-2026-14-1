@@ -17,6 +17,66 @@
   const squatExercise = {
     code: 'squat',
 
+    getDefaultProfileMetrics() {
+      return [
+        {
+          weight: 0.3,
+          max_score: 30,
+          rule: { type: 'position' },
+          metric: {
+            metric_id: 'squat_depth',
+            key: 'depth',
+            title: '스쿼트 깊이',
+            unit: 'SCORE'
+          }
+        },
+        {
+          weight: 0.2,
+          max_score: 20,
+          rule: { ideal_min: 95, ideal_max: 135, acceptable_min: 80, acceptable_max: 155 },
+          metric: {
+            metric_id: 'squat_hip_angle',
+            key: 'hip_angle',
+            title: '힙 힌지',
+            unit: 'DEG'
+          }
+        },
+        {
+          weight: 0.2,
+          max_score: 20,
+          rule: { ideal_min: 0, ideal_max: 25, acceptable_min: 0, acceptable_max: 45 },
+          metric: {
+            metric_id: 'squat_spine_angle',
+            key: 'spine_angle',
+            title: '상체 안정성',
+            unit: 'DEG'
+          }
+        },
+        {
+          weight: 0.15,
+          max_score: 15,
+          rule: { type: 'position' },
+          metric: {
+            metric_id: 'squat_knee_alignment',
+            key: 'knee_alignment',
+            title: '무릎 정렬',
+            unit: 'SCORE'
+          }
+        },
+        {
+          weight: 0.15,
+          max_score: 15,
+          rule: { type: 'symmetry', max_diff: 12 },
+          metric: {
+            metric_id: 'squat_knee_symmetry',
+            key: 'knee_symmetry',
+            title: '좌우 무릎 대칭',
+            unit: 'DEG'
+          }
+        }
+      ];
+    },
+
     getRepPattern() {
       return {
         primaryAngle: 'knee_angle',
@@ -30,9 +90,10 @@
       };
     },
 
-    getFrameGate(angles) {
+    getFrameGate(angles, runtime) {
       const quality = angles?.quality || {};
       const view = angles?.view || 'UNKNOWN';
+      const selectedView = runtime?.selectedView || runtime?.state?.selectedView || null;
       const trackedJointRatio = quality.trackedJointRatio ?? 0;
       const inFrameRatio = quality.inFrameRatio ?? 0;
       const score = quality.score ?? 0;
@@ -58,6 +119,14 @@
           isReady: false,
           reason: 'view_unknown',
           message: '정면 또는 측면이 잘 보이도록 몸 방향을 맞춰주세요'
+        };
+      }
+
+      if (selectedView && selectedView !== 'DIAGONAL' && view !== selectedView) {
+        return {
+          isReady: false,
+          reason: 'view_mismatch',
+          message: `선택한 ${selectedView} 자세에 맞게 몸 방향을 조정해주세요`
         };
       }
 
@@ -141,7 +210,10 @@
       const summary = repRecord?.summary;
       if (!summary) return repRecord;
 
-      const view = summary.dominantView || 'UNKNOWN';
+      const requestedView = repRecord?.selectedView || null;
+      const view = requestedView && requestedView !== 'DIAGONAL'
+        ? requestedView
+        : (summary.dominantView || 'UNKNOWN');
       const confidence = summary.confidence || { score: 0, level: 'LOW', factor: 0.7 };
 
       const bottomKnee = scoringEngine.pickMetric(summary, ['BOTTOM', 'DESCENT', 'ASCENT'], 'kneeAngle', 'min');

@@ -1,14 +1,180 @@
 const asyncHandler = require('express-async-handler');
 const { supabase } = require('../config/db');
 
+const VIEW_CODES = ['FRONT', 'SIDE', 'DIAGONAL'];
+const TARGET_TYPES = ['REPS', 'TIME'];
+const QUEST_SCOPES = ['DAILY', 'WEEKLY'];
+const QUEST_TYPES = ['DO', 'QUALITY', 'HABIT', 'CHALLENGE'];
+const QUEST_DIFFICULTIES = ['EASY', 'NORMAL', 'HARD'];
+const QUEST_CATEGORIES = ['GENERAL', 'DO', 'QUALITY', 'HABIT', 'CHALLENGE'];
+
+const isChecked = (value) => value === 'on' || value === true || value === 'true';
+
+const normalizeText = (value) => {
+    const text = String(value ?? '').trim();
+    return text.length > 0 ? text : null;
+};
+
+const parseIntOrDefault = (value, defaultValue = 0) => {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? defaultValue : parsed;
+};
+
+const parseOptionalInt = (value) => {
+    if (value === undefined || value === null || String(value).trim() === '') {
+        return { valid: true, value: null };
+    }
+
+    const parsed = Number.parseInt(String(value), 10);
+    if (Number.isNaN(parsed)) {
+        return { valid: false, value: null };
+    }
+
+    return { valid: true, value: parsed };
+};
+
+const parseAllowedViews = (input) => {
+    const rawValues = Array.isArray(input) ? input : [input];
+    const normalized = rawValues
+        .map((value) => String(value || '').trim().toUpperCase())
+        .filter((value) => VIEW_CODES.includes(value));
+
+    return [...new Set(normalized)];
+};
+
+const parseConditionJson = (condition) => {
+    if (!condition) {
+        return { ok: true, value: {} };
+    }
+
+    try {
+        return {
+            ok: true,
+            value: typeof condition === 'string' ? JSON.parse(condition) : condition
+        };
+    } catch (error) {
+        return { ok: false, value: {} };
+    }
+};
+
+const normalizeUpperToken = (value, fallback = '') => {
+    const token = String(value ?? '')
+        .trim()
+        .toUpperCase();
+    return token || fallback;
+};
+
+const parseTierRange = (minTierInput, maxTierInput) => {
+    const minTierParse = parseOptionalInt(minTierInput);
+    const maxTierParse = parseOptionalInt(maxTierInput);
+
+    if (!minTierParse.valid || !maxTierParse.valid) {
+        return { ok: false, error: '티어 값은 비우거나 정수로 입력해야 합니다' };
+    }
+
+    if (minTierParse.value !== null && minTierParse.value < 1) {
+        return { ok: false, error: '최소 티어는 1 이상의 정수여야 합니다' };
+    }
+    if (maxTierParse.value !== null && maxTierParse.value < 1) {
+        return { ok: false, error: '최대 티어는 1 이상의 정수여야 합니다' };
+    }
+    if (
+        minTierParse.value !== null &&
+        maxTierParse.value !== null &&
+        minTierParse.value > maxTierParse.value
+    ) {
+        return { ok: false, error: '최소 티어는 최대 티어보다 클 수 없습니다' };
+    }
+
+    return {
+        ok: true,
+        min_tier: minTierParse.value,
+        max_tier: maxTierParse.value
+    };
+};
+
+const buildAllowedViewRows = (exerciseId, allowedViews, defaultView) =>
+    allowedViews.map((viewCode) => ({
+        exercise_id: exerciseId,
+        view_code: viewCode,
+        is_default: viewCode === defaultView
+    }));
+
+const formatExerciseList = (exerciseRows = []) =>
+    exerciseRows.map((exercise) => {
+        const viewRows = Array.isArray(exercise.exercise_allowed_view)
+            ? exercise.exercise_allowed_view
+            : [];
+        const orderedAllowedViews = VIEW_CODES.filter((code) =>
+            viewRows.some((row) => row.view_code === code)
+        );
+        const unknownViews = viewRows
+            .map((row) => row.view_code)
+            .filter((viewCode) => !orderedAllowedViews.includes(viewCode));
+        const allowedViews = [...orderedAllowedViews, ...unknownViews];
+        const defaultView =
+            viewRows.find((row) => row.is_default)?.view_code || allowedViews[0] || null;
+
+        return {
+            ...exercise,
+            allowed_views: allowedViews,
+            default_view: defaultView
+        };
+    });
+
+const normalizeExercisePayload = (body) => {
+    const code = String(body.code || '').trim().toUpperCase();
+    const name = String(body.name || '').trim();
+    const defaultTargetType = String(body.default_target_type || '')
+        .trim()
+        .toUpperCase();
+    const allowedViews = parseAllowedViews(body.allowed_views);
+    let defaultView = String(body.default_view || '').trim().toUpperCase();
+
+    if (!allowedViews.includes(defaultView)) {
+        defaultView = allowedViews[0] || null;
+    }
+
+    return {
+        code,
+        name,
+        description: normalizeText(body.description),
+        is_active: isChecked(body.is_active),
+        sort_order: parseIntOrDefault(body.sort_order, 0),
+        default_target_type: defaultTargetType,
+        thumbnail_url: normalizeText(body.thumbnail_url),
+        allowed_views: allowedViews,
+        default_view: defaultView
+    };
+};
+
+const validateExercisePayload = (payload) => {
+    if (!/^[A-Z0-9_]+$/.test(payload.code)) {
+        return '코드는 영문 대문자, 숫자, 밑줄만 사용 가능합니다';
+    }
+
+    if (!payload.name) {
+        return '운동 이름은 필수입니다';
+    }
+
+    if (!TARGET_TYPES.includes(payload.default_target_type)) {
+        return '기본 목표 타입은 REPS 또는 TIME만 가능합니다';
+    }
+
+    if (payload.allowed_views.length === 0) {
+        return '허용 자세를 최소 1개 이상 선택해주세요';
+    }
+
+    return null;
+};
+
 
 // 대시보드
 const getDashboard = asyncHandler(async (req, res) => {
-    // 통계 데이터 조회
-    const [exerciseCount, metricCount, profileCount, userCount] = await Promise.all([
+    const [exerciseCount, allowedViewCount, questCount, userCount] = await Promise.all([
         supabase.from('exercise').select('exercise_id', { count: 'exact', head: true }),
-        supabase.from('metric').select('metric_id', { count: 'exact', head: true }),
-        supabase.from('scoring_profile').select('scoring_profile_id', { count: 'exact', head: true }),
+        supabase.from('exercise_allowed_view').select('exercise_id', { count: 'exact', head: true }),
+        supabase.from('quest_template').select('quest_template_id', { count: 'exact', head: true }),
         supabase.from('app_user').select('user_id', { count: 'exact', head: true })
     ]);
 
@@ -18,8 +184,8 @@ const getDashboard = asyncHandler(async (req, res) => {
         activeTab: 'dashboard',
         stats: {
             exercises: exerciseCount.count || 0,
-            metrics: metricCount.count || 0,
-            profiles: profileCount.count || 0,
+            allowedViews: allowedViewCount.count || 0,
+            quests: questCount.count || 0,
             users: userCount.count || 0
         }
     });
@@ -28,48 +194,91 @@ const getDashboard = asyncHandler(async (req, res) => {
 
 // 운동 관리
 const getExercises = asyncHandler(async (req, res) => {
-    const { data: exercises, error } = await supabase
-        .from('exercise')
-        .select('*')
-        .order('name');
+    const [{ data: exerciseRows, error: exerciseError }, { data: allowedViewRows, error: allowedViewError }] =
+        await Promise.all([
+            supabase
+                .from('exercise')
+                .select('*')
+                .order('sort_order', { ascending: true })
+                .order('name', { ascending: true }),
+            supabase.from('exercise_allowed_view').select('exercise_id, view_code, is_default')
+        ]);
 
-    if (error) {
-        console.error('Exercise fetch error:', error);
+    if (exerciseError) {
+        console.error('Exercise fetch error:', exerciseError);
     }
+    if (allowedViewError) {
+        console.error('Exercise allowed view fetch error:', allowedViewError);
+    }
+
+    const viewMap = new Map();
+    (allowedViewRows || []).forEach((row) => {
+        if (!viewMap.has(row.exercise_id)) {
+            viewMap.set(row.exercise_id, []);
+        }
+        viewMap.get(row.exercise_id).push(row);
+    });
+
+    const mergedRows = (exerciseRows || []).map((exercise) => ({
+        ...exercise,
+        exercise_allowed_view: viewMap.get(exercise.exercise_id) || []
+    }));
 
     res.render('admin/exercises', {
         title: '운동 관리',
         layout: 'layouts/admin',
         activeTab: 'exercises',
-        exercises: exercises || [],
+        exercises: formatExerciseList(mergedRows),
+        viewCodes: VIEW_CODES,
+        targetTypes: TARGET_TYPES,
         success: req.query.success,
         error: req.query.error
     });
 });
 
 const createExercise = asyncHandler(async (req, res) => {
-    const { code, name, description, is_active } = req.body;
-
-    // 코드 형식 검증 (영문 대문자, 숫자, 밑줄만)
-    if (!/^[A-Z0-9_]+$/.test(code)) {
-        return res.redirect('/admin/exercises?error=코드는 영문 대문자, 숫자, 밑줄만 사용 가능합니다');
+    const payload = normalizeExercisePayload(req.body);
+    const validationError = validateExercisePayload(payload);
+    if (validationError) {
+        return res.redirect(`/admin/exercises?error=${encodeURIComponent(validationError)}`);
     }
 
-    const { error } = await supabase
+    const { data: createdExercise, error: createError } = await supabase
         .from('exercise')
         .insert({
-            code: code.toUpperCase(),
-            name,
-            description: description || null,
-            is_active: is_active === 'on'
-        });
+            code: payload.code,
+            name: payload.name,
+            description: payload.description,
+            is_active: payload.is_active,
+            sort_order: payload.sort_order,
+            default_target_type: payload.default_target_type,
+            thumbnail_url: payload.thumbnail_url
+        })
+        .select('exercise_id')
+        .single();
 
-    if (error) {
-        console.error('Exercise create error:', error);
-        if (error.code === '23505') {
+    if (createError) {
+        console.error('Exercise create error:', createError);
+        if (createError.code === '23505') {
             return res.redirect('/admin/exercises?error=이미 존재하는 운동 코드입니다');
         }
         return res.redirect('/admin/exercises?error=운동 추가 중 오류가 발생했습니다');
+    }
+
+    const viewRows = buildAllowedViewRows(
+        createdExercise.exercise_id,
+        payload.allowed_views,
+        payload.default_view
+    );
+
+    const { error: viewInsertError } = await supabase
+        .from('exercise_allowed_view')
+        .insert(viewRows);
+
+    if (viewInsertError) {
+        console.error('Exercise allowed view create error:', viewInsertError);
+        await supabase.from('exercise').delete().eq('exercise_id', createdExercise.exercise_id);
+        return res.redirect('/admin/exercises?error=운동은 생성되었지만 허용 자세 저장에 실패했습니다');
     }
 
     res.redirect('/admin/exercises?success=운동이 추가되었습니다');
@@ -77,21 +286,67 @@ const createExercise = asyncHandler(async (req, res) => {
 
 const updateExercise = asyncHandler(async (req, res) => {
     const { exercise_id } = req.params;
-    const { code, name, description, is_active } = req.body;
+    const payload = normalizeExercisePayload(req.body);
+    const validationError = validateExercisePayload(payload);
+    if (validationError) {
+        return res.redirect(`/admin/exercises?error=${encodeURIComponent(validationError)}`);
+    }
 
-    const { error } = await supabase
+    const { data: existingViews } = await supabase
+        .from('exercise_allowed_view')
+        .select('view_code, is_default')
+        .eq('exercise_id', exercise_id);
+
+    const { error: updateError } = await supabase
         .from('exercise')
         .update({
-            code: code.toUpperCase(),
-            name,
-            description: description || null,
-            is_active: is_active === 'on'
+            code: payload.code,
+            name: payload.name,
+            description: payload.description,
+            is_active: payload.is_active,
+            sort_order: payload.sort_order,
+            default_target_type: payload.default_target_type,
+            thumbnail_url: payload.thumbnail_url,
+            updated_at: new Date().toISOString()
         })
         .eq('exercise_id', exercise_id);
 
-    if (error) {
-        console.error('Exercise update error:', error);
+    if (updateError) {
+        console.error('Exercise update error:', updateError);
+        if (updateError.code === '23505') {
+            return res.redirect('/admin/exercises?error=이미 존재하는 운동 코드입니다');
+        }
         return res.redirect('/admin/exercises?error=운동 수정 중 오류가 발생했습니다');
+    }
+
+    const { error: viewDeleteError } = await supabase
+        .from('exercise_allowed_view')
+        .delete()
+        .eq('exercise_id', exercise_id);
+
+    if (viewDeleteError) {
+        console.error('Exercise allowed view delete error:', viewDeleteError);
+        return res.redirect('/admin/exercises?error=허용 자세 갱신 중 오류가 발생했습니다');
+    }
+
+    const { error: viewInsertError } = await supabase
+        .from('exercise_allowed_view')
+        .insert(buildAllowedViewRows(exercise_id, payload.allowed_views, payload.default_view));
+
+    if (viewInsertError) {
+        console.error('Exercise allowed view insert error:', viewInsertError);
+
+        if (Array.isArray(existingViews) && existingViews.length > 0) {
+            await supabase.from('exercise_allowed_view').insert(
+                existingViews.map((viewRow) => ({
+                    exercise_id,
+                    view_code: viewRow.view_code,
+                    is_default: viewRow.is_default
+                }))
+            );
+        }
+
+        return res.redirect('/admin/exercises?error=허용 자세 저장 중 오류가 발생했습니다');
     }
 
     res.redirect('/admin/exercises?success=운동이 수정되었습니다');
@@ -117,351 +372,36 @@ const deleteExercise = asyncHandler(async (req, res) => {
 });
 
 
-// 채점 지표 관리
-const getMetrics = asyncHandler(async (req, res) => {
-    const { data: metrics, error } = await supabase
-        .from('metric')
-        .select('*')
-        .order('title');
-
-    if (error) {
-        console.error('Metric fetch error:', error);
-    }
-
-    res.render('admin/metrics', {
-        title: '채점 지표 관리',
-        layout: 'layouts/admin',
-        activeTab: 'metrics',
-        metrics: metrics || [],
-        success: req.query.success,
-        error: req.query.error
-    });
-});
-
-const createMetric = asyncHandler(async (req, res) => {
-    const { key, title, description, unit } = req.body;
-
-    const { error } = await supabase
-        .from('metric')
-        .insert({
-            key,
-            title,
-            description: description || null,
-            unit
-        });
-
-    if (error) {
-        console.error('Metric create error:', error);
-        if (error.code === '23505') {
-            return res.redirect('/admin/metrics?error=이미 존재하는 지표 키입니다');
-        }
-        return res.redirect('/admin/metrics?error=지표 추가 중 오류가 발생했습니다');
-    }
-
-    res.redirect('/admin/metrics?success=지표가 추가되었습니다');
-});
-
-const updateMetric = asyncHandler(async (req, res) => {
-    const { metric_id } = req.params;
-    const { key, title, description, unit } = req.body;
-
-    const { error } = await supabase
-        .from('metric')
-        .update({
-            key,
-            title,
-            description: description || null,
-            unit
-        })
-        .eq('metric_id', metric_id);
-
-    if (error) {
-        console.error('Metric update error:', error);
-        return res.redirect('/admin/metrics?error=지표 수정 중 오류가 발생했습니다');
-    }
-
-    res.redirect('/admin/metrics?success=지표가 수정되었습니다');
-});
-
-const deleteMetric = asyncHandler(async (req, res) => {
-    const { metric_id } = req.params;
-
-    const { error } = await supabase
-        .from('metric')
-        .delete()
-        .eq('metric_id', metric_id);
-
-    if (error) {
-        console.error('Metric delete error:', error);
-        if (error.code === '23503') {
-            return res.redirect('/admin/metrics?error=이 지표를 사용하는 프로파일이 있어 삭제할 수 없습니다');
-        }
-        return res.redirect('/admin/metrics?error=지표 삭제 중 오류가 발생했습니다');
-    }
-
-    res.redirect('/admin/metrics?success=지표가 삭제되었습니다');
-});
-
-
-// 채점 프로파일 관리
-const getScoringProfiles = asyncHandler(async (req, res) => {
-    const { data: profiles, error } = await supabase
-        .from('scoring_profile')
-        .select(`
-            *,
-            exercise:exercise_id (exercise_id, code, name)
-        `)
-        .order('created_at', { ascending: false });
-
-    const { data: exercises } = await supabase
-        .from('exercise')
-        .select('exercise_id, code, name')
-        .eq('is_active', true)
-        .order('name');
-
-    if (error) {
-        console.error('Profile fetch error:', error);
-    }
-
-    res.render('admin/scoring', {
-        title: '채점 프로파일 관리',
-        layout: 'layouts/admin',
-        activeTab: 'scoring',
-        profiles: profiles || [],
-        exercises: exercises || [],
-        success: req.query.success,
-        error: req.query.error
-    });
-});
-
-const createScoringProfile = asyncHandler(async (req, res) => {
-    const { exercise_id, name, is_active } = req.body;
-
-    // 해당 운동의 최대 버전 조회
-    const { data: maxVersion } = await supabase
-        .from('scoring_profile')
-        .select('version')
-        .eq('exercise_id', exercise_id)
-        .order('version', { ascending: false })
-        .limit(1)
-        .single();
-
-    const newVersion = (maxVersion?.version || 0) + 1;
-
-    // 활성화 시 기존 활성 프로파일 비활성화
-    if (is_active === 'on') {
-        await supabase
-            .from('scoring_profile')
-            .update({ is_active: false })
-            .eq('exercise_id', exercise_id)
-            .eq('is_active', true);
-    }
-
-    const { error } = await supabase
-        .from('scoring_profile')
-        .insert({
-            exercise_id,
-            version: newVersion,
-            name,
-            is_active: is_active === 'on'
-        });
-
-    if (error) {
-        console.error('Profile create error:', error);
-        return res.redirect('/admin/scoring?error=프로파일 추가 중 오류가 발생했습니다');
-    }
-
-    res.redirect('/admin/scoring?success=채점 프로파일이 추가되었습니다 (v' + newVersion + ')');
-});
-
-const getScoringProfileDetail = asyncHandler(async (req, res) => {
-    const { profile_id } = req.params;
-
-    const { data: profile, error } = await supabase
-        .from('scoring_profile')
-        .select(`
-            *,
-            exercise:exercise_id (exercise_id, code, name)
-        `)
-        .eq('scoring_profile_id', profile_id)
-        .single();
-
-    if (error || !profile) {
-        return res.redirect('/admin/scoring?error=프로파일을 찾을 수 없습니다');
-    }
-
-    // 프로파일에 연결된 지표들 조회
-    const { data: profileMetrics } = await supabase
-        .from('scoring_profile_metric')
-        .select(`
-            *,
-            metric:metric_id (metric_id, key, title, unit)
-        `)
-        .eq('scoring_profile_id', profile_id)
-        .order('order_no');
-
-    // 사용 가능한 모든 지표
-    const { data: allMetrics } = await supabase
-        .from('metric')
-        .select('*')
-        .order('title');
-
-    res.render('admin/scoring-detail', {
-        title: `채점 프로파일: ${profile.name}`,
-        layout: 'layouts/admin',
-        activeTab: 'scoring',
-        profile,
-        profileMetrics: profileMetrics || [],
-        allMetrics: allMetrics || [],
-        success: req.query.success,
-        error: req.query.error
-    });
-});
-
-const updateScoringProfile = asyncHandler(async (req, res) => {
-    const { profile_id } = req.params;
-    const { name, is_active } = req.body;
-
-    // 현재 프로파일 정보 조회
-    const { data: currentProfile } = await supabase
-        .from('scoring_profile')
-        .select('exercise_id')
-        .eq('scoring_profile_id', profile_id)
-        .single();
-
-    // 활성화 시 기존 활성 프로파일 비활성화
-    if (is_active === 'on' && currentProfile) {
-        await supabase
-            .from('scoring_profile')
-            .update({ is_active: false })
-            .eq('exercise_id', currentProfile.exercise_id)
-            .eq('is_active', true)
-            .neq('scoring_profile_id', profile_id);
-    }
-
-    const { error } = await supabase
-        .from('scoring_profile')
-        .update({
-            name,
-            is_active: is_active === 'on'
-        })
-        .eq('scoring_profile_id', profile_id);
-
-    if (error) {
-        console.error('Profile update error:', error);
-        return res.redirect(`/admin/scoring/${profile_id}?error=프로파일 수정 중 오류가 발생했습니다`);
-    }
-
-    res.redirect(`/admin/scoring/${profile_id}?success=프로파일이 수정되었습니다`);
-});
-
-const deleteScoringProfile = asyncHandler(async (req, res) => {
-    const { profile_id } = req.params;
-
-    const { error } = await supabase
-        .from('scoring_profile')
-        .delete()
-        .eq('scoring_profile_id', profile_id);
-
-    if (error) {
-        console.error('Profile delete error:', error);
-        if (error.code === '23503') {
-            return res.redirect('/admin/scoring?error=이 프로파일을 사용하는 세션이 있어 삭제할 수 없습니다');
-        }
-        return res.redirect('/admin/scoring?error=프로파일 삭제 중 오류가 발생했습니다');
-    }
-
-    res.redirect('/admin/scoring?success=프로파일이 삭제되었습니다');
-});
-
-// 프로파일 지표 추가/수정
-const addProfileMetric = asyncHandler(async (req, res) => {
-    const { profile_id } = req.params;
-    const { metric_id, weight, max_score, order_no, rule } = req.body;
-
-    // rule이 있으면 JSON 파싱
-    let ruleJson = null;
-    if (rule && rule.trim()) {
-        try {
-            ruleJson = JSON.parse(rule);
-        } catch (e) {
-            return res.redirect(`/admin/scoring/${profile_id}?error=규칙 JSON 형식이 올바르지 않습니다`);
-        }
-    }
-
-    const { error } = await supabase
-        .from('scoring_profile_metric')
-        .upsert({
-            scoring_profile_id: profile_id,
-            metric_id,
-            weight: parseFloat(weight),
-            max_score: parseInt(max_score),
-            order_no: parseInt(order_no),
-            rule: ruleJson
-        });
-
-    if (error) {
-        console.error('Profile metric add error:', error);
-        if(error.code = '23505') return res.redirect(`/admin/scoring/${profile_id}?error=이미 존재하는 순서 번호입니다`);
-        else return res.redirect(`/admin/scoring/${profile_id}?error=지표 추가 중 오류가 발생했습니다`);
-    }
-
-    res.redirect(`/admin/scoring/${profile_id}?success=지표가 추가되었습니다`);
-});
-
-const removeProfileMetric = asyncHandler(async (req, res) => {
-    const { profile_id, metric_id } = req.params;
-
-    const { error } = await supabase
-        .from('scoring_profile_metric')
-        .delete()
-        .eq('scoring_profile_id', profile_id)
-        .eq('metric_id', metric_id);
-
-    if (error) {
-        console.error('Profile metric remove error:', error);
-        return res.redirect(`/admin/scoring/${profile_id}?error=지표 제거 중 오류가 발생했습니다`);
-    }
-
-    res.redirect(`/admin/scoring/${profile_id}?success=지표가 제거되었습니다`);
-});
-
-
 // 사용자 관리
 const getUsers = asyncHandler(async (req, res) => {
     const { status, search } = req.query;
-    
+
     let query = supabase
         .from('app_user')
         .select('user_id, login_id, nickname, status, created_at, last_login_at')
         .order('created_at', { ascending: false });
-    
-    // 상태 필터
+
     if (status && status !== 'all') {
         query = query.eq('status', status);
     }
-    
-    // 검색 필터
+
     if (search) {
         query = query.or(`login_id.ilike.%${search}%,nickname.ilike.%${search}%`);
     }
-    
+
     const { data: users, error } = await query;
 
     if (error) {
         console.error('Users fetch error:', error);
     }
 
-    // 상태별 통계
-    const { data: statsData } = await supabase
-        .from('app_user')
-        .select('status');
-    
+    const { data: statsData } = await supabase.from('app_user').select('status');
+
     const stats = {
         total: statsData?.length || 0,
-        active: statsData?.filter(u => u.status === 'active').length || 0,
-        blocked: statsData?.filter(u => u.status === 'blocked').length || 0,
-        deleted: statsData?.filter(u => u.status === 'deleted').length || 0
+        active: statsData?.filter((user) => user.status === 'active').length || 0,
+        blocked: statsData?.filter((user) => user.status === 'blocked').length || 0,
+        deleted: statsData?.filter((user) => user.status === 'deleted').length || 0
     };
 
     res.render('admin/users', {
@@ -480,12 +420,10 @@ const updateUserStatus = asyncHandler(async (req, res) => {
     const { user_id } = req.params;
     const { status } = req.body;
 
-    // 유효한 상태값인지 확인
     if (!['active', 'blocked', 'deleted'].includes(status)) {
         return res.redirect('/admin/users?error=유효하지 않은 상태값입니다');
     }
 
-    // admin 계정은 상태 변경 불가
     const { data: user } = await supabase
         .from('app_user')
         .select('login_id')
@@ -511,42 +449,108 @@ const updateUserStatus = asyncHandler(async (req, res) => {
 });
 
 
-// ============ 퀘스트 템플릿 관리 ============
-
-// 퀘스트 템플릿 목록
+// 퀘스트 템플릿 관리
 const getQuestTemplates = asyncHandler(async (req, res) => {
-    const { data: templates, error } = await supabase
-        .from('quest_template')
-        .select('*')
-        .order('scope')
-        .order('created_at', { ascending: false });
+    const [
+        { data: templates, error: templateError },
+        { data: tiers, error: tierError },
+        { data: assignmentRules, error: ruleError }
+    ] = await Promise.all([
+        supabase
+            .from('quest_template')
+            .select('*')
+            .order('scope', { ascending: true })
+            .order('created_at', { ascending: false }),
+        supabase.from('tier_rule').select('tier, name').order('tier'),
+        supabase
+            .from('quest_assignment_rule')
+            .select('*')
+            .order('scope', { ascending: true })
+            .order('slot_no', { ascending: true })
+            .order('rule_id', { ascending: false })
+    ]);
 
-    if (error) {
-        console.error('Quest template fetch error:', error);
+    if (templateError) {
+        console.error('Quest template fetch error:', templateError);
     }
+    if (tierError) {
+        console.error('Tier rule fetch error:', tierError);
+    }
+    if (ruleError) {
+        console.error('Quest assignment rule fetch error:', ruleError);
+    }
+
+    const categorySet = new Set(QUEST_CATEGORIES);
+    (templates || []).forEach((template) => {
+        if (template.category) {
+            categorySet.add(String(template.category).toUpperCase());
+        }
+    });
+    (assignmentRules || []).forEach((rule) => {
+        if (rule.category) {
+            categorySet.add(String(rule.category).toUpperCase());
+        }
+    });
 
     res.render('admin/quests', {
         title: '퀘스트 관리',
         layout: 'layouts/admin',
         activeTab: 'quests',
         templates: templates || [],
+        assignmentRules: assignmentRules || [],
+        tiers: tiers || [],
+        questScopes: QUEST_SCOPES,
+        questTypes: QUEST_TYPES,
+        questDifficulties: QUEST_DIFFICULTIES,
+        questCategories: [...categorySet].sort(),
         success: req.query.success,
         error: req.query.error
     });
 });
 
-// 퀘스트 템플릿 생성
 const createQuestTemplate = asyncHandler(async (req, res) => {
-    const { scope, type, title, condition, reward_points, is_default, is_active } = req.body;
+    const scope = normalizeUpperToken(req.body.scope);
+    const type = normalizeUpperToken(req.body.type);
+    const categoryInput = normalizeUpperToken(req.body.category);
+    const category = categoryInput || (type === 'DO' ? 'GENERAL' : type);
+    const difficulty = normalizeUpperToken(req.body.difficulty, 'NORMAL');
+    const title = String(req.body.title || '').trim();
+    const rewardPoints = parseIntOrDefault(req.body.reward_points, NaN);
+    const selectionWeight = parseIntOrDefault(req.body.selection_weight, NaN);
+    const cooldownDays = parseIntOrDefault(req.body.cooldown_days, NaN);
+    const exclusiveGroup = normalizeText(req.body.exclusive_group);
+    const conditionParse = parseConditionJson(req.body.condition);
+    const tierRange = parseTierRange(req.body.min_tier, req.body.max_tier);
 
-    // condition JSON 파싱
-    let parsedCondition = {};
-    try {
-        if (condition) {
-            parsedCondition = typeof condition === 'string' ? JSON.parse(condition) : condition;
-        }
-    } catch (e) {
-        return res.redirect('/admin/quests?error=조건 형식이 올바르지 않습니다');
+    if (!QUEST_SCOPES.includes(scope)) {
+        return res.redirect('/admin/quests?error=유효하지 않은 퀘스트 범위입니다');
+    }
+    if (!QUEST_TYPES.includes(type)) {
+        return res.redirect('/admin/quests?error=유효하지 않은 퀘스트 유형입니다');
+    }
+    if (!QUEST_DIFFICULTIES.includes(difficulty)) {
+        return res.redirect('/admin/quests?error=난이도는 EASY/NORMAL/HARD 중 하나여야 합니다');
+    }
+    if (!/^[A-Z0-9_]{1,30}$/.test(category)) {
+        return res.redirect('/admin/quests?error=카테고리는 영문 대문자/숫자/_ 조합으로 입력해주세요');
+    }
+    if (!title) {
+        return res.redirect('/admin/quests?error=퀘스트 제목은 필수입니다');
+    }
+    if (!Number.isFinite(rewardPoints) || rewardPoints < 0) {
+        return res.redirect('/admin/quests?error=보상 포인트는 0 이상이어야 합니다');
+    }
+    if (!Number.isFinite(selectionWeight) || selectionWeight <= 0) {
+        return res.redirect('/admin/quests?error=선발 가중치는 1 이상의 정수여야 합니다');
+    }
+    if (!Number.isFinite(cooldownDays) || cooldownDays < 0) {
+        return res.redirect('/admin/quests?error=쿨다운 일수는 0 이상의 정수여야 합니다');
+    }
+    if (!conditionParse.ok) {
+        return res.redirect('/admin/quests?error=조건 JSON 형식이 올바르지 않습니다');
+    }
+    if (!tierRange.ok) {
+        return res.redirect(`/admin/quests?error=${encodeURIComponent(tierRange.error)}`);
     }
 
     const { error } = await supabase
@@ -554,34 +558,74 @@ const createQuestTemplate = asyncHandler(async (req, res) => {
         .insert({
             scope,
             type,
+            category,
+            difficulty,
             title,
-            condition: parsedCondition,
-            reward_points: parseInt(reward_points) || 0,
-            is_default: is_default === 'on',
-            is_active: is_active === 'on'
+            condition: conditionParse.value,
+            reward_points: rewardPoints,
+            min_tier: tierRange.min_tier,
+            max_tier: tierRange.max_tier,
+            selection_weight: selectionWeight,
+            cooldown_days: cooldownDays,
+            exclusive_group: exclusiveGroup,
+            is_active: isChecked(req.body.is_active)
         });
 
     if (error) {
         console.error('Quest template create error:', error);
+        if (error.code === '23503') {
+            return res.redirect('/admin/quests?error=존재하지 않는 티어 값이 포함되어 있습니다');
+        }
         return res.redirect('/admin/quests?error=퀘스트 생성 중 오류가 발생했습니다');
     }
 
     res.redirect('/admin/quests?success=퀘스트가 생성되었습니다');
 });
 
-// 퀘스트 템플릿 수정
 const updateQuestTemplate = asyncHandler(async (req, res) => {
     const { quest_template_id } = req.params;
-    const { scope, type, title, condition, reward_points, is_default, is_active } = req.body;
+    const scope = normalizeUpperToken(req.body.scope);
+    const type = normalizeUpperToken(req.body.type);
+    const categoryInput = normalizeUpperToken(req.body.category);
+    const category = categoryInput || (type === 'DO' ? 'GENERAL' : type);
+    const difficulty = normalizeUpperToken(req.body.difficulty, 'NORMAL');
+    const title = String(req.body.title || '').trim();
+    const rewardPoints = parseIntOrDefault(req.body.reward_points, NaN);
+    const selectionWeight = parseIntOrDefault(req.body.selection_weight, NaN);
+    const cooldownDays = parseIntOrDefault(req.body.cooldown_days, NaN);
+    const exclusiveGroup = normalizeText(req.body.exclusive_group);
+    const conditionParse = parseConditionJson(req.body.condition);
+    const tierRange = parseTierRange(req.body.min_tier, req.body.max_tier);
 
-    // condition JSON 파싱
-    let parsedCondition = {};
-    try {
-        if (condition) {
-            parsedCondition = typeof condition === 'string' ? JSON.parse(condition) : condition;
-        }
-    } catch (e) {
-        return res.redirect('/admin/quests?error=조건 형식이 올바르지 않습니다');
+    if (!QUEST_SCOPES.includes(scope)) {
+        return res.redirect('/admin/quests?error=유효하지 않은 퀘스트 범위입니다');
+    }
+    if (!QUEST_TYPES.includes(type)) {
+        return res.redirect('/admin/quests?error=유효하지 않은 퀘스트 유형입니다');
+    }
+    if (!QUEST_DIFFICULTIES.includes(difficulty)) {
+        return res.redirect('/admin/quests?error=난이도는 EASY/NORMAL/HARD 중 하나여야 합니다');
+    }
+    if (!/^[A-Z0-9_]{1,30}$/.test(category)) {
+        return res.redirect('/admin/quests?error=카테고리는 영문 대문자/숫자/_ 조합으로 입력해주세요');
+    }
+    if (!title) {
+        return res.redirect('/admin/quests?error=퀘스트 제목은 필수입니다');
+    }
+    if (!Number.isFinite(rewardPoints) || rewardPoints < 0) {
+        return res.redirect('/admin/quests?error=보상 포인트는 0 이상이어야 합니다');
+    }
+    if (!Number.isFinite(selectionWeight) || selectionWeight <= 0) {
+        return res.redirect('/admin/quests?error=선발 가중치는 1 이상의 정수여야 합니다');
+    }
+    if (!Number.isFinite(cooldownDays) || cooldownDays < 0) {
+        return res.redirect('/admin/quests?error=쿨다운 일수는 0 이상의 정수여야 합니다');
+    }
+    if (!conditionParse.ok) {
+        return res.redirect('/admin/quests?error=조건 JSON 형식이 올바르지 않습니다');
+    }
+    if (!tierRange.ok) {
+        return res.redirect(`/admin/quests?error=${encodeURIComponent(tierRange.error)}`);
     }
 
     const { error } = await supabase
@@ -589,35 +633,41 @@ const updateQuestTemplate = asyncHandler(async (req, res) => {
         .update({
             scope,
             type,
+            category,
+            difficulty,
             title,
-            condition: parsedCondition,
-            reward_points: parseInt(reward_points) || 0,
-            is_default: is_default === 'on',
-            is_active: is_active === 'on',
+            condition: conditionParse.value,
+            reward_points: rewardPoints,
+            min_tier: tierRange.min_tier,
+            max_tier: tierRange.max_tier,
+            selection_weight: selectionWeight,
+            cooldown_days: cooldownDays,
+            exclusive_group: exclusiveGroup,
+            is_active: isChecked(req.body.is_active),
             updated_at: new Date().toISOString()
         })
         .eq('quest_template_id', quest_template_id);
 
     if (error) {
         console.error('Quest template update error:', error);
+        if (error.code === '23503') {
+            return res.redirect('/admin/quests?error=존재하지 않는 티어 값이 포함되어 있습니다');
+        }
         return res.redirect('/admin/quests?error=퀘스트 수정 중 오류가 발생했습니다');
     }
 
     res.redirect('/admin/quests?success=퀘스트가 수정되었습니다');
 });
 
-// 퀘스트 템플릿 삭제
 const deleteQuestTemplate = asyncHandler(async (req, res) => {
     const { quest_template_id } = req.params;
 
-    // 사용 중인 퀘스트가 있는지 확인
     const { count } = await supabase
         .from('user_quest')
         .select('user_quest_id', { count: 'exact', head: true })
         .eq('quest_template_id', quest_template_id);
 
     if (count > 0) {
-        // 사용 중이면 비활성화만
         const { error } = await supabase
             .from('quest_template')
             .update({ is_active: false })
@@ -642,7 +692,135 @@ const deleteQuestTemplate = asyncHandler(async (req, res) => {
     res.redirect('/admin/quests?success=퀘스트가 삭제되었습니다');
 });
 
-// 티어 규칙 목록
+// 퀘스트 슬롯 규칙 관리
+const createQuestAssignmentRule = asyncHandler(async (req, res) => {
+    const scope = normalizeUpperToken(req.body.scope);
+    const slotNo = parseIntOrDefault(req.body.slot_no, NaN);
+    const category = normalizeUpperToken(req.body.category);
+    const type = normalizeUpperToken(req.body.type);
+    const count = parseIntOrDefault(req.body.count, NaN);
+    const tierRange = parseTierRange(req.body.min_tier, req.body.max_tier);
+
+    if (!QUEST_SCOPES.includes(scope)) {
+        return res.redirect('/admin/quests?error=유효하지 않은 규칙 범위입니다');
+    }
+    if (!Number.isFinite(slotNo) || slotNo < 1) {
+        return res.redirect('/admin/quests?error=슬롯 번호는 1 이상의 정수여야 합니다');
+    }
+    if (!QUEST_TYPES.includes(type)) {
+        return res.redirect('/admin/quests?error=유효하지 않은 규칙 유형입니다');
+    }
+    if (!/^[A-Z0-9_]{1,30}$/.test(category)) {
+        return res.redirect('/admin/quests?error=규칙 카테고리는 영문 대문자/숫자/_ 조합으로 입력해주세요');
+    }
+    if (!Number.isFinite(count) || count < 1) {
+        return res.redirect('/admin/quests?error=선발 개수는 1 이상의 정수여야 합니다');
+    }
+    if (!tierRange.ok) {
+        return res.redirect(`/admin/quests?error=${encodeURIComponent(tierRange.error)}`);
+    }
+
+    const { error } = await supabase
+        .from('quest_assignment_rule')
+        .insert({
+            scope,
+            slot_no: slotNo,
+            category,
+            type,
+            count,
+            min_tier: tierRange.min_tier,
+            max_tier: tierRange.max_tier,
+            is_active: isChecked(req.body.is_active)
+        });
+
+    if (error) {
+        console.error('Quest assignment rule create error:', error);
+        if (error.code === '23505') {
+            return res.redirect('/admin/quests?error=같은 범위/슬롯/티어구간 규칙이 이미 존재합니다');
+        }
+        if (error.code === '23503') {
+            return res.redirect('/admin/quests?error=존재하지 않는 티어 값이 포함되어 있습니다');
+        }
+        return res.redirect('/admin/quests?error=퀘스트 슬롯 규칙 생성 중 오류가 발생했습니다');
+    }
+
+    res.redirect('/admin/quests?success=퀘스트 슬롯 규칙이 생성되었습니다');
+});
+
+const updateQuestAssignmentRule = asyncHandler(async (req, res) => {
+    const { rule_id } = req.params;
+    const scope = normalizeUpperToken(req.body.scope);
+    const slotNo = parseIntOrDefault(req.body.slot_no, NaN);
+    const category = normalizeUpperToken(req.body.category);
+    const type = normalizeUpperToken(req.body.type);
+    const count = parseIntOrDefault(req.body.count, NaN);
+    const tierRange = parseTierRange(req.body.min_tier, req.body.max_tier);
+
+    if (!QUEST_SCOPES.includes(scope)) {
+        return res.redirect('/admin/quests?error=유효하지 않은 규칙 범위입니다');
+    }
+    if (!Number.isFinite(slotNo) || slotNo < 1) {
+        return res.redirect('/admin/quests?error=슬롯 번호는 1 이상의 정수여야 합니다');
+    }
+    if (!QUEST_TYPES.includes(type)) {
+        return res.redirect('/admin/quests?error=유효하지 않은 규칙 유형입니다');
+    }
+    if (!/^[A-Z0-9_]{1,30}$/.test(category)) {
+        return res.redirect('/admin/quests?error=규칙 카테고리는 영문 대문자/숫자/_ 조합으로 입력해주세요');
+    }
+    if (!Number.isFinite(count) || count < 1) {
+        return res.redirect('/admin/quests?error=선발 개수는 1 이상의 정수여야 합니다');
+    }
+    if (!tierRange.ok) {
+        return res.redirect(`/admin/quests?error=${encodeURIComponent(tierRange.error)}`);
+    }
+
+    const { error } = await supabase
+        .from('quest_assignment_rule')
+        .update({
+            scope,
+            slot_no: slotNo,
+            category,
+            type,
+            count,
+            min_tier: tierRange.min_tier,
+            max_tier: tierRange.max_tier,
+            is_active: isChecked(req.body.is_active)
+        })
+        .eq('rule_id', rule_id);
+
+    if (error) {
+        console.error('Quest assignment rule update error:', error);
+        if (error.code === '23505') {
+            return res.redirect('/admin/quests?error=같은 범위/슬롯/티어구간 규칙이 이미 존재합니다');
+        }
+        if (error.code === '23503') {
+            return res.redirect('/admin/quests?error=존재하지 않는 티어 값이 포함되어 있습니다');
+        }
+        return res.redirect('/admin/quests?error=퀘스트 슬롯 규칙 수정 중 오류가 발생했습니다');
+    }
+
+    res.redirect('/admin/quests?success=퀘스트 슬롯 규칙이 수정되었습니다');
+});
+
+const deleteQuestAssignmentRule = asyncHandler(async (req, res) => {
+    const { rule_id } = req.params;
+
+    const { error } = await supabase
+        .from('quest_assignment_rule')
+        .delete()
+        .eq('rule_id', rule_id);
+
+    if (error) {
+        console.error('Quest assignment rule delete error:', error);
+        return res.redirect('/admin/quests?error=퀘스트 슬롯 규칙 삭제 중 오류가 발생했습니다');
+    }
+
+    res.redirect('/admin/quests?success=퀘스트 슬롯 규칙이 삭제되었습니다');
+});
+
+
+// 티어 규칙 관리
 const getTierRules = asyncHandler(async (req, res) => {
     const { data: tiers, error } = await supabase
         .from('tier_rule')
@@ -663,15 +841,26 @@ const getTierRules = asyncHandler(async (req, res) => {
     });
 });
 
-// 티어 규칙 생성/수정
 const upsertTierRule = asyncHandler(async (req, res) => {
-    const { tier, min_points, name } = req.body;
+    const tier = parseIntOrDefault(req.body.tier, NaN);
+    const minPoints = parseIntOrDefault(req.body.min_points, NaN);
+    const name = String(req.body.name || '').trim();
+
+    if (!Number.isFinite(tier) || tier < 1) {
+        return res.redirect('/admin/tiers?error=티어 번호는 1 이상의 정수여야 합니다');
+    }
+    if (!Number.isFinite(minPoints) || minPoints < 0) {
+        return res.redirect('/admin/tiers?error=최소 포인트는 0 이상의 정수여야 합니다');
+    }
+    if (!name) {
+        return res.redirect('/admin/tiers?error=티어 이름은 필수입니다');
+    }
 
     const { error } = await supabase
         .from('tier_rule')
         .upsert({
-            tier: parseInt(tier),
-            min_points: parseInt(min_points),
+            tier,
+            min_points: minPoints,
             name
         });
 
@@ -689,23 +878,15 @@ module.exports = {
     createExercise,
     updateExercise,
     deleteExercise,
-    getMetrics,
-    createMetric,
-    updateMetric,
-    deleteMetric,
-    getScoringProfiles,
-    createScoringProfile,
-    getScoringProfileDetail,
-    updateScoringProfile,
-    deleteScoringProfile,
-    addProfileMetric,
-    removeProfileMetric,
     getUsers,
     updateUserStatus,
     getQuestTemplates,
     createQuestTemplate,
     updateQuestTemplate,
     deleteQuestTemplate,
+    createQuestAssignmentRule,
+    updateQuestAssignmentRule,
+    deleteQuestAssignmentRule,
     getTierRules,
     upsertTierRule
 };
