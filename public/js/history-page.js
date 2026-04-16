@@ -541,66 +541,95 @@
       return '<div class="chart-empty">시계열 데이터가 없습니다.</div>';
     }
 
-    const width = Math.max(520, rows.length * 60);
-    const height = 220;
-    const padX = 20;
-    const padTop = 18;
-    const padBottom = 30;
-    const usableHeight = Math.max(1, height - padTop - padBottom);
+    const padX = 2;
+    const padTop = 15;
+    const padBottom = 20;
+    const usableWidth = 100 - (padX * 2);
+    const usableHeight = 100 - padTop - padBottom;
     const minSec = rows[0].t_sec;
     const maxSec = rows[rows.length - 1].t_sec;
     const gradientId = `metric-series-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
+    let rawMin = Math.min(...rows.map(r => r.avg_score));
+    let rawMax = Math.max(...rows.map(r => r.avg_score));
+    if (rawMax === rawMin) {
+      rawMin = Math.max(0, rawMin - 10);
+      rawMax = Math.min(100, rawMax + 10);
+    } else {
+      const range = rawMax - rawMin;
+      rawMin = Math.max(0, rawMin - (range * 0.25));
+      rawMax = Math.min(100, rawMax + (range * 0.25));
+    }
+    const yRange = Math.max(1, rawMax - rawMin);
+
     const points = rows.map((row) => {
       const x = rows.length === 1
-        ? width / 2
-        : padX + (((row.t_sec - minSec) / Math.max(maxSec - minSec, 1)) * (width - (padX * 2)));
-      const y = (height - padBottom) - ((row.avg_score / 100) * usableHeight);
+        ? 50
+        : padX + (((row.t_sec - minSec) / Math.max(maxSec - minSec, 1)) * usableWidth);
+      const y = (100 - padBottom) - (((row.avg_score - rawMin) / yRange) * usableHeight);
       return { ...row, x, y };
     });
 
     const linePath = points.length > 1 ? buildLinePath(points) : '';
     const areaPath = points.length > 1
-      ? `${linePath} L${points[points.length - 1].x.toFixed(2)},${height - padBottom} L${points[0].x.toFixed(2)},${height - padBottom} Z`
+      ? `${linePath} L${points[points.length - 1].x.toFixed(2)},${100 - padBottom} L${points[0].x.toFixed(2)},${100 - padBottom} Z`
       : '';
     const pointStep = rows.length > 54 ? 9 : rows.length > 36 ? 6 : rows.length > 18 ? 4 : 2;
     const visiblePoints = points.filter((_, index) => rows.length === 1 || index === 0 || index === rows.length - 1 || index % pointStep === 0);
     const lastPointLabel = points[points.length - 1].snapshot_type === 'FINAL' ? '최종' : '마지막';
 
     return `
-      <div class="detail-series-chart-shell">
-        <div class="detail-series-chart-scroll">
-          <svg
-            class="detail-series-chart-svg"
-            width="${width}"
-            height="${height}"
-            viewBox="0 0 ${width} ${height}"
-            role="img"
-            aria-label="${escapeHtml(series.metric_name)} 점수 시계열"
-            preserveAspectRatio="none"
-          >
-            <defs>
-              <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.28"></stop>
-                <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"></stop>
-              </linearGradient>
-            </defs>
-            <line x1="${padX}" x2="${width - padX}" y1="${height - padBottom}" y2="${height - padBottom}" stroke="rgba(148, 163, 184, 0.45)" stroke-width="1"></line>
-            <line x1="${padX}" x2="${width - padX}" y1="${padTop}" y2="${padTop}" stroke="rgba(148, 163, 184, 0.22)" stroke-width="1" stroke-dasharray="4 4"></line>
-            <line x1="${padX}" x2="${width - padX}" y1="${(height - padBottom + padTop) / 2}" y2="${(height - padBottom + padTop) / 2}" stroke="rgba(148, 163, 184, 0.18)" stroke-width="1" stroke-dasharray="4 4"></line>
-            ${areaPath ? `<path class="detail-series-area" d="${areaPath}" fill="url(#${gradientId})"></path>` : ''}
-            ${linePath ? `<path class="detail-series-line" d="${linePath}"></path>` : ''}
-            ${visiblePoints.map((point) => `
-              <circle class="detail-series-dot" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4">
-                <title>${escapeHtml(`${formatMetricTime(point.t_sec)} · ${formatNumber(point.avg_score)}점 · ${point.snapshot_type}`)}</title>
-              </circle>
-            `).join('')}
-          </svg>
+      <div class="premium-chart-container">
+        <div style="display: flex; gap: 8px;">
+          <!-- Y-Axis -->
+          <div style="position: relative; width: 28px; flex-shrink: 0;">
+            <span class="y-axis-label" style="top: ${padTop}%;">${Math.ceil(rawMax)}</span>
+            <span class="y-axis-label" style="top: ${padTop + usableHeight / 2}%;">${Math.round((rawMax + rawMin) / 2)}</span>
+            <span class="y-axis-label" style="top: ${100 - padBottom}%;">${Math.floor(rawMin)}</span>
+          </div>
+
+          <!-- Chart Area -->
+          <div class="premium-chart-area" style="flex-grow: 1;">
+            <div class="chart-grid-line" style="top: ${padTop}%; border-top-style: dashed; border-color: rgba(148, 163, 184, 0.15);"></div>
+            <div class="chart-grid-line" style="top: ${padTop + usableHeight / 2}%; border-top-style: dashed; border-color: rgba(148, 163, 184, 0.15);"></div>
+            <div class="chart-grid-line" style="top: ${100 - padBottom}%; border-top-style: solid; border-color: rgba(148, 163, 184, 0.3);"></div>
+            
+            <svg class="chart-svg-layer" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(series.metric_name)} 점수 시계열">
+              <defs>
+                <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.32"></stop>
+                  <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"></stop>
+                </linearGradient>
+              </defs>
+              ${areaPath ? `<path class="chart-area" d="${areaPath}" fill="url(#${gradientId})"></path>` : ''}
+              ${linePath ? `<path class="chart-line" d="${linePath}" vector-effect="non-scaling-stroke"></path>` : ''}
+            </svg>
+
+            <div class="chart-points-layer">
+              ${visiblePoints.map((point, index) => {
+                const isFirst = index === 0;
+                const isLast = index === visiblePoints.length - 1 && visiblePoints.length > 1;
+                const alignClass = isFirst ? 'tooltip-align-left' : isLast ? 'tooltip-align-right' : 'tooltip-align-center';
+                return `
+                  <div class="chart-point-anchor" style="left: ${point.x.toFixed(2)}%; top: ${point.y.toFixed(2)}%;">
+                    <div class="chart-point-hover-area"></div>
+                    <div class="chart-point-dot"></div>
+                    <div class="chart-tooltip ${alignClass}">
+                      <div class="tooltip-time">${escapeHtml(formatMetricTime(point.t_sec))} · ${escapeHtml(point.snapshot_type)}</div>
+                      <div class="tooltip-score"><strong>${formatNumber(point.avg_score)}</strong><small>점</small></div>
+                      ${point.avg_raw_value != null ? `<div class="tooltip-raw">raw ${point.avg_raw_value.toFixed(1)}</div>` : ''}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
         </div>
-        <div class="detail-series-caption">
+
+        <div class="premium-caption" style="padding-left: 36px;">
           <span>${escapeHtml(formatMetricTime(points[0].t_sec))}</span>
           <span>${escapeHtml(formatMetricTime(points[Math.floor(points.length / 2)].t_sec))}</span>
-          <span>${escapeHtml(`${formatMetricTime(points[points.length - 1].t_sec)} · ${lastPointLabel} ${formatNumber(points[points.length - 1].avg_score)}점`)}</span>
+          <span>${escapeHtml(formatMetricTime(points[points.length - 1].t_sec))} · ${lastPointLabel} ${formatNumber(points[points.length - 1].avg_score)}점</span>
         </div>
       </div>
     `;
