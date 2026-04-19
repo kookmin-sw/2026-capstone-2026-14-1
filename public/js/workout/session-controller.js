@@ -10,7 +10,7 @@ async function initSession(workoutData) {
   let exerciseModule = null;
 
   const state = {
-    phase: 'PREPARING',
+    phase: "PREPARING",
     sessionId: null,
     selectedView: null,
     currentSet: 1,
@@ -25,7 +25,7 @@ async function initSession(workoutData) {
     alertCooldown: false,
     frameLoop: null,
     lastViewInfoAt: 0,
-    lastViewInfoText: '',
+    lastViewInfoText: "",
     repInProgressPrev: false,
     repMetricBuffer: {},
     lastRepMetricSummary: [],
@@ -34,62 +34,61 @@ async function initSession(workoutData) {
     currentTargetSec: 0,
     currentSegmentSec: 0,
     bestHoldSec: 0,
-    plankGoalReached: false
+    plankGoalReached: false,
   };
 
-  const videoElement = document.getElementById('videoElement');
-  const poseCanvas = document.getElementById('poseCanvas');
-  const cameraOverlay = document.getElementById('cameraOverlay');
-  const statusBadge = document.getElementById('statusBadge');
-  const liveScoreEl = document.getElementById('liveScore');
-  const scoreModeLabelEl = document.getElementById('scoreModeLabel');
-  const scoreBreakdownEl = document.getElementById('scoreBreakdown');
-  const phaseInfoEl = document.getElementById('phaseInfo');
-  const viewInfoEl = document.getElementById('viewInfo');
-  const repCountEl = document.getElementById('repCount');
-  const repCountLabelEl = document.getElementById('repCountLabel');
-  const setCountEl = document.getElementById('setCount');
-  const timerValueEl = document.getElementById('timerValue');
-  const timerLabelEl = document.getElementById('timerLabel');
-  const restTimerEl = document.getElementById('restTimer');
-  const restValueEl = document.getElementById('restValue');
-  const alertContainer = document.getElementById('alertContainer');
-  const alertTitle = document.getElementById('alertTitle');
-  const alertMessage = document.getElementById('alertMessage');
-  const startBtn = document.getElementById('startBtn');
-  const pauseBtn = document.getElementById('pauseBtn');
-  const finishBtn = document.getElementById('finishBtn');
-  const viewSelectRoot = document.getElementById('viewSelect');
-  const routineStepEl = document.getElementById('routineStep');
-  const plankTargetSelectRoot = document.getElementById('plankTargetSelect');
-  const plankTargetInput = document.getElementById('plankTargetSeconds');
-  const plankTargetHint = document.getElementById('plankTargetHint');
-  const plankTargetReadoutEl = document.getElementById('plankTargetReadout');
-  const plankCurrentHoldEl = document.getElementById('plankCurrentHold');
-  const plankBestHoldEl = document.getElementById('plankBestHold');
-  const plankPhaseInfoEl = document.getElementById('plankPhaseInfo');
-  const plankProgressEl = document.getElementById('plankProgress');
-  const plankStateLabelEl = document.getElementById('plankStateLabel');
-  const plankGoalLabelEl = document.getElementById('plankGoalLabel');
-  const plankSegmentLabelEl = document.getElementById('plankSegmentLabel');
+  const videoElement = document.getElementById("videoElement");
+  const poseCanvas = document.getElementById("poseCanvas");
+  const cameraOverlay = document.getElementById("cameraOverlay");
+  const statusBadge = document.getElementById("statusBadge");
+  const liveScoreEl = document.getElementById("liveScore");
+  const scoreModeLabelEl = document.getElementById("scoreModeLabel");
+  const scoreBreakdownEl = document.getElementById("scoreBreakdown");
+  const phaseInfoEl = document.getElementById("phaseInfo");
+  const viewInfoEl = document.getElementById("viewInfo");
+  const repCountEl = document.getElementById("repCount");
+  const repCountLabelEl = document.getElementById("repCountLabel");
+  const setCountEl = document.getElementById("setCount");
+  const timerValueEl = document.getElementById("timerValue");
+  const timerLabelEl = document.getElementById("timerLabel");
+  const restTimerEl = document.getElementById("restTimer");
+  const restValueEl = document.getElementById("restValue");
+  const alertContainer = document.getElementById("alertContainer");
+  const alertTitle = document.getElementById("alertTitle");
+  const alertMessage = document.getElementById("alertMessage");
+  const startBtn = document.getElementById("startBtn");
+  const pauseBtn = document.getElementById("pauseBtn");
+  const finishBtn = document.getElementById("finishBtn");
+  const viewSelectRoot = document.getElementById("viewSelect");
+  const routineStepEl = document.getElementById("routineStep");
+  const plankTargetSelectRoot = document.getElementById("plankTargetSelect");
+  const plankTargetInput = document.getElementById("plankTargetSeconds");
+  const plankTargetHint = document.getElementById("plankTargetHint");
+  const plankTargetReadoutEl = document.getElementById("plankTargetReadout");
+  const plankCurrentHoldEl = document.getElementById("plankCurrentHold");
+  const plankBestHoldEl = document.getElementById("plankBestHold");
+  const plankPhaseInfoEl = document.getElementById("plankPhaseInfo");
+  const plankProgressEl = document.getElementById("plankProgress");
+  const plankStateLabelEl = document.getElementById("plankStateLabel");
+  const plankGoalLabelEl = document.getElementById("plankGoalLabel");
+  const plankSegmentLabelEl = document.getElementById("plankSegmentLabel");
 
   const normalizeViewCode = (value) => {
-    const normalized = (value || '').toString().trim().toUpperCase();
-    return ['FRONT', 'SIDE', 'DIAGONAL'].includes(normalized) ? normalized : null;
+    const normalized = (value || "").toString().trim().toUpperCase();
+    return ["FRONT", "SIDE", "DIAGONAL"].includes(normalized)
+      ? normalized
+      : null;
   };
 
   const isPlankExerciseCode = (exerciseCode = workoutData.exercise?.code) =>
-    (exerciseCode || '')
-      .toString()
-      .trim()
-      .toLowerCase()
-      .replace(/-/g, '_') === 'plank';
+    (exerciseCode || "").toString().trim().toLowerCase().replace(/-/g, "_") ===
+    "plank";
 
   const formatClock = (totalSeconds) => {
     const safe = Math.max(0, Math.round(Number(totalSeconds) || 0));
     const mins = Math.floor(safe / 60);
     const secs = safe % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
   const isTimeBasedExercise = () => Boolean(repCounter?.pattern?.isTimeBased);
@@ -101,9 +100,9 @@ async function initSession(workoutData) {
   };
 
   const getCurrentTargetSec = () => {
-    if (workoutData.mode === 'ROUTINE' && workoutData.routine) {
+    if (workoutData.mode === "ROUTINE" && workoutData.routine) {
       const step = getCurrentRoutineStep();
-      if (normalizeRoutineTargetType(step?.target_type) === 'TIME') {
+      if (normalizeRoutineTargetType(step?.target_type) === "TIME") {
         return Math.max(1, Number(step?.target_value) || 1);
       }
     }
@@ -113,29 +112,31 @@ async function initSession(workoutData) {
 
   const canStartCurrentExercise = () => {
     if (!isPlankExerciseCode()) return true;
-    if (workoutData.mode === 'ROUTINE') return getCurrentTargetSec() > 0;
+    if (workoutData.mode === "ROUTINE") return getCurrentTargetSec() > 0;
     return getCurrentTargetSec() >= 10;
   };
 
   function getAllowedViews(exercise = workoutData.exercise) {
-    const allowed = Array.isArray(exercise?.allowed_views) ? exercise.allowed_views : [];
+    const allowed = Array.isArray(exercise?.allowed_views)
+      ? exercise.allowed_views
+      : [];
     const normalized = allowed
       .map((code) => normalizeViewCode(code))
       .filter(Boolean);
-    return normalized.length > 0 ? normalized : ['FRONT'];
+    return normalized.length > 0 ? normalized : ["FRONT"];
   }
 
   function resolveDefaultView(exercise = workoutData.exercise) {
     const allowed = getAllowedViews(exercise);
     const defaultView = normalizeViewCode(exercise?.default_view);
     if (defaultView && allowed.includes(defaultView)) return defaultView;
-    return allowed[0] || 'FRONT';
+    return allowed[0] || "FRONT";
   }
 
   function normalizeRoutineTargetType(value) {
-    const normalized = (value || '').toString().trim().toUpperCase();
-    if (normalized === 'DURATION') return 'TIME';
-    return normalized === 'TIME' ? 'TIME' : 'REPS';
+    const normalized = (value || "").toString().trim().toUpperCase();
+    if (normalized === "DURATION") return "TIME";
+    return normalized === "TIME" ? "TIME" : "REPS";
   }
 
   function getCurrentRoutineStep() {
@@ -143,54 +144,68 @@ async function initSession(workoutData) {
   }
 
   function isRoutineTimeTarget() {
-    if (workoutData.mode !== 'ROUTINE' || !workoutData.routine) return false;
+    if (workoutData.mode !== "ROUTINE" || !workoutData.routine) return false;
     const step = getCurrentRoutineStep();
-    return normalizeRoutineTargetType(step?.target_type) === 'TIME';
+    return normalizeRoutineTargetType(step?.target_type) === "TIME";
   }
 
   function updatePrimaryCounterDisplay() {
     if (repCountLabelEl) {
-      repCountLabelEl.textContent = isTimeBasedExercise() || isRoutineTimeTarget() ? '\uC2DC\uAC04(\uCD08)' : '\uD69F\uC218';
+      repCountLabelEl.textContent =
+        isTimeBasedExercise() || isRoutineTimeTarget()
+          ? "\uC2DC\uAC04(\uCD08)"
+          : "\uD69F\uC218";
     }
 
     const value = isTimeBasedExercise()
       ? Math.max(0, Math.round(state.currentSegmentSec))
       : isRoutineTimeTarget()
         ? Math.max(0, Math.round(state.currentSetWorkSec))
-      : Math.max(0, Math.round(state.currentRep));
+        : Math.max(0, Math.round(state.currentRep));
     repCountEl.textContent = String(value);
   }
 
   function updateRoutineStepDisplay() {
-    if (!routineStepEl || workoutData.mode !== 'ROUTINE' || !workoutData.routine) return;
+    if (
+      !routineStepEl ||
+      workoutData.mode !== "ROUTINE" ||
+      !workoutData.routine
+    )
+      return;
 
-    const steps = Array.isArray(workoutData.routine.routine_setup) ? workoutData.routine.routine_setup : [];
+    const steps = Array.isArray(workoutData.routine.routine_setup)
+      ? workoutData.routine.routine_setup
+      : [];
     if (steps.length === 0) return;
 
     const stepIndex = Math.min(state.currentStepIndex, steps.length - 1);
     const step = steps[stepIndex] || {};
     const targetType = normalizeRoutineTargetType(step.target_type);
     const targetValue = Math.max(1, Number(step.target_value) || 1);
-    const unit = targetType === 'TIME' ? '\uCD08' : '\uD68C';
+    const unit = targetType === "TIME" ? "\uCD08" : "\uD68C";
     const sets = Math.max(1, Number(step.sets) || 1);
 
-    routineStepEl.textContent =
-      `${stepIndex + 1} / ${steps.length} \uC6B4\uB3D9 \u00B7 \uBAA9\uD45C ${targetValue}${unit} \u00D7 ${sets}\uC138\uD2B8`;
+    routineStepEl.textContent = `${stepIndex + 1} / ${steps.length} \uC6B4\uB3D9 \u00B7 \uBAA9\uD45C ${targetValue}${unit} \u00D7 ${sets}\uC138\uD2B8`;
   }
 
   function syncPlankTargetUi() {
     const targetSec = getCurrentTargetSec();
     const isPlank = isPlankExerciseCode();
-    const isRoutinePlank = isPlank && workoutData.mode === 'ROUTINE';
-    const showFreeTargetUi = isPlank && workoutData.mode !== 'ROUTINE' && state.phase === 'PREPARING';
+    const isRoutinePlank = isPlank && workoutData.mode === "ROUTINE";
+    const showFreeTargetUi =
+      isPlank && workoutData.mode !== "ROUTINE" && state.phase === "PREPARING";
 
     if (plankTargetSelectRoot) {
       plankTargetSelectRoot.hidden = !showFreeTargetUi;
-      plankTargetSelectRoot.querySelectorAll('[data-plank-target-sec]').forEach((button) => {
-        const buttonSec = Number(button.getAttribute('data-plank-target-sec'));
-        button.classList.toggle('active', buttonSec === targetSec);
-        button.disabled = isRoutinePlank;
-      });
+      plankTargetSelectRoot
+        .querySelectorAll("[data-plank-target-sec]")
+        .forEach((button) => {
+          const buttonSec = Number(
+            button.getAttribute("data-plank-target-sec"),
+          );
+          button.classList.toggle("active", buttonSec === targetSec);
+          button.disabled = isRoutinePlank;
+        });
     }
 
     if (plankTargetInput) {
@@ -203,32 +218,38 @@ async function initSession(workoutData) {
     if (plankTargetHint) {
       plankTargetHint.textContent = isRoutinePlank
         ? `루틴 목표 시간 ${targetSec}초가 자동으로 적용됩니다.`
-        : '플랭크는 목표 시간을 먼저 정한 뒤 시작합니다. 목표 시간은 세션 종료 시 점수 정규화 기준이 됩니다.';
+        : "플랭크는 목표 시간을 먼저 정한 뒤 시작합니다. 목표 시간은 세션 종료 시 점수 정규화 기준이 됩니다.";
     }
 
     if (plankTargetReadoutEl) {
-      plankTargetReadoutEl.textContent = targetSec > 0 ? `${targetSec}초` : '--';
+      plankTargetReadoutEl.textContent =
+        targetSec > 0 ? `${targetSec}초` : "--";
     }
 
     if (scoreModeLabelEl) {
-      scoreModeLabelEl.textContent = isPlank ? '현재 자세 점수' : '이번 rep 점수';
+      scoreModeLabelEl.textContent = isPlank
+        ? "현재 자세 점수"
+        : "이번 rep 점수";
     }
     if (timerLabelEl) {
-      timerLabelEl.textContent = isPlank ? '플랭크 시간' : '운동 시간';
+      timerLabelEl.textContent = isPlank ? "플랭크 시간" : "운동 시간";
     }
-    if (startBtn && state.phase === 'PREPARING') {
-      startBtn.textContent = isPlank ? '플랭크 시작' : '운동 시작';
+    if (startBtn && state.phase === "PREPARING") {
+      startBtn.textContent = isPlank ? "플랭크 시작" : "운동 시작";
     }
   }
 
   function applyTargetSec(nextTargetSec) {
     const parsed = Number(nextTargetSec);
-    state.currentTargetSec = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
+    state.currentTargetSec =
+      Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
     if (repCounter?.setTargetSec) {
       repCounter.setTargetSec(state.currentTargetSec);
     }
     syncPlankTargetUi();
-    updatePlankRuntimeDisplay(repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null);
+    updatePlankRuntimeDisplay(
+      repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
+    );
     if (startBtn && !startBtn.hidden) {
       startBtn.disabled = !canStartCurrentExercise();
     }
@@ -237,21 +258,25 @@ async function initSession(workoutData) {
   function setupPlankTargetControls() {
     if (!plankTargetSelectRoot) return;
 
-    plankTargetSelectRoot.querySelectorAll('[data-plank-target-sec]').forEach((button) => {
-      button.addEventListener('click', () => {
-        if (workoutData.mode === 'ROUTINE') return;
-        const targetSec = Number(button.getAttribute('data-plank-target-sec'));
-        applyTargetSec(targetSec);
+    plankTargetSelectRoot
+      .querySelectorAll("[data-plank-target-sec]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          if (workoutData.mode === "ROUTINE") return;
+          const targetSec = Number(
+            button.getAttribute("data-plank-target-sec"),
+          );
+          applyTargetSec(targetSec);
+        });
       });
-    });
 
     if (plankTargetInput) {
-      plankTargetInput.addEventListener('change', () => {
-        if (workoutData.mode === 'ROUTINE') return;
+      plankTargetInput.addEventListener("change", () => {
+        if (workoutData.mode === "ROUTINE") return;
         applyTargetSec(readTargetSecFromInput());
       });
-      plankTargetInput.addEventListener('input', () => {
-        if (workoutData.mode === 'ROUTINE') return;
+      plankTargetInput.addEventListener("input", () => {
+        if (workoutData.mode === "ROUTINE") return;
         const nextValue = Number(plankTargetInput.value);
         if (!Number.isFinite(nextValue) || nextValue < 10) return;
         applyTargetSec(nextValue);
@@ -261,7 +286,7 @@ async function initSession(workoutData) {
 
   function updatePlankRuntimeDisplay(summary = null) {
     const isPlank = isPlankExerciseCode();
-    const wrapperIds = ['plankRuntimePanel', 'plankTimerPanel'];
+    const wrapperIds = ["plankRuntimePanel", "plankTimerPanel"];
     wrapperIds.forEach((id) => {
       const element = document.getElementById(id);
       if (element) {
@@ -271,26 +296,36 @@ async function initSession(workoutData) {
 
     if (!isPlank) return;
 
-    const phase = summary?.currentPhase || window.TIME_PHASES?.SETUP || 'SETUP';
-    const currentSegmentSec = Math.max(0, Math.floor((summary?.currentSegmentMs || 0) / 1000));
+    const phase = summary?.currentPhase || window.TIME_PHASES?.SETUP || "SETUP";
+    const currentSegmentSec = Math.max(
+      0,
+      Math.floor((summary?.currentSegmentMs || 0) / 1000),
+    );
     const bestHoldSec = Math.max(0, Math.floor(summary?.bestHoldSec || 0));
     const targetSec = getCurrentTargetSec();
-    const progressRatio = targetSec > 0 ? Math.min(1, bestHoldSec / targetSec) : 0;
+    const progressRatio =
+      targetSec > 0 ? Math.min(1, bestHoldSec / targetSec) : 0;
 
     state.currentSegmentSec = currentSegmentSec;
     state.bestHoldSec = bestHoldSec;
     state.plankGoalReached = targetSec > 0 && bestHoldSec >= targetSec;
 
-    if (plankCurrentHoldEl) plankCurrentHoldEl.textContent = formatClock(currentSegmentSec);
+    if (plankCurrentHoldEl)
+      plankCurrentHoldEl.textContent = formatClock(currentSegmentSec);
     if (plankBestHoldEl) plankBestHoldEl.textContent = formatClock(bestHoldSec);
     if (plankPhaseInfoEl) plankPhaseInfoEl.textContent = phase;
     if (plankStateLabelEl) plankStateLabelEl.textContent = phase;
-    if (plankSegmentLabelEl) plankSegmentLabelEl.textContent = formatClock(currentSegmentSec);
-    if (plankTargetReadoutEl) plankTargetReadoutEl.textContent = targetSec > 0 ? `${targetSec}초` : '--';
+    if (plankSegmentLabelEl)
+      plankSegmentLabelEl.textContent = formatClock(currentSegmentSec);
+    if (plankTargetReadoutEl)
+      plankTargetReadoutEl.textContent =
+        targetSec > 0 ? `${targetSec}초` : "--";
     if (plankGoalLabelEl) {
       plankGoalLabelEl.textContent = state.plankGoalReached
-        ? '달성'
-        : (targetSec > 0 ? `${Math.max(0, targetSec - bestHoldSec)}초 남음` : '대기 중');
+        ? "달성"
+        : targetSec > 0
+          ? `${Math.max(0, targetSec - bestHoldSec)}초 남음`
+          : "대기 중";
     }
     if (plankProgressEl) {
       plankProgressEl.style.width = `${Math.round(progressRatio * 100)}%`;
@@ -300,29 +335,64 @@ async function initSession(workoutData) {
   function refreshRoutineCounterUi() {
     updatePrimaryCounterDisplay();
     updateRoutineStepDisplay();
-    updatePlankRuntimeDisplay(repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null);
+    updatePlankRuntimeDisplay(
+      repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
+    );
   }
 
   let isEndingSession = false;
   let pendingSessionPayload = null;
   let hasUnloadAbortSent = false;
   let aiEnginesInitialized = false;
-  let selectedCameraSource = window.SESSION_CAMERA_DEFAULT_SOURCE || 'screen';
+  let selectedCameraSource = window.SESSION_CAMERA_DEFAULT_SOURCE || "screen";
   const sessionCamera = new SessionCamera(videoElement, poseCanvas);
+  let wakeLock = null;
 
-  const cameraReadyHtml = '<p>준비 완료</p><p class="muted">전신이 잘 보이도록 위치를 조정하세요</p>';
+  async function requestWakeLock() {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => {
+          console.log("[Wake Lock] Screen Wake Lock released");
+        });
+        console.log("[Wake Lock] Screen Wake Lock acquired");
+      }
+    } catch (err) {
+      console.error(`[Wake Lock] Error: ${err.name}, ${err.message}`);
+    }
+  }
+
+  async function releaseWakeLock() {
+    if (wakeLock !== null) {
+      await wakeLock.release().catch(() => {});
+      wakeLock = null;
+    }
+  }
+
+  document.addEventListener("visibilitychange", async () => {
+    if (
+      document.visibilityState === "visible" &&
+      (state.phase === "WORKING" || state.phase === "RESTING")
+    ) {
+      await requestWakeLock();
+    }
+  });
+
+  const cameraReadyHtml =
+    '<p>준비 완료</p><p class="muted">전신이 잘 보이도록 위치를 조정하세요</p>';
 
   let noPersonCount = 0;
   const NO_PERSON_THRESHOLD = 30;
-  state.selectedView = normalizeViewCode(workoutData.selectedView) || resolveDefaultView();
+  state.selectedView =
+    normalizeViewCode(workoutData.selectedView) || resolveDefaultView();
   state.currentTargetSec = Math.max(0, Number(workoutData.plankTargetSec) || 0);
 
   function getCurrentExerciseCode() {
-    return ((workoutData.exercise && workoutData.exercise.code) || '')
+    return ((workoutData.exercise && workoutData.exercise.code) || "")
       .toString()
       .trim()
       .toLowerCase()
-      .replace(/-/g, '_');
+      .replace(/-/g, "_");
   }
 
   function bindEnginesToCurrentExercise() {
@@ -332,9 +402,10 @@ async function initSession(workoutData) {
 
     scoringEngine = new ScoringEngine(workoutData.scoringProfile || null, {
       exerciseCode: workoutData.exercise.code,
-      selectedView: state.selectedView
+      selectedView: state.selectedView,
     });
-    exerciseModule = window.WorkoutExerciseRegistry?.get(workoutData.exercise.code) || null;
+    exerciseModule =
+      window.WorkoutExerciseRegistry?.get(workoutData.exercise.code) || null;
 
     repCounter = new RepCounter(workoutData.exercise.code);
     repCounter.repEvaluator = (repRecord) => scoringEngine.scoreRep(repRecord);
@@ -353,7 +424,7 @@ async function initSession(workoutData) {
       scoringEngine,
       selectedView: state.selectedView,
       state,
-      ...extra
+      ...extra,
     };
   }
 
@@ -362,34 +433,52 @@ async function initSession(workoutData) {
       return { isReady: true };
     }
 
-    return exerciseModule.getFrameGate(angles, getExerciseRuntime({ angles })) || { isReady: true };
+    return (
+      exerciseModule.getFrameGate(angles, getExerciseRuntime({ angles })) || {
+        isReady: true,
+      }
+    );
   }
 
   async function initAIEngines() {
     try {
-      cameraOverlay.innerHTML = '<p>AI 엔진 로딩 중...</p>';
+      cameraOverlay.innerHTML = `
+        <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+          <style>@keyframes spin-anim { 100% { transform: rotate(360deg); } }</style>
+          <div style="width:36px; height:36px; border:4px solid rgba(255,255,255,0.2); border-top-color:#fff; border-radius:50%; animation:spin-anim 1s linear infinite;"></div>
+          <p style="margin:0; font-weight:500;">AI 모델을 불러오는 중입니다...</p>
+          <span class="muted" style="font-size:12px;">최초 1회 실행 시 환경에 따라 시간이 소요될 수 있습니다.</span>
+        </div>
+      `;
 
       poseEngine = new PoseEngine();
       await poseEngine.initialize();
 
       if (!bindEnginesToCurrentExercise()) {
-        throw new Error('운동 정보를 불러오지 못했습니다.');
+        throw new Error("운동 정보를 불러오지 못했습니다.");
       }
 
       poseEngine.onPoseDetected = handlePoseDetected;
       poseEngine.onNoPerson = handleNoPerson;
 
-      console.log('[Session] AI 엔진 초기화 완료');
+      console.log("[Session] AI 엔진 초기화 완료");
       return true;
     } catch (error) {
-      console.error('[Session] AI 엔진 초기화 실패:', error);
-      cameraOverlay.innerHTML = '<p>AI 엔진 로딩 실패</p><p class="muted">페이지를 새로고침해주세요</p>';
+      console.error("[Session] AI 엔진 초기화 실패:", error);
+      cameraOverlay.innerHTML =
+        '<p>AI 엔진 로딩 실패</p><p class="muted">페이지를 새로고침해주세요</p>';
       return false;
     }
   }
 
   async function connectCameraSource(sourceType) {
-    cameraOverlay.innerHTML = '<p>카메라를 연결 중...</p>';
+    cameraOverlay.innerHTML = `
+      <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+        <style>@keyframes spin-anim { 100% { transform: rotate(360deg); } }</style>
+        <div style="width:36px; height:36px; border:4px solid rgba(255,255,255,0.2); border-top-color:#fff; border-radius:50%; animation:spin-anim 1s linear infinite;"></div>
+        <p style="margin:0; font-weight:500;">카메라를 연결 중...</p>
+      </div>
+    `;
     cameraOverlay.hidden = false;
     startBtn.disabled = true;
 
@@ -403,47 +492,83 @@ async function initSession(workoutData) {
       sessionCamera.destroy();
       const stream = await sessionCamera.getStream(sourceType);
       sessionCamera.applyStream(stream);
+
+      cameraOverlay.innerHTML = `
+        <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+          <div style="width:36px; height:36px; border:4px solid rgba(255,255,255,0.2); border-top-color:#fff; border-radius:50%; animation:spin-anim 1s linear infinite;"></div>
+          <p style="margin:0; font-weight:500;">AI 모델 최적화 중입니다...</p>
+          <span class="muted" style="font-size:12px;">운동 시작 시 끊김을 방지하기 위해 웜업(Warm-up)을 진행합니다.</span>
+        </div>
+      `;
+
+      await new Promise((resolve) => {
+        if (videoElement.readyState >= 2) resolve();
+        else
+          videoElement.addEventListener("loadeddata", resolve, { once: true });
+      });
+
+      if (poseEngine && poseEngine.send) {
+        await poseEngine.send(videoElement);
+      }
+
       cameraOverlay.innerHTML = cameraReadyHtml;
       startBtn.disabled = !canStartCurrentExercise();
     } catch (error) {
-      console.error('[Session] 카메라 에러:', error);
+      console.error("[Session] 카메라 에러:", error);
 
-      let userMessage = '권한을 확인하거나 다른 입력 소스를 선택해 주세요';
-      if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-        userMessage = '카메라가 감지되지 않았습니다. 다른 입력 소스를 선택해 주세요';
-      } else if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        userMessage = '카메라 권한이 거부되었습니다. 브라우저 설정에서 허용해 주세요';
-      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-        userMessage = '카메라를 열 수 없습니다. 다른 프로그램이 카메라를 사용 중이거나 드라이버 문제일 수 있습니다';
-      } else if (error.name === 'AbortError') {
-        userMessage = '사용자가 취소했습니다. 입력 소스를 다시 선택해 주세요';
+      let userMessage = "권한을 확인하거나 다른 입력 소스를 선택해 주세요";
+      if (
+        error.name === "NotFoundError" ||
+        error.name === "DevicesNotFoundError"
+      ) {
+        userMessage =
+          "카메라가 감지되지 않았습니다. 다른 입력 소스를 선택해 주세요";
+      } else if (
+        error.name === "NotAllowedError" ||
+        error.name === "PermissionDeniedError"
+      ) {
+        userMessage =
+          "카메라 권한이 거부되었습니다. 브라우저 설정에서 허용해 주세요";
+      } else if (
+        error.name === "NotReadableError" ||
+        error.name === "TrackStartError"
+      ) {
+        userMessage =
+          "카메라를 열 수 없습니다. 다른 프로그램이 카메라를 사용 중이거나 드라이버 문제일 수 있습니다";
+      } else if (error.name === "AbortError") {
+        userMessage = "사용자가 취소했습니다. 입력 소스를 다시 선택해 주세요";
       }
 
-      cameraOverlay.innerHTML =
-        `<p>미디어 연결 실패</p><p class="muted">${userMessage}</p>`;
+      cameraOverlay.innerHTML = `<p>미디어 연결 실패</p><p class="muted">${userMessage}</p>`;
       startBtn.disabled = true;
     }
   }
 
   function setupSourceSelectors() {
-    const root = document.getElementById('sourceSelect');
+    const root = document.getElementById("sourceSelect");
     if (!root) return;
 
-    root.querySelectorAll('[data-source]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        if (state.phase !== 'PREPARING') return;
-        const next = btn.getAttribute('data-source');
+    root.querySelectorAll("[data-source]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (state.phase !== "PREPARING") return;
+        const next = btn.getAttribute("data-source");
         if (!next || next === selectedCameraSource) return;
         selectedCameraSource = next;
-        root.querySelectorAll('[data-source]').forEach((b) => {
-          b.classList.toggle('active', b.getAttribute('data-source') === selectedCameraSource);
+        root.querySelectorAll("[data-source]").forEach((b) => {
+          b.classList.toggle(
+            "active",
+            b.getAttribute("data-source") === selectedCameraSource,
+          );
         });
         await connectCameraSource(selectedCameraSource);
       });
     });
 
-    root.querySelectorAll('[data-source]').forEach((b) => {
-      b.classList.toggle('active', b.getAttribute('data-source') === selectedCameraSource);
+    root.querySelectorAll("[data-source]").forEach((b) => {
+      b.classList.toggle(
+        "active",
+        b.getAttribute("data-source") === selectedCameraSource,
+      );
     });
   }
 
@@ -451,12 +576,16 @@ async function initSession(workoutData) {
     const normalized = normalizeViewCode(nextView);
     const allowed = getAllowedViews();
     const fallback = resolveDefaultView();
-    state.selectedView = normalized && allowed.includes(normalized) ? normalized : fallback;
+    state.selectedView =
+      normalized && allowed.includes(normalized) ? normalized : fallback;
 
     if (!viewSelectRoot) return;
 
-    viewSelectRoot.querySelectorAll('[data-view]').forEach((btn) => {
-      btn.classList.toggle('active', btn.getAttribute('data-view') === state.selectedView);
+    viewSelectRoot.querySelectorAll("[data-view]").forEach((btn) => {
+      btn.classList.toggle(
+        "active",
+        btn.getAttribute("data-view") === state.selectedView,
+      );
     });
   }
 
@@ -464,10 +593,10 @@ async function initSession(workoutData) {
     if (!viewSelectRoot) return;
     applySelectedView(state.selectedView);
 
-    viewSelectRoot.querySelectorAll('[data-view]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        if (state.phase !== 'PREPARING') return;
-        const next = btn.getAttribute('data-view');
+    viewSelectRoot.querySelectorAll("[data-view]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (state.phase !== "PREPARING") return;
+        const next = btn.getAttribute("data-view");
         if (!next) return;
         applySelectedView(next);
         if (scoringEngine?.setSelectedView) {
@@ -492,36 +621,39 @@ async function initSession(workoutData) {
     }
 
     if (!canStartCurrentExercise()) {
-      alert('목표 시간을 먼저 설정해주세요.');
+      alert("목표 시간을 먼저 설정해주세요.");
       return;
     }
 
     try {
-      const response = await fetch('/api/workout/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/api/workout/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           exercise_id: workoutData.exercise.exercise_id,
           selected_view: state.selectedView,
           mode: workoutData.mode,
           routine_id: workoutData.routine?.routine_id || null,
-          target_sec: getCurrentTargetSec() || null
-        })
+          target_sec: getCurrentTargetSec() || null,
+        }),
       });
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.error || data.message || '세션 시작에 실패했습니다.');
+        throw new Error(
+          data.error || data.message || "세션 시작에 실패했습니다.",
+        );
       }
 
       state.sessionId = data.session.session_id;
-      state.selectedView = normalizeViewCode(data.session.selected_view) || state.selectedView;
+      state.selectedView =
+        normalizeViewCode(data.session.selected_view) || state.selectedView;
       hasUnloadAbortSent = false;
       pendingSessionPayload = null;
       if (data.routineInstance) {
         workoutData.routineInstance = data.routineInstance;
       }
-      state.phase = 'WORKING';
+      state.phase = "WORKING";
       syncPlankTargetUi();
       refreshRoutineCounterUi();
 
@@ -529,39 +661,43 @@ async function initSession(workoutData) {
         exerciseCode: workoutData.exercise.code,
         mode: workoutData.mode,
         selectedView: state.selectedView,
-        resultBasis: repCounter?.pattern?.isTimeBased ? 'DURATION' : 'REPS',
-        targetSec: getCurrentTargetSec() || null
+        resultBasis: repCounter?.pattern?.isTimeBased ? "DURATION" : "REPS",
+        targetSec: getCurrentTargetSec() || null,
       });
       state.currentTargetSec = getCurrentTargetSec();
-      sessionBuffer.addEvent('SESSION_START', {
+      sessionBuffer.addEvent("SESSION_START", {
         exercise: workoutData.exercise.code,
-        selected_view: state.selectedView
+        selected_view: state.selectedView,
       });
 
-      updateStatus('running', '운동 중');
+      updateStatus("running", "운동 중");
       cameraOverlay.hidden = true;
       startBtn.hidden = true;
-      const sourceSelectEl = document.getElementById('sourceSelect');
+      const sourceSelectEl = document.getElementById("sourceSelect");
       if (sourceSelectEl) sourceSelectEl.hidden = true;
       if (viewSelectRoot) viewSelectRoot.hidden = true;
       if (plankTargetSelectRoot) plankTargetSelectRoot.hidden = true;
-      
-      const setupPanelContainer = document.getElementById('setupPanelContainer');
-      if (setupPanelContainer) setupPanelContainer.classList.add('hidden-during-workout');
+
+      const setupPanelContainer = document.getElementById(
+        "setupPanelContainer",
+      );
+      if (setupPanelContainer)
+        setupPanelContainer.classList.add("hidden-during-workout");
 
       pauseBtn.disabled = false;
       finishBtn.disabled = false;
-      finishBtn.textContent = '운동 종료';
+      finishBtn.textContent = "운동 종료";
 
       startTimer();
       startPoseDetection();
+      await requestWakeLock();
     } catch (error) {
-      console.error('[Session] 시작 에러:', error);
+      console.error("[Session] 시작 에러:", error);
       cameraOverlay.hidden = prevOverlayHidden;
       cameraOverlay.innerHTML = prevOverlayHtml || cameraReadyHtml;
       startBtn.hidden = prevStartHidden;
       startBtn.disabled = prevStartDisabled;
-      alert('운동 시작에 실패했습니다: ' + error.message);
+      alert("운동 시작에 실패했습니다: " + error.message);
     }
   }
 
@@ -579,19 +715,19 @@ async function initSession(workoutData) {
         }
       }
 
-      if (state.phase !== 'FINISHED') {
+      if (state.phase !== "FINISHED") {
         state.frameLoop = requestAnimationFrame(processFrame);
       }
     };
 
     state.frameLoop = requestAnimationFrame(processFrame);
-    console.log('[Session] 포즈 감지 시작');
+    console.log("[Session] 포즈 감지 시작");
   }
 
   function handlePoseDetected(poseData) {
     noPersonCount = 0;
 
-    if (state.phase !== 'WORKING' || state.isPaused) return;
+    if (state.phase !== "WORKING" || state.isPaused) return;
 
     const { angles } = poseData;
     updateViewInfo(angles);
@@ -599,28 +735,35 @@ async function initSession(workoutData) {
     const frameGate = getFrameGateResult(angles);
     if (!frameGate.isReady) {
       if (isTimeBasedExercise() && repCounter?.handleTimeBreak) {
-        repCounter.handleTimeBreak(frameGate.reason || 'FRAME_GATE');
+        repCounter.handleTimeBreak(frameGate.reason || "FRAME_GATE");
         updatePlankRuntimeDisplay(repCounter.getTimeSummary());
         updatePrimaryCounterDisplay();
       }
       if (poseEngine && poseEngine.setVisualFeedback) {
         poseEngine.setVisualFeedback([]);
       }
-      updateScoreDisplay({ score: 0, breakdown: [], gated: true, message: frameGate.message });
+      updateScoreDisplay({
+        score: 0,
+        breakdown: [],
+        gated: true,
+        message: frameGate.message,
+      });
       if (frameGate.message) {
-        showAlert('자세 인식 대기', frameGate.message);
+        showAlert("자세 인식 대기", frameGate.message);
       }
       return;
     }
 
     const rawScoreResult = scoringEngine.calculate(angles);
     const liveScoreResult = getLiveFeedbackResult(rawScoreResult, angles);
-    const scoreForState = isTimeBasedExercise() ? liveScoreResult.score : rawScoreResult.score;
+    const scoreForState = isTimeBasedExercise()
+      ? liveScoreResult.score
+      : rawScoreResult.score;
 
     const previousCounts = {
       all: repCounter?.currentRepAllScores?.length || 0,
       active: repCounter?.currentRepScores?.length || 0,
-      movement: repCounter?.currentMovementScores?.length || 0
+      movement: repCounter?.currentMovementScores?.length || 0,
     };
     const timeOrRepResult = repCounter.update(angles, scoreForState);
     updateViewInfo(angles);
@@ -636,7 +779,12 @@ async function initSession(workoutData) {
     }
 
     if (liveScoreResult.score > 0) {
-      console.log('[Session] 점수:', liveScoreResult.score, 'breakdown:', liveScoreResult.breakdown?.length);
+      console.log(
+        "[Session] 점수:",
+        liveScoreResult.score,
+        "breakdown:",
+        liveScoreResult.breakdown?.length,
+      );
     }
 
     updateRepMetricBuffer(liveScoreResult);
@@ -647,44 +795,49 @@ async function initSession(workoutData) {
       sessionBuffer.addScore(liveScoreResult);
     }
 
-    const shouldCheckFeedback = repCounter?.pattern?.isTimeBased ? true : repCounter?.isInProgress();
+    const shouldCheckFeedback = repCounter?.pattern?.isTimeBased
+      ? true
+      : repCounter?.isInProgress();
     if (shouldCheckFeedback) {
       checkFeedback(liveScoreResult);
     }
   }
 
   function handleNoPerson() {
-    if (state.phase !== 'WORKING' || state.isPaused) return;
+    if (state.phase !== "WORKING" || state.isPaused) return;
 
     noPersonCount++;
 
     if (isTimeBasedExercise() && repCounter?.handleTimeBreak) {
-      repCounter.handleTimeBreak('NO_PERSON');
+      repCounter.handleTimeBreak("NO_PERSON");
       updatePlankRuntimeDisplay(repCounter.getTimeSummary());
       updatePrimaryCounterDisplay();
     }
 
     if (noPersonCount === NO_PERSON_THRESHOLD) {
       if (sessionBuffer) {
-        sessionBuffer.addEvent('NO_PERSON', {
+        sessionBuffer.addEvent("NO_PERSON", {
           duration: noPersonCount,
-          message: '카메라에 사람이 감지되지 않습니다'
+          message: "카메라에 사람이 감지되지 않습니다",
         });
       }
-      showAlert('감지 안됨', '카메라에 전신이 보이도록 해주세요');
+      showAlert("감지 안됨", "카메라에 전신이 보이도록 해주세요");
     }
   }
 
   function aggregateScores(scores) {
     if (!scores || scores.length === 0) return 0;
     const sorted = scores
-      .filter((s) => typeof s === 'number' && !Number.isNaN(s))
+      .filter((s) => typeof s === "number" && !Number.isNaN(s))
       .slice()
       .sort((a, b) => a - b);
     if (sorted.length === 0) return 0;
 
     const trimCount = Math.floor(sorted.length * 0.1);
-    const trimmed = sorted.length >= 10 ? sorted.slice(trimCount, sorted.length - trimCount) : sorted;
+    const trimmed =
+      sorted.length >= 10
+        ? sorted.slice(trimCount, sorted.length - trimCount)
+        : sorted;
     const sum = trimmed.reduce((a, b) => a + b, 0);
     return Math.round(sum / trimmed.length);
   }
@@ -693,9 +846,18 @@ async function initSession(workoutData) {
     if (!repCounter || !Number.isFinite(score)) return;
 
     const targets = [
-      { list: repCounter.currentRepAllScores, previous: previousCounts?.all || 0 },
-      { list: repCounter.currentRepScores, previous: previousCounts?.active || 0 },
-      { list: repCounter.currentMovementScores, previous: previousCounts?.movement || 0 }
+      {
+        list: repCounter.currentRepAllScores,
+        previous: previousCounts?.all || 0,
+      },
+      {
+        list: repCounter.currentRepScores,
+        previous: previousCounts?.active || 0,
+      },
+      {
+        list: repCounter.currentMovementScores,
+        previous: previousCounts?.movement || 0,
+      },
     ];
 
     for (const target of targets) {
@@ -712,7 +874,12 @@ async function initSession(workoutData) {
     }
 
     if (exerciseModule?.filterLiveFeedback) {
-      return exerciseModule.filterLiveFeedback(scoreResult, getExerciseRuntime({ angles })) || scoreResult;
+      return (
+        exerciseModule.filterLiveFeedback(
+          scoreResult,
+          getExerciseRuntime({ angles }),
+        ) || scoreResult
+      );
     }
 
     return scoreResult;
@@ -722,7 +889,9 @@ async function initSession(workoutData) {
     const isTimeBased = repCounter?.pattern?.isTimeBased;
     if (isTimeBased) return;
 
-    const isRepInProgress = repCounter?.isInProgress ? repCounter.isInProgress() : false;
+    const isRepInProgress = repCounter?.isInProgress
+      ? repCounter.isInProgress()
+      : false;
     if (isRepInProgress && !state.repInProgressPrev) {
       state.repMetricBuffer = {};
     }
@@ -730,7 +899,12 @@ async function initSession(workoutData) {
 
     if (!isRepInProgress) return;
     if (exerciseModule?.shouldAccumulateRepMetrics) {
-      if (!exerciseModule.shouldAccumulateRepMetrics(getExerciseRuntime({ scoreResult }))) return;
+      if (
+        !exerciseModule.shouldAccumulateRepMetrics(
+          getExerciseRuntime({ scoreResult }),
+        )
+      )
+        return;
     } else if (repCounter?.currentState !== window.REP_STATES?.ACTIVE) {
       return;
     }
@@ -745,7 +919,7 @@ async function initSession(workoutData) {
           key,
           title: item.title || key,
           maxScore: item.maxScore,
-          scores: []
+          scores: [],
         };
       }
       state.repMetricBuffer[key].scores.push(item.score);
@@ -759,11 +933,12 @@ async function initSession(workoutData) {
     if (now - state.lastViewInfoAt < 250) return;
     state.lastViewInfoAt = now;
 
-    const view = angles.view || 'UNKNOWN';
-    const source = angles.angleSource || 'UNKNOWN';
-    const quality = angles.quality?.level || 'UNKNOWN';
-    const phase = repCounter?.currentPhase || window.REP_PHASES?.NEUTRAL || 'UNKNOWN';
-    const selectedView = state.selectedView || 'N/A';
+    const view = angles.view || "UNKNOWN";
+    const source = angles.angleSource || "UNKNOWN";
+    const quality = angles.quality?.level || "UNKNOWN";
+    const phase =
+      repCounter?.currentPhase || window.REP_PHASES?.NEUTRAL || "UNKNOWN";
+    const selectedView = state.selectedView || "N/A";
     const phaseText = `PHASE: ${phase}`;
     const viewText = `VIEW: ${view} / SELECTED: ${selectedView} / SRC: ${source} / Q: ${quality}`;
 
@@ -792,14 +967,17 @@ async function initSession(workoutData) {
               key: m.key,
               title: m.title,
               maxScore: m.maxScore,
-              score: aggregateScores(m.scores)
+              score: aggregateScores(m.scores),
             }))
-            .sort((a, b) => b.score / (b.maxScore || 1) - a.score / (a.maxScore || 1));
+            .sort(
+              (a, b) =>
+                b.score / (b.maxScore || 1) - a.score / (a.maxScore || 1),
+            );
 
     if (sessionBuffer) {
       sessionBuffer.addRep(repRecord);
 
-      sessionBuffer.addEvent('REP_COMPLETE', {
+      sessionBuffer.addEvent("REP_COMPLETE", {
         repNumber: repRecord.repNumber,
         score: repRecord.score,
         duration: repRecord.duration,
@@ -807,11 +985,11 @@ async function initSession(workoutData) {
         view: repRecord.view || null,
         selected_view: state.selectedView,
         confidence: repRecord.confidence?.level || null,
-        feedback: repRecord.feedback || null
+        feedback: repRecord.feedback || null,
       });
     }
 
-    if (workoutData.mode === 'ROUTINE' && workoutData.routine) {
+    if (workoutData.mode === "ROUTINE" && workoutData.routine) {
       checkRoutineProgress();
     }
 
@@ -821,7 +999,9 @@ async function initSession(workoutData) {
   function updateScoreDisplay(scoreResult) {
     const isTimeBased = repCounter?.pattern?.isTimeBased;
     const hasAnyRep = repCounter?.getCount ? repCounter.getCount() > 0 : false;
-    const isRepInProgress = repCounter?.isInProgress ? repCounter.isInProgress() : false;
+    const isRepInProgress = repCounter?.isInProgress
+      ? repCounter.isInProgress()
+      : false;
 
     const displayScore = isTimeBased
       ? scoreResult.score
@@ -830,26 +1010,30 @@ async function initSession(workoutData) {
         : 0;
 
     state.liveScore = displayScore;
-    liveScoreEl.textContent = !isTimeBased && !hasAnyRep && !isRepInProgress ? '--' : displayScore;
+    liveScoreEl.textContent =
+      !isTimeBased && !hasAnyRep && !isRepInProgress ? "--" : displayScore;
 
-    liveScoreEl.style.background = 'none';
-    liveScoreEl.style.webkitBackgroundClip = 'unset';
-    liveScoreEl.style.webkitTextFillColor = 'unset';
+    liveScoreEl.style.background = "none";
+    liveScoreEl.style.webkitBackgroundClip = "unset";
+    liveScoreEl.style.webkitTextFillColor = "unset";
 
     if (displayScore >= 80) {
-      liveScoreEl.style.color = '#22c55e';
+      liveScoreEl.style.color = "#22c55e";
     } else if (displayScore >= 60) {
-      liveScoreEl.style.color = '#eab308';
+      liveScoreEl.style.color = "#eab308";
     } else if (displayScore > 0) {
-      liveScoreEl.style.color = '#ef4444';
+      liveScoreEl.style.color = "#ef4444";
     } else {
-      liveScoreEl.style.color = '#94a3b8';
+      liveScoreEl.style.color = "#94a3b8";
     }
 
     const shouldShowBreakdown = isTimeBased
       ? scoreResult.breakdown && scoreResult.breakdown.length > 0
-      : (isRepInProgress && Object.keys(state.repMetricBuffer || {}).length > 0) ||
-        (!isRepInProgress && hasAnyRep && state.lastRepMetricSummary?.length > 0);
+      : (isRepInProgress &&
+          Object.keys(state.repMetricBuffer || {}).length > 0) ||
+        (!isRepInProgress &&
+          hasAnyRep &&
+          state.lastRepMetricSummary?.length > 0);
 
     if (shouldShowBreakdown) {
       const items = isTimeBased
@@ -859,13 +1043,15 @@ async function initSession(workoutData) {
               key: m.key,
               title: m.title,
               score: aggregateScores(m.scores),
-              maxScore: m.maxScore
+              maxScore: m.maxScore,
             }))
           : state.lastRepMetricSummary;
 
       scoreBreakdownEl.innerHTML = items
         .filter((it) => it && it.maxScore != null)
-        .sort((a, b) => b.score / (b.maxScore || 1) - a.score / (a.maxScore || 1))
+        .sort(
+          (a, b) => b.score / (b.maxScore || 1) - a.score / (a.maxScore || 1),
+        )
         .slice(0, 3)
         .map(
           (item) => `
@@ -873,15 +1059,17 @@ async function initSession(workoutData) {
             <span>${item.title || item.key}</span>
             <span>${Math.round(item.score)}/${item.maxScore}</span>
           </div>
-        `
+        `,
         )
-        .join('');
+        .join("");
     } else if (scoreResult.gated && scoreResult.message) {
       scoreBreakdownEl.innerHTML = `<div class="score-item"><span class="muted">${scoreResult.message}</span></div>`;
     } else if (scoreResult.score === 0) {
-      scoreBreakdownEl.innerHTML = '<div class="score-item"><span class="muted">포즈 감지 중...</span></div>';
+      scoreBreakdownEl.innerHTML =
+        '<div class="score-item"><span class="muted">포즈 감지 중...</span></div>';
     } else if (!isTimeBased && !isRepInProgress) {
-      scoreBreakdownEl.innerHTML = '<div class="score-item"><span class="muted">rep 시작하면 표시됩니다</span></div>';
+      scoreBreakdownEl.innerHTML =
+        '<div class="score-item"><span class="muted">rep 시작하면 표시됩니다</span></div>';
     }
   }
 
@@ -889,18 +1077,18 @@ async function initSession(workoutData) {
     if (state.alertCooldown) return;
 
     const lowScoreItem = scoreResult.breakdown?.find(
-      (item) => item.feedback && item.score < item.maxScore * 0.6
+      (item) => item.feedback && item.score < item.maxScore * 0.6,
     );
 
     if (lowScoreItem) {
-      showAlert('자세 교정 필요', lowScoreItem.feedback);
+      showAlert("자세 교정 필요", lowScoreItem.feedback);
 
       if (sessionBuffer) {
-        sessionBuffer.addEvent('LOW_SCORE_HINT', {
+        sessionBuffer.addEvent("LOW_SCORE_HINT", {
           metric_key: lowScoreItem.key,
           score: lowScoreItem.score,
           maxScore: lowScoreItem.maxScore,
-          feedback: lowScoreItem.feedback
+          feedback: lowScoreItem.feedback,
         });
       }
     }
@@ -909,14 +1097,18 @@ async function initSession(workoutData) {
   function showRepFeedback(repRecord) {
     const msg =
       repRecord.feedback ||
-      (repRecord.score >= 80 ? '완벽해요! 👏' : repRecord.score >= 60 ? '좋아요! 👍' : '계속 해보세요!');
+      (repRecord.score >= 80
+        ? "완벽해요! 👏"
+        : repRecord.score >= 60
+          ? "좋아요! 👍"
+          : "계속 해보세요!");
 
     showToast(`${repRecord.repNumber}회 ${msg}`);
   }
 
   function showToast(message) {
-    const toast = document.createElement('div');
-    toast.className = 'toast workout-session-toast';
+    const toast = document.createElement("div");
+    toast.className = "toast workout-session-toast";
     toast.textContent = message;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2000);
@@ -935,15 +1127,18 @@ async function initSession(workoutData) {
     state.repInProgressPrev = false;
     setCountEl.textContent = 1;
     updatePrimaryCounterDisplay();
-    liveScoreEl.textContent = '--';
-    scoreBreakdownEl.innerHTML = '<div class="score-item"><span class="muted">rep 시작하면 표시됩니다.</span></div>';
+    liveScoreEl.textContent = "--";
+    scoreBreakdownEl.innerHTML =
+      '<div class="score-item"><span class="muted">rep 시작하면 표시됩니다.</span></div>';
     if (repCounter) {
       repCounter.reset();
       if (repCounter.setTargetSec) {
         repCounter.setTargetSec(getCurrentTargetSec());
       }
     }
-    updatePlankRuntimeDisplay(repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null);
+    updatePlankRuntimeDisplay(
+      repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
+    );
   }
 
   function resetCurrentSetTracking() {
@@ -964,7 +1159,9 @@ async function initSession(workoutData) {
     }
 
     updatePrimaryCounterDisplay();
-    updatePlankRuntimeDisplay(repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null);
+    updatePlankRuntimeDisplay(
+      repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
+    );
   }
 
   function switchRoutineStep(stepIndex) {
@@ -978,9 +1175,10 @@ async function initSession(workoutData) {
     workoutData.exercise = nextExercise;
     workoutData.scoringProfile = step?.scoring_profile || null;
     state.selectedView = resolveDefaultView(nextExercise);
-    state.currentTargetSec = normalizeRoutineTargetType(step?.target_type) === 'TIME'
-      ? Math.max(1, Number(step?.target_value) || 1)
-      : 0;
+    state.currentTargetSec =
+      normalizeRoutineTargetType(step?.target_type) === "TIME"
+        ? Math.max(1, Number(step?.target_value) || 1)
+        : 0;
 
     if (!bindEnginesToCurrentExercise()) {
       return false;
@@ -991,11 +1189,11 @@ async function initSession(workoutData) {
     resetStepUiState();
 
     if (sessionBuffer) {
-      sessionBuffer.addEvent('ROUTINE_STEP_CHANGE', {
+      sessionBuffer.addEvent("ROUTINE_STEP_CHANGE", {
         stepIndex,
         exercise_id: nextExercise.exercise_id,
         exercise_code: nextExercise.code,
-        selected_view: state.selectedView
+        selected_view: state.selectedView,
       });
     }
 
@@ -1003,16 +1201,20 @@ async function initSession(workoutData) {
     return true;
   }
 
-  function checkRoutineProgress(trigger = 'REP') {
-    if (state.phase !== 'WORKING') return;
-    const currentStep = workoutData.routine.routine_setup[state.currentStepIndex];
+  function checkRoutineProgress(trigger = "REP") {
+    if (state.phase !== "WORKING") return;
+    const currentStep =
+      workoutData.routine.routine_setup[state.currentStepIndex];
     if (!currentStep) return;
 
     const targetType = normalizeRoutineTargetType(currentStep.target_type);
     const targetValue = Math.max(1, Number(currentStep.target_value) || 1);
-    const actualValue = targetType === 'TIME'
-      ? (isTimeBasedExercise() ? state.bestHoldSec : state.currentSetWorkSec)
-      : state.currentRep;
+    const actualValue =
+      targetType === "TIME"
+        ? isTimeBasedExercise()
+          ? state.bestHoldSec
+          : state.currentSetWorkSec
+        : state.currentRep;
 
     if (actualValue < targetValue) return;
 
@@ -1021,26 +1223,27 @@ async function initSession(workoutData) {
     if (sessionBuffer) {
       sessionBuffer.completeSet(restSec);
       if (trigger) {
-        sessionBuffer.addEvent('ROUTINE_TARGET_REACHED');
+        sessionBuffer.addEvent("ROUTINE_TARGET_REACHED");
       }
     }
     state.currentSetWorkSec = 0;
     updatePrimaryCounterDisplay();
 
-    const hasNextExerciseStep = state.currentStepIndex < workoutData.routine.routine_setup.length - 1;
+    const hasNextExerciseStep =
+      state.currentStepIndex < workoutData.routine.routine_setup.length - 1;
 
     if (state.currentSet < currentStep.sets) {
       if (restSec > 0) {
-        startRest(restSec, 'NEXT_SET');
+        startRest(restSec, "NEXT_SET");
       } else {
         state.currentSet++;
         setCountEl.textContent = state.currentSet;
         resetCurrentSetTracking();
-        showAlert('?ㅼ쓬 ?명듃', `${state.currentSet}?명듃 ?쒖옉!`);
+        showAlert("?ㅼ쓬 ?명듃", `${state.currentSet}?명듃 ?쒖옉!`);
       }
     } else if (hasNextExerciseStep) {
       if (restSec > 0) {
-        startRest(restSec, 'NEXT_EXERCISE');
+        startRest(restSec, "NEXT_EXERCISE");
       } else {
         nextExercise();
       }
@@ -1051,7 +1254,7 @@ async function initSession(workoutData) {
 
   function startTimer() {
     state.timerInterval = setInterval(() => {
-      if (!state.isPaused && state.phase === 'WORKING') {
+      if (!state.isPaused && state.phase === "WORKING") {
         state.totalTime++;
         if (!isTimeBasedExercise()) {
           state.currentSetWorkSec++;
@@ -1062,8 +1265,8 @@ async function initSession(workoutData) {
           updatePrimaryCounterDisplay();
         }
 
-        if (workoutData.mode === 'ROUTINE' && workoutData.routine) {
-          checkRoutineProgress('TIMER');
+        if (workoutData.mode === "ROUTINE" && workoutData.routine) {
+          checkRoutineProgress("TIMER");
         }
       }
     }, 1000);
@@ -1072,11 +1275,11 @@ async function initSession(workoutData) {
   function updateTimerDisplay() {
     const mins = Math.floor(state.totalTime / 60);
     const secs = state.totalTime % 60;
-    timerValueEl.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    timerValueEl.textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   }
 
   function updateStatus(className, text) {
-    statusBadge.className = 'status ' + className;
+    statusBadge.className = "status " + className;
     statusBadge.textContent = text;
   }
 
@@ -1084,31 +1287,34 @@ async function initSession(workoutData) {
     state.isPaused = !state.isPaused;
 
     if (state.isPaused) {
-      state.phase = 'PAUSED';
-      updateStatus('paused', '일시정지');
-      pauseBtn.innerHTML = '계속하기';
+      state.phase = "PAUSED";
+      updateStatus("paused", "일시정지");
+      pauseBtn.innerHTML = "계속하기";
       if (poseEngine) poseEngine.stop();
-      if (sessionBuffer) sessionBuffer.addEvent('PAUSE');
+      if (sessionBuffer) sessionBuffer.addEvent("PAUSE");
+      releaseWakeLock();
     } else {
-      state.phase = 'WORKING';
-      updateStatus('running', '운동 중');
-      pauseBtn.innerHTML = '일시정지';
+      state.phase = "WORKING";
+      updateStatus("running", "운동 중");
+      pauseBtn.innerHTML = "일시정지";
       if (poseEngine) poseEngine.start();
-      if (sessionBuffer) sessionBuffer.addEvent('RESUME');
+      if (sessionBuffer) sessionBuffer.addEvent("RESUME");
+      requestWakeLock();
     }
   }
 
-  function startRest(seconds, afterAction = 'NEXT_SET') {
-    state.phase = 'RESTING';
+  function startRest(seconds, afterAction = "NEXT_SET") {
+    state.phase = "RESTING";
     state.restTimeLeft = seconds;
     state.restAfterAction = afterAction;
-    updateStatus('rest', '휴식 중');
-    timerLabelEl.textContent = '휴식 시간';
+    updateStatus("rest", "휴식 중");
+    timerLabelEl.textContent = "휴식 시간";
     restTimerEl.hidden = false;
     restValueEl.textContent = seconds;
 
     if (poseEngine) poseEngine.stop();
-    if (sessionBuffer) sessionBuffer.addEvent('REST_START', { duration: seconds });
+    if (sessionBuffer)
+      sessionBuffer.addEvent("REST_START", { duration: seconds });
 
     state.restInterval = setInterval(() => {
       if (!state.isPaused) {
@@ -1125,17 +1331,17 @@ async function initSession(workoutData) {
   function endRest() {
     clearInterval(state.restInterval);
     restTimerEl.hidden = true;
-    state.phase = 'WORKING';
-    timerLabelEl.textContent = '운동 시간';
-    updateStatus('running', '운동 중');
+    state.phase = "WORKING";
+    timerLabelEl.textContent = "운동 시간";
+    updateStatus("running", "운동 중");
     syncPlankTargetUi();
 
-    const action = state.restAfterAction || 'NEXT_SET';
+    const action = state.restAfterAction || "NEXT_SET";
     state.restAfterAction = null;
 
-    if (action === 'NEXT_EXERCISE') {
+    if (action === "NEXT_EXERCISE") {
       if (poseEngine) poseEngine.start();
-      if (sessionBuffer) sessionBuffer.addEvent('REST_END');
+      if (sessionBuffer) sessionBuffer.addEvent("REST_END");
       nextExercise();
       return;
     }
@@ -1145,9 +1351,9 @@ async function initSession(workoutData) {
     resetCurrentSetTracking();
 
     if (poseEngine) poseEngine.start();
-    if (sessionBuffer) sessionBuffer.addEvent('REST_END');
+    if (sessionBuffer) sessionBuffer.addEvent("REST_END");
 
-    showAlert('다음 세트', `${state.currentSet}세트 시작!`);
+    showAlert("다음 세트", `${state.currentSet}세트 시작!`);
   }
 
   function showAlert(title, message) {
@@ -1176,14 +1382,14 @@ async function initSession(workoutData) {
 
     const switched = switchRoutineStep(state.currentStepIndex);
     if (!switched) {
-      showAlert('루틴 오류', '다음 운동의 채점 설정을 불러오지 못했습니다.');
+      showAlert("루틴 오류", "다음 운동의 채점 설정을 불러오지 못했습니다.");
       finishWorkout();
       return;
     }
 
     const progress = (state.currentStepIndex / routineSteps.length) * 100;
-    document.getElementById('routineProgress').style.width = `${progress}%`;
-    document.getElementById('routineStep').textContent =
+    document.getElementById("routineProgress").style.width = `${progress}%`;
+    document.getElementById("routineStep").textContent =
       `${state.currentStepIndex + 1} / ${routineSteps.length} 운동`;
 
     state.currentSet = 1;
@@ -1195,38 +1401,45 @@ async function initSession(workoutData) {
 
     if (repCounter) repCounter.reset();
     if (sessionBuffer) {
-      sessionBuffer.addEvent('NEXT_EXERCISE', {
+      sessionBuffer.addEvent("NEXT_EXERCISE", {
         stepIndex: state.currentStepIndex,
-        exercise_code: workoutData.exercise?.code || null
+        exercise_code: workoutData.exercise?.code || null,
       });
     }
 
-    showAlert('다음 운동', routineSteps[state.currentStepIndex].exercise?.name || '다음 운동');
+    showAlert(
+      "다음 운동",
+      routineSteps[state.currentStepIndex].exercise?.name || "다음 운동",
+    );
   }
 
   async function finishWorkout() {
     if (!state.sessionId || isEndingSession) return;
     isEndingSession = true;
     finishBtn.disabled = true;
-    finishBtn.textContent = '저장 중...';
+    finishBtn.textContent = "저장 중...";
     pauseBtn.disabled = true;
 
-    state.phase = 'FINISHED';
+    state.phase = "FINISHED";
     clearInterval(state.timerInterval);
     clearInterval(state.restInterval);
     if (state.frameLoop) {
       cancelAnimationFrame(state.frameLoop);
     }
     if (poseEngine) {
-      poseEngine.destroy();
+      poseEngine.stop();
     }
     sessionCamera.destroy();
+    releaseWakeLock();
 
-    updateStatus('finished', '완료');
+    updateStatus("finished", "완료");
 
     try {
       const isTimeBased = isTimeBasedExercise();
-      const timeSummary = isTimeBased && repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null;
+      const timeSummary =
+        isTimeBased && repCounter?.getTimeSummary
+          ? repCounter.getTimeSummary()
+          : null;
       const sessionData =
         pendingSessionPayload ||
         (sessionBuffer
@@ -1234,31 +1447,40 @@ async function initSession(workoutData) {
               isTimeBased,
               targetSec: getCurrentTargetSec(),
               bestHoldSec: timeSummary?.bestHoldSec || state.bestHoldSec || 0,
-              bestHoldPostureScore: repCounter?.getBestHoldPostureScore ? repCounter.getBestHoldPostureScore() : 0
+              bestHoldPostureScore: repCounter?.getBestHoldPostureScore
+                ? repCounter.getBestHoldPostureScore()
+                : 0,
             })
           : {
               selected_view: state.selectedView,
-              result_basis: isTimeBased ? 'DURATION' : 'REPS',
-              total_result_value: isTimeBased ? (timeSummary?.bestHoldSec || state.bestHoldSec || 0) : state.currentRep,
-              total_result_unit: isTimeBased ? 'SEC' : 'COUNT',
+              result_basis: isTimeBased ? "DURATION" : "REPS",
+              total_result_value: isTimeBased
+                ? timeSummary?.bestHoldSec || state.bestHoldSec || 0
+                : state.currentRep,
+              total_result_unit: isTimeBased ? "SEC" : "COUNT",
               duration_sec: state.totalTime,
               total_reps: isTimeBased ? 0 : state.currentRep,
               target_sec: getCurrentTargetSec() || null,
               best_hold_sec: timeSummary?.bestHoldSec || state.bestHoldSec || 0,
               final_score: state.liveScore || 0,
-              summary_feedback: generateSummary(isTimeBased, timeSummary)
+              summary_feedback: generateSummary(isTimeBased, timeSummary),
             });
       pendingSessionPayload = sessionData;
 
-      const response = await fetch(`/api/workout/session/${state.sessionId}/end`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sessionData)
-      });
+      const response = await fetch(
+        `/api/workout/session/${state.sessionId}/end`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sessionData),
+        },
+      );
 
       const responseBody = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(responseBody.error || responseBody.message || '세션 종료 실패');
+        throw new Error(
+          responseBody.error || responseBody.message || "세션 종료 실패",
+        );
       }
 
       if (sessionBuffer) {
@@ -1267,16 +1489,22 @@ async function initSession(workoutData) {
       pendingSessionPayload = null;
       window.location.href = `/workout/result/${state.sessionId}`;
     } catch (error) {
-      console.error('[Session] 종료 에러:', error);
-      showAlert('저장 실패', '운동 결과 저장에 실패했습니다. 종료 버튼을 다시 눌러 재시도해 주세요.');
+      console.error("[Session] 종료 에러:", error);
+      showAlert(
+        "저장 실패",
+        "운동 결과 저장에 실패했습니다. 종료 버튼을 다시 눌러 재시도해 주세요.",
+      );
       finishBtn.disabled = false;
-      finishBtn.textContent = '저장 재시도';
+      finishBtn.textContent = "저장 재시도";
     } finally {
       isEndingSession = false;
     }
   }
 
-  function generateSummary(isTimeBased = isTimeBasedExercise(), timeSummary = null) {
+  function generateSummary(
+    isTimeBased = isTimeBasedExercise(),
+    timeSummary = null,
+  ) {
     if (isTimeBased) {
       const bestHoldSec = timeSummary?.bestHoldSec || state.bestHoldSec || 0;
       const targetSec = getCurrentTargetSec();
@@ -1286,36 +1514,37 @@ async function initSession(workoutData) {
       if (bestHoldSec > 0 && targetSec > 0) {
         return `최고 ${bestHoldSec}초 유지했습니다. 목표 ${targetSec}초까지 조금 더 도전해보세요.`;
       }
-      return '플랭크 자세를 안정적으로 유지해보세요.';
+      return "플랭크 자세를 안정적으로 유지해보세요.";
     }
 
     if (state.liveScore >= 80) {
-      return '훌륭해요! 자세가 매우 좋습니다.';
+      return "훌륭해요! 자세가 매우 좋습니다.";
     }
     if (state.liveScore >= 60) {
-      return '좋아요! 조금만 더 신경쓰면 완벽해요.';
+      return "좋아요! 조금만 더 신경쓰면 완벽해요.";
     }
-    return '자세 교정이 필요합니다. 운동 배우기를 확인해보세요.';
+    return "자세 교정이 필요합니다. 운동 배우기를 확인해보세요.";
   }
 
   function confirmExit() {
-    if (state.phase === 'PREPARING') {
-      window.location.href = workoutData.mode === 'ROUTINE' ? '/routine' : '/workout/free';
+    if (state.phase === "PREPARING") {
+      window.location.href =
+        workoutData.mode === "ROUTINE" ? "/routine" : "/workout/free";
     } else {
-      document.getElementById('exitModal').hidden = false;
+      document.getElementById("exitModal").hidden = false;
     }
   }
 
   function closeExitModal() {
-    document.getElementById('exitModal').hidden = true;
+    document.getElementById("exitModal").hidden = true;
   }
 
   function forceExit() {
     finishWorkout();
   }
 
-  function sendAbortBeacon(reason = 'UNLOAD') {
-    if (!state.sessionId || hasUnloadAbortSent || state.phase === 'FINISHED') {
+  function sendAbortBeacon(reason = "UNLOAD") {
+    if (!state.sessionId || hasUnloadAbortSent || state.phase === "FINISHED") {
       return;
     }
 
@@ -1324,31 +1553,37 @@ async function initSession(workoutData) {
       reason,
       selected_view: state.selectedView,
       duration_sec: state.totalTime || 0,
-      total_reps: isTimeBasedExercise() ? 0 : (state.currentRep || 0),
-      total_result_value: isTimeBasedExercise() ? (state.bestHoldSec || 0) : (state.currentRep || 0),
-      result_basis: isTimeBasedExercise() ? 'DURATION' : 'REPS',
-      target_sec: isTimeBasedExercise() ? (getCurrentTargetSec() || null) : null
+      total_reps: isTimeBasedExercise() ? 0 : state.currentRep || 0,
+      total_result_value: isTimeBasedExercise()
+        ? state.bestHoldSec || 0
+        : state.currentRep || 0,
+      result_basis: isTimeBasedExercise() ? "DURATION" : "REPS",
+      target_sec: isTimeBasedExercise() ? getCurrentTargetSec() || null : null,
     });
     const url = `/api/workout/session/${state.sessionId}/abort`;
 
     if (navigator.sendBeacon) {
-      const blob = new Blob([payload], { type: 'application/json' });
+      const blob = new Blob([payload], { type: "application/json" });
       navigator.sendBeacon(url, blob);
       return;
     }
 
     fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: payload,
-      keepalive: true
+      keepalive: true,
     }).catch(() => {});
   }
 
-  window.addEventListener('beforeunload', () => {
-    if (state.phase === 'WORKING' || state.phase === 'RESTING' || state.phase === 'PAUSED') {
+  window.addEventListener("beforeunload", () => {
+    if (
+      state.phase === "WORKING" ||
+      state.phase === "RESTING" ||
+      state.phase === "PAUSED"
+    ) {
       if (sessionBuffer) sessionBuffer.saveToStorage();
-      sendAbortBeacon('UNLOAD');
+      sendAbortBeacon("UNLOAD");
     }
   });
 
@@ -1363,7 +1598,7 @@ async function initSession(workoutData) {
   setupViewSelectors();
   setupPlankTargetControls();
   if (isPlankExerciseCode()) {
-    if (workoutData.mode === 'ROUTINE') {
+    if (workoutData.mode === "ROUTINE") {
       applyTargetSec(getCurrentTargetSec() || 0);
     } else {
       applyTargetSec(readTargetSecFromInput() || 30);

@@ -10,13 +10,13 @@
       (function() {
         const savedTheme = '<%= typeof userTheme !== "undefined" ? userTheme : "system" %>';
         let theme = savedTheme;
-        
+
         if (savedTheme === 'system') {
           theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
-        
+
         document.documentElement.setAttribute('data-theme', theme);
-        
+
         // 시스템 테마 변경 감지
         if (savedTheme === 'system') {
           window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
@@ -24,7 +24,7 @@
           });
         }
       })();
-      
+
       // 전역 테마 적용 함수
       function applyTheme(theme) {
         if (theme === 'system') {
@@ -35,6 +35,11 @@
         }
       }
     </script>
+      <!-- PWA Settings -->
+      <link rel="manifest" href="/manifest.json">
+      <meta name="theme-color" content="#0f172a">
+      <meta name="apple-mobile-web-app-capable" content="yes">
+      <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   </head>
   <body>
     <% const isLoggedIn = typeof isAuthenticated !== 'undefined' && isAuthenticated; %>

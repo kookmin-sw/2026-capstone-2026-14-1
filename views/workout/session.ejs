@@ -315,6 +315,13 @@
     });
   </script>
 
+  <style>
+    /* CSS flex/grid 설정이 hidden 속성을 덮어씌우는 문제 해결 */
+    [hidden] {
+      display: none !important;
+    }
+  </style>
+
   <% if (isPlankExercise) { %>
     <style>
       .plank-target-custom .form-input {
