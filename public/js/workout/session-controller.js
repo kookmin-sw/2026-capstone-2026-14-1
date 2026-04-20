@@ -879,6 +879,21 @@ async function initSession(workoutData) {
     return Math.round(sum / trimmed.length);
   }
 
+  function getNormalizedMetricScore(item) {
+    const explicit = Number(item?.normalizedScore ?? item?.normalized_score);
+    if (Number.isFinite(explicit)) {
+      return Math.max(0, Math.min(100, explicit));
+    }
+
+    const rawScore = Number(item?.score ?? item?.avg_score);
+    const rawMaxScore = Number(item?.maxScore ?? item?.max_score);
+    if (Number.isFinite(rawScore) && Number.isFinite(rawMaxScore) && rawMaxScore > 0) {
+      return Math.max(0, Math.min(100, (rawScore / rawMaxScore) * 100));
+    }
+
+    return Number.isFinite(rawScore) ? Math.max(0, Math.min(100, rawScore)) : 0;
+  }
+
   function syncRepCounterLatestScores(score, previousCounts) {
     if (!repCounter || !Number.isFinite(score)) return;
 
@@ -955,11 +970,11 @@ async function initSession(workoutData) {
           metric_id: item.metric_id,
           key,
           title: item.title || key,
-          maxScore: item.maxScore,
+          maxScore: 100,
           scores: [],
         };
       }
-      state.repMetricBuffer[key].scores.push(item.score);
+      state.repMetricBuffer[key].scores.push(getNormalizedMetricScore(item));
     }
   }
 
@@ -997,7 +1012,10 @@ async function initSession(workoutData) {
 
     state.lastRepMetricSummary =
       Array.isArray(repRecord.breakdown) && repRecord.breakdown.length > 0
-        ? repRecord.breakdown.slice()
+        ? repRecord.breakdown.map((item) => ({
+            ...item,
+            normalizedScore: getNormalizedMetricScore(item),
+          }))
         : Object.values(state.repMetricBuffer || {})
             .map((m) => ({
               metric_id: m.metric_id,
@@ -1085,16 +1103,21 @@ async function initSession(workoutData) {
           : state.lastRepMetricSummary;
 
       scoreBreakdownEl.innerHTML = items
-        .filter((it) => it && it.maxScore != null)
+        .map((item) => ({
+          ...item,
+          displayScore: getNormalizedMetricScore(item),
+          displayMaxScore: 100,
+        }))
+        .filter((it) => it && it.displayMaxScore != null)
         .sort(
-          (a, b) => b.score / (b.maxScore || 1) - a.score / (a.maxScore || 1),
+          (a, b) => b.displayScore - a.displayScore,
         )
         .slice(0, 3)
         .map(
           (item) => `
           <div class="score-item">
             <span>${item.title || item.key}</span>
-            <span>${Math.round(item.score)}/${item.maxScore}</span>
+            <span>${Math.round(item.displayScore)}</span>
           </div>
         `,
         )

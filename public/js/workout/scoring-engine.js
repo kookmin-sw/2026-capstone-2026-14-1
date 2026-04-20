@@ -75,6 +75,10 @@ class ScoringEngine {
       // 규칙에 따른 점수 계산
       const metricScore = this.evaluateMetric(actualValue, rule, pm.max_score);
 
+      const normalizedScore = Number.isFinite(Number(pm.max_score)) && Number(pm.max_score) > 0
+        ? Math.max(0, Math.min(100, (metricScore / Number(pm.max_score)) * 100))
+        : null;
+
       breakdown.push({
         metric_id: metric.metric_id,
         key: metric.key,
@@ -82,6 +86,7 @@ class ScoringEngine {
         unit: metric.unit,
         actualValue,
         score: metricScore,
+        normalizedScore,
         maxScore: pm.max_score,
         weight: pm.weight,
         feedback: metricScore < pm.max_score * 0.7 ?

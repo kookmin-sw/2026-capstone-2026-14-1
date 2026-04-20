@@ -67,3 +67,45 @@ test('generateInterimSnapshots includes metric breakdown for sampled points', ()
     }
   ]);
 });
+
+test('generateInterimSnapshots normalizes raw metric scores to 100 scale', () => {
+  const SessionBuffer = loadSessionBuffer();
+  const buffer = new SessionBuffer('session-2', { selectedView: 'SIDE' });
+
+  buffer.scoreTimeline = [
+    {
+      timestamp: 1000,
+      score: 82,
+      breakdown: [
+        {
+          key: 'depth',
+          title: '깊이',
+          score: 24,
+          maxScore: 30,
+          rawValue: 41,
+          feedback: 'deeper'
+        }
+      ]
+    }
+  ];
+
+  const snapshots = JSON.parse(JSON.stringify(buffer.generateInterimSnapshots()));
+
+  assert.deepEqual(snapshots, [
+    {
+      timestamp_ms: 1000,
+      score: 82,
+      breakdown: [
+        {
+          metric_key: 'depth',
+          metric_name: '깊이',
+          avg_score: 80,
+          avg_raw_value: 41,
+          min_raw_value: 41,
+          max_raw_value: 41,
+          sample_count: 1
+        }
+      ]
+    }
+  ]);
+});

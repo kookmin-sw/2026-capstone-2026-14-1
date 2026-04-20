@@ -703,6 +703,33 @@ const normalizeEvents = (events, sessionId, startedAtIso) => {
         .filter(Boolean);
 };
 
+const resolveNormalizedMetricScore = (item) => {
+    const explicitNormalized = item?.normalized_score ?? item?.normalizedScore;
+    const parsedExplicit = Number(explicitNormalized);
+    if (Number.isFinite(parsedExplicit)) {
+        return Math.max(0, Math.min(100, parsedExplicit));
+    }
+
+    const rawScore = item?.score != null ? Number(item.score) : null;
+    const rawMaxScore = item?.maxScore != null
+        ? Number(item.maxScore)
+        : (item?.max_score != null ? Number(item.max_score) : null);
+    if (Number.isFinite(rawScore) && Number.isFinite(rawMaxScore) && rawMaxScore > 0) {
+        return Math.max(0, Math.min(100, (rawScore / rawMaxScore) * 100));
+    }
+
+    const avgScore = item?.avg_score != null ? Number(item.avg_score) : null;
+    if (Number.isFinite(avgScore)) {
+        return Math.max(0, Math.min(100, avgScore));
+    }
+
+    if (Number.isFinite(rawScore)) {
+        return Math.max(0, Math.min(100, rawScore));
+    }
+
+    return null;
+};
+
 const normalizeSnapshotBreakdownMetrics = (breakdown) => {
     if (!Array.isArray(breakdown)) return [];
 
@@ -715,9 +742,7 @@ const normalizeSnapshotBreakdownMetrics = (breakdown) => {
                 toSafeText(item?.metric_name || item?.title || metricKey, 100) ||
                 metricKey;
 
-            const avgScore = item?.avg_score != null
-                ? Number(item.avg_score)
-                : (item?.score != null ? Number(item.score) : null);
+            const avgScore = resolveNormalizedMetricScore(item);
 
             const rawValue = item?.avg_raw_value != null
                 ? Number(item.avg_raw_value)

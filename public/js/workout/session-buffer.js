@@ -61,6 +61,26 @@ class SessionBuffer {
     return Math.round(parsed);
   }
 
+  clampMetricScore(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(0, Math.min(100, parsed));
+  }
+
+  getNormalizedMetricScore(item) {
+    const explicit = item?.normalizedScore ?? item?.normalized_score;
+    const explicitScore = this.clampMetricScore(explicit);
+    if (explicitScore != null) return explicitScore;
+
+    const rawScore = Number(item?.score);
+    const rawMaxScore = Number(item?.maxScore ?? item?.max_score);
+    if (Number.isFinite(rawScore) && Number.isFinite(rawMaxScore) && rawMaxScore > 0) {
+      return this.clampMetricScore((rawScore / rawMaxScore) * 100);
+    }
+
+    return this.clampMetricScore(item?.avg_score);
+  }
+
   /**
    * 점수 데이터 추가 (1초당 1개 다운샘플링)
    */
@@ -73,6 +93,7 @@ class SessionBuffer {
         key: item.key,
         title: item.title || item.key,
         score: Number.isFinite(item.score) ? item.score : null,
+        normalizedScore: this.getNormalizedMetricScore(item),
         maxScore: Number.isFinite(item.maxScore) ? item.maxScore : null,
         rawValue: Number.isFinite(item.rawValue) ? item.rawValue : (
           Number.isFinite(item.actualValue) ? item.actualValue : null
@@ -96,17 +117,17 @@ class SessionBuffer {
             this.metricAccumulators[item.key] = {
               metric_id: item.metric_id,
               title: item.title || item.key,
-              maxScore: Number.isFinite(item.maxScore) ? item.maxScore : null,
+              maxScore: 100,
               scores: [],
               rawValues: [],
               feedbackCount: 0
             };
           }
           this.metricAccumulators[item.key].title = item.title || this.metricAccumulators[item.key].title || item.key;
-          if (Number.isFinite(item.maxScore)) {
-            this.metricAccumulators[item.key].maxScore = item.maxScore;
+          const normalizedScore = this.getNormalizedMetricScore(item);
+          if (normalizedScore != null) {
+            this.metricAccumulators[item.key].scores.push(normalizedScore);
           }
-          this.metricAccumulators[item.key].scores.push(item.score);
           // 원본 각도값 누적
           const rawValue = Number.isFinite(item.rawValue)
             ? item.rawValue
@@ -320,7 +341,7 @@ class SessionBuffer {
       target[key] = {
         metric_id: item.metric_id,
         title: item.title || key,
-        maxScore: Number.isFinite(item.maxScore) ? item.maxScore : null,
+        maxScore: 100,
         scores: [],
         rawValues: [],
         feedbackCount: 0
@@ -328,12 +349,9 @@ class SessionBuffer {
     }
 
     target[key].title = item.title || target[key].title || key;
-    if (Number.isFinite(item.maxScore)) {
-      target[key].maxScore = item.maxScore;
-    }
-
-    if (Number.isFinite(item.score)) {
-      target[key].scores.push(item.score);
+    const normalizedScore = this.getNormalizedMetricScore(item);
+    if (normalizedScore != null) {
+      target[key].scores.push(normalizedScore);
     }
     const rawValue = Number.isFinite(item.rawValue)
       ? item.rawValue
@@ -385,7 +403,7 @@ class SessionBuffer {
         const metricKey = (item?.key || item?.metric_key || '').toString().trim();
         if (!metricKey) return null;
 
-        const score = Number(item?.score ?? item?.avg_score);
+        const score = this.getNormalizedMetricScore(item);
         const rawValue = Number.isFinite(item?.rawValue)
           ? item.rawValue
           : (Number.isFinite(item?.actualValue) ? item.actualValue : item?.avg_raw_value);
@@ -393,7 +411,7 @@ class SessionBuffer {
         return {
           metric_key: metricKey,
           metric_name: item?.title || item?.metric_name || metricKey,
-          avg_score: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null,
+          avg_score: score,
           avg_raw_value: Number.isFinite(rawValue) ? rawValue : null,
           min_raw_value: Number.isFinite(item?.minRaw) ? item.minRaw : (Number.isFinite(rawValue) ? rawValue : null),
           max_raw_value: Number.isFinite(item?.maxRaw) ? item.maxRaw : (Number.isFinite(rawValue) ? rawValue : null),

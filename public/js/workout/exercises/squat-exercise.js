@@ -271,6 +271,7 @@
           title: metric.title,
           rawValue: item.rawValue(),
           score,
+          normalizedScore: Math.round(normalizedScore * 100) / 100,
           maxScore: dynamicMaxScore,
           weight: item.weight,
           feedback: normalizedScore < 70 ? item.feedback : null
