@@ -802,6 +802,10 @@
   box-sizing: border-box;
 }
 
+#detailModal {
+  z-index: 2000;
+}
+
 #detailModal .modal-header {
   position: sticky;
   top: 0;
@@ -809,6 +813,32 @@
   background: var(--card);
   border-bottom: 1px solid var(--border);
   padding: 16px 20px;
+}
+
+#detailModal .modal-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#detailModalBackBtn {
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+#detailModalBackBtn:hover {
+  background: var(--tab-hover);
+}
+
+#detailModalBackBtn[hidden] {
+  display: none !important;
 }
 
 #detailModal .modal-body {

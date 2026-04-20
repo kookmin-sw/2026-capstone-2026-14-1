@@ -1,6 +1,7 @@
 ﻿(function initHistoryPage() {
   const statusLabelMap = { DONE: '완료', ABORTED: '중단' };
   const viewLabelMap = { FRONT: '정면', SIDE: '측면', DIAGONAL: '대각선', ROUTINE: '루틴' };
+  let detailBackHandler = null;
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -380,6 +381,21 @@
     setText('visibleAvgScore', `${formatNumber(avgScore)}점`);
   }
 
+  function setDetailBackHandler(handler) {
+    detailBackHandler = typeof handler === 'function' ? handler : null;
+    const backBtn = document.getElementById('detailModalBackBtn');
+    if (!backBtn) return;
+    backBtn.hidden = !detailBackHandler;
+  }
+
+  function goDetailBack() {
+    if (typeof detailBackHandler === 'function') {
+      detailBackHandler();
+      return;
+    }
+    closeModal();
+  }
+
   function renderRoutineSequence(body, routineRun, sequence) {
     if (!body) return;
 
@@ -392,7 +408,7 @@
         <article class="detail-stat-card">
           <label>루틴 이름</label>
           <strong>${escapeHtml(routineRun.routine_name || '루틴')}</strong>
-          <small>실행 #${escapeHtml(String(routineRun.routine_instance_id || '-'))}</small>
+          <small>루틴 실행 기록</small>
         </article>
         <article class="detail-stat-card">
           <label>상태</label>
@@ -448,7 +464,9 @@
       element.addEventListener('click', () => {
         const sessionId = toPositiveInt(element.dataset.sessionId);
         if (sessionId == null) return;
-        viewDetail(sessionId);
+        viewDetail(sessionId, {
+          backToRoutineId: routineRun?.routine_instance_id
+        });
       });
     });
   }
@@ -460,6 +478,7 @@
 
     if (!modal || !body || !title) return;
 
+    setDetailBackHandler(null);
     modal.hidden = false;
     title.textContent = '루틴 상세';
     body.innerHTML = '<div class="loading-state">루틴 데이터를 불러오는 중...</div>';
@@ -475,7 +494,7 @@
       const routineRun = payload.routine_run || {};
       const sequence = Array.isArray(payload.sequence) ? payload.sequence : [];
 
-      title.textContent = `${routineRun.routine_name || '루틴'} · 실행 #${routineRun.routine_instance_id || '-'}`;
+      title.textContent = `${routineRun.routine_name || '루틴'} · 상세`;
       renderRoutineSequence(body, routineRun, sequence);
     } catch (error) {
       console.error('Routine detail load failed:', error);
@@ -483,18 +502,27 @@
     }
   }
 
-  async function viewDetail(sessionId) {
+  async function viewDetail(sessionId, options = {}) {
     const safeSessionId = toPositiveInt(sessionId);
     if (safeSessionId == null) {
       alert('유효하지 않은 세션 ID입니다.');
       return;
     }
+    const backToRoutineId = toPositiveInt(options?.backToRoutineId);
 
     const modal = document.getElementById('detailModal');
     const body = document.getElementById('detailModalBody');
     const title = document.getElementById('detailModalTitle');
 
     if (!modal || !body || !title) return;
+
+    if (backToRoutineId != null) {
+      setDetailBackHandler(() => {
+        void viewRoutineDetail(backToRoutineId);
+      });
+    } else {
+      setDetailBackHandler(null);
+    }
 
     modal.hidden = false;
     title.textContent = '세션 상세';
@@ -511,57 +539,10 @@
       const session = payload.session || {};
       const metrics = Array.isArray(payload.metrics) ? payload.metrics : [];
       const metricSeries = Array.isArray(payload.metric_series) ? payload.metric_series : [];
-      const sessionEvents = Array.isArray(payload.session_events) ? payload.session_events : [];
-      const routineContext = payload.routine_context || {};
       const accuracyFocus = payload.accuracy_focus || {};
       const improvementFocus = payload.improvement_focus || {};
 
-      title.textContent = `${session.exercise?.name || '운동'} · 세션 #${session.session_id || '-'}`;
-
-      const eventRows = sessionEvents.slice(0, 20).map((event) => {
-        const eventTime = event.event_time
-          ? new Date(event.event_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-          : '-';
-        return `
-          <div class="detail-simple-item">
-            <span>${escapeHtml(eventTime)} · ${escapeHtml(event.type || 'EVENT')}</span>
-            <strong>#${formatNumber(event.event_id || 0)}</strong>
-          </div>
-        `;
-      });
-
-      const routineEntries = [];
-      if (routineContext.routine?.name) routineEntries.push(['루틴 이름', routineContext.routine.name]);
-      if (routineContext.routine_instance?.status) routineEntries.push(['루틴 상태', routineContext.routine_instance.status]);
-      if (Number.isFinite(Number(routineContext.workout_set?.set_no))) {
-        routineEntries.push(['세트 번호', `${formatNumber(routineContext.workout_set.set_no)}세트`]);
-      }
-      if (routineContext.workout_set?.status) routineEntries.push(['세트 상태', routineContext.workout_set.status]);
-
-      const debugHtml = `
-        <section class="detail-panel detail-debug-panel">
-          <details class="detail-debug-box">
-            <summary>원본 로그 보기 (디버그)</summary>
-            <div class="detail-debug-grid">
-              <article>
-                <h5>세션 이벤트</h5>
-                ${renderSimpleList(eventRows, '이벤트 기록이 없습니다.')}
-              </article>
-              <article>
-                <h5>루틴 컨텍스트</h5>
-                ${routineEntries.length
-                  ? `<div class="detail-key-grid">${routineEntries.map(([key, value]) => `
-                      <div class="detail-key-item">
-                        <label>${escapeHtml(key)}</label>
-                        <div>${escapeHtml(String(value))}</div>
-                      </div>
-                    `).join('')}</div>`
-                  : '<div class="chart-empty">루틴 컨텍스트가 없습니다.</div>'}
-              </article>
-            </div>
-          </details>
-        </section>
-      `;
+      title.textContent = `${session.exercise?.name || '운동'} · 세션 상세`;
 
       body.innerHTML = `
         <section class="detail-top-grid detail-top-grid--focus">
@@ -611,8 +592,6 @@
           <h4>메트릭 점수 시계열</h4>
           <div id="detailMetricSeries"></div>
         </section>
-
-        ${debugHtml}
       `;
 
       renderMetricSeriesSection(document.getElementById('detailMetricSeries'), metricSeries);
@@ -625,6 +604,7 @@
   function closeModal() {
     const modal = document.getElementById('detailModal');
     if (modal) modal.hidden = true;
+    setDetailBackHandler(null);
   }
 
   async function deleteSession(sessionId) {
@@ -678,6 +658,7 @@
 
   window.viewDetail = viewDetail;
   window.viewRoutineDetail = viewRoutineDetail;
+  window.goDetailBack = goDetailBack;
   window.closeModal = closeModal;
   window.deleteSession = deleteSession;
 
