@@ -1239,6 +1239,193 @@
   background: rgba(76, 29, 149, 0.34);
 }
 
+.history-focus-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-focus-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.history-focus-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.history-focus-intro h1 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+.history-focus-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.focus-summary-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--input-bg);
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.focus-summary-card span,
+.focus-summary-card small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.focus-summary-card strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.history-focus-headline,
+.history-focus-action {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.history-focus-headline strong,
+.history-focus-action strong {
+  color: var(--text);
+}
+
+.history-focus-headline span,
+.history-focus-action span {
+  color: var(--muted);
+}
+
+.detail-top-grid--focus {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.detail-focus-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.detail-focus-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-focus-item label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.detail-focus-item strong {
+  font-size: 17px;
+}
+
+.detail-focus-item small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.detail-improvement-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.detail-improvement-grid article {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  padding: 10px;
+}
+
+.detail-improvement-grid h5 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.detail-issue-list,
+.detail-action-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.detail-issue-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-issue-item span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.detail-action-list li {
+  line-height: 1.45;
+}
+
+.detail-camera-note {
+  margin: 0;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.detail-camera-note span,
+.detail-camera-note small {
+  color: var(--muted);
+}
+
+.detail-debug-box summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.detail-debug-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.detail-debug-grid article {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-debug-grid h5 {
+  margin: 0;
+  font-size: 13px;
+}
+
 @media (max-width: 1360px) {
   .history-kpi-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1257,6 +1444,10 @@
 }
 
 @media (max-width: 1040px) {
+  .history-focus-header {
+    grid-template-columns: 1fr;
+  }
+
   .history-hero {
     grid-template-columns: 1fr;
   }
@@ -1273,9 +1464,19 @@
   .detail-series-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .detail-focus-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 860px) {
+  .history-focus-summary,
+  .detail-improvement-grid,
+  .detail-debug-grid {
+    grid-template-columns: 1fr;
+  }
+
   .insight-grid,
   .detail-dual-grid {
     grid-template-columns: 1fr;
@@ -1316,6 +1517,10 @@
     grid-template-columns: 1fr;
   }
 
+  .history-focus-intro h1 {
+    font-size: 26px;
+  }
+
   .history-hero h1 {
     font-size: 28px;
   }
@@ -1325,6 +1530,10 @@
   }
 
   .detail-series-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-focus-grid {
     grid-template-columns: 1fr;
   }
 }

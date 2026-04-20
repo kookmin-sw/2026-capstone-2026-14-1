@@ -1,4 +1,4 @@
-<%
+﻿<%
   const modeLabelMap = { FREE: '자율 운동', ROUTINE: '루틴 운동', LEARN: '학습 모드' };
   const statusLabelMap = { DONE: '완료', ABORTED: '중단', ALL: '전체' };
   const viewLabelMap = { FRONT: '정면', SIDE: '측면', DIAGONAL: '대각선' };
@@ -48,6 +48,7 @@
   const pageAvgScore = doneSessions.length
     ? Math.round(doneSessions.reduce((sum, session) => sum + Math.max(0, Number(session?.final_score) || 0), 0) / doneSessions.length)
     : 0;
+  const lowAccuracyCount = doneSessions.filter((session) => Math.max(0, Number(session?.final_score) || 0) < 70).length;
 
   const selectedExercise = safeExercises.find((exercise) => String(exercise.exercise_id) === String(filters.exercise));
   const filterSummary = [
@@ -57,308 +58,187 @@
     sortLabelMap[filters.sort] || '최신순'
   ].join(' · ');
 
-  const initialInsightDays =
-    filters.period === '90d'
-      ? 90
-      : filters.period === 'today' || filters.period === 'week'
-        ? 7
-        : 30;
+  const toFocusPreview = (session) => {
+    const preview = session?.focus_preview || {};
+    return {
+      headline: preview.headline || '세션 데이터를 기반으로 개선 방향을 정리하는 중입니다.',
+      issue: preview.primary_issue || '핵심 문제 추출 중',
+      action: preview.primary_action || '다음 세션에서 동일 동작을 천천히 반복해 보세요.'
+    };
+  };
 %>
 
-<link rel="stylesheet" href="/history-v2.css?v=2" />
+<link rel="stylesheet" href="/history-v2.css?v=3" />
 
-<div class="page active history-v3-page">
-  <section class="card history-hero">
-    <div class="history-hero-main">
-      <p class="history-hero-kicker">Workout Session Archive</p>
+<div class="page active history-v3-page history-focus-page">
+  <section class="card history-focus-header">
+    <div class="history-focus-intro">
+      <p class="history-hero-kicker">Posture Accuracy Only</p>
       <h1>운동 히스토리</h1>
       <p class="history-hero-description">
-        나의 운동 기록을 한 화면에서 확인하고 분석해보세요.
+        나의 운동 자세의 정확도가 어떻게 변해왔는지, 그리고 어떤 부분을 개선하면 좋을지 히스토리를 통해 확인해보세요.
       </p>
-      <div class="history-hero-actions">
-        <a class="primary" href="/workout/free">자율 운동 시작</a>
-        <a class="ghost" href="/routine">루틴 페이지</a>
-      </div>
       <p class="muted history-filter-summary">현재 보기: <strong><%= filterSummary %></strong></p>
     </div>
-    <div class="history-hero-stats">
-      <article class="hero-stat">
-        <span>연속 운동</span>
-        <strong><%= stats.overview.streak %>일</strong>
-        <small>최근 기록 유지</small>
+
+    <div class="history-focus-summary">
+      <article class="focus-summary-card">
+        <span>표시 세션</span>
+        <strong id="visibleSessionCount"><%= safeSessions.length %></strong>
+        <small>현재 페이지 기준</small>
       </article>
-      <article class="hero-stat">
-        <span>최근 30일</span>
-        <strong><%= stats.recent30.count %>회</strong>
-        <small><%= stats.recent30.totalMinutes %>분 · 평균 <%= stats.recent30.avgScore %>점</small>
+      <article class="focus-summary-card">
+        <span>완료 세션</span>
+        <strong id="visibleDoneCount"><%= doneSessions.length %></strong>
+        <small>중단 <span id="visibleAbortedCount"><%= abortedSessions.length %></span>회</small>
       </article>
-      <article class="hero-stat">
-        <span>필터 결과</span>
-        <strong><%= pagination.total %>건</strong>
-        <small>현재 조건 전체</small>
+      <article class="focus-summary-card">
+        <span>평균 정확도</span>
+        <strong id="visibleAvgScore"><%= pageAvgScore %>점</strong>
+        <small>완료 세션 평균</small>
       </article>
-      <article class="hero-stat">
-        <span>최고 점수</span>
-        <% if (stats.overview.best) { %>
-          <strong><%= Math.round(stats.overview.best.final_score || 0) %>점</strong>
-          <small><%= stats.overview.best.exercise?.name || '운동' %></small>
-        <% } else { %>
-          <strong>-</strong>
-          <small>기록 없음</small>
-        <% } %>
+      <article class="focus-summary-card">
+        <span>개선 집중 대상</span>
+        <strong><%= lowAccuracyCount %>회</strong>
+        <small>70점 미만 세션</small>
       </article>
     </div>
   </section>
 
-  <section class="history-kpi-grid">
-    <article class="card kpi-card">
-      <span class="kpi-label">오늘</span>
-      <strong class="kpi-value"><%= stats.today.count %>회</strong>
-      <span class="kpi-meta"><%= stats.today.totalMinutes %>분 · <%= stats.today.totalReps %>회</span>
-    </article>
-    <article class="card kpi-card">
-      <span class="kpi-label">이번 주</span>
-      <strong class="kpi-value"><%= stats.week.count %>회</strong>
-      <span class="kpi-meta"><%= stats.week.totalMinutes %>분 · 평균 <%= stats.week.avgScore %>점</span>
-    </article>
-    <article class="card kpi-card">
-      <span class="kpi-label">완료 세션</span>
-      <strong class="kpi-value"><%= stats.overview.doneCount %>회</strong>
-      <span class="kpi-meta">중단 <%= stats.overview.abortedCount %>회</span>
-    </article>
-    <article class="card kpi-card">
-      <span class="kpi-label">현재 페이지 완료율</span>
-      <strong class="kpi-value"><%= safeSessions.length ? Math.round((doneSessions.length / safeSessions.length) * 100) : 0 %>%</strong>
-      <span class="kpi-meta">완료 <%= doneSessions.length %> · 중단 <%= abortedSessions.length %></span>
-    </article>
-    <article class="card kpi-card">
-      <span class="kpi-label">현재 페이지 평균 점수</span>
-      <strong class="kpi-value"><%= pageAvgScore %>점</strong>
-      <span class="kpi-meta">완료 세션 기준</span>
-    </article>
+  <section class="card history-filter-card">
+    <div class="history-filter-header">
+      <h2>기록 필터</h2>
+      <p class="muted">필터 변경 시 자동으로 다시 조회됩니다.</p>
+    </div>
+    <form method="GET" action="/history" class="history-filter-form">
+      <div class="filter-field">
+        <label for="historyExercise">운동</label>
+        <select id="historyExercise" name="exercise" onchange="this.form.submit()">
+          <option value="all">전체</option>
+          <% safeExercises.forEach((exercise) => { %>
+            <option value="<%= exercise.exercise_id %>" <%= String(exercise.exercise_id) === String(filters.exercise) ? 'selected' : '' %>>
+              <%= exercise.name %>
+            </option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="historyPeriod">기간</label>
+        <select id="historyPeriod" name="period" onchange="this.form.submit()">
+          <option value="all" <%= filters.period === 'all' ? 'selected' : '' %>>전체</option>
+          <option value="today" <%= filters.period === 'today' ? 'selected' : '' %>>오늘</option>
+          <option value="week" <%= filters.period === 'week' ? 'selected' : '' %>>이번 주</option>
+          <option value="month" <%= filters.period === 'month' ? 'selected' : '' %>>이번 달</option>
+          <option value="90d" <%= filters.period === '90d' ? 'selected' : '' %>>최근 90일</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="historyStatus">상태</label>
+        <select id="historyStatus" name="status" onchange="this.form.submit()">
+          <option value="DONE" <%= filters.status === 'DONE' ? 'selected' : '' %>>완료</option>
+          <option value="ABORTED" <%= filters.status === 'ABORTED' ? 'selected' : '' %>>중단</option>
+          <option value="ALL" <%= filters.status === 'ALL' ? 'selected' : '' %>>전체</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="historySort">정렬</label>
+        <select id="historySort" name="sort" onchange="this.form.submit()">
+          <option value="latest" <%= filters.sort === 'latest' ? 'selected' : '' %>>최신순</option>
+          <option value="oldest" <%= filters.sort === 'oldest' ? 'selected' : '' %>>오래된순</option>
+          <option value="score" <%= filters.sort === 'score' ? 'selected' : '' %>>점수 높은순</option>
+        </select>
+      </div>
+    </form>
   </section>
 
-  <section class="history-content-grid">
-    <div class="history-main-column">
-      <section class="card insight-panel">
-        <div class="insight-header">
-          <div>
-            <h2 class="insight-title">기록 인사이트</h2>
-            <p class="muted">일별 추이와 운동별 분포를 신규 세션 구조 기준으로 집계합니다.</p>
-          </div>
-          <div class="range-switch" role="group" aria-label="기간 선택">
-            <button type="button" class="range-btn" data-range="7">7일</button>
-            <button type="button" class="range-btn active" data-range="30">30일</button>
-            <button type="button" class="range-btn" data-range="90">90일</button>
-          </div>
+  <section class="history-feed-section">
+    <% if (safeSessions.length === 0) { %>
+      <div class="card empty-state">
+        <h3>조건에 맞는 기록이 없습니다</h3>
+        <p class="muted">필터를 바꾸거나 새 운동을 시작해보세요.</p>
+        <div class="empty-actions">
+          <a class="primary" href="/workout/free">자율 운동 시작</a>
         </div>
+      </div>
+    <% } else { %>
+      <div class="history-feed">
+        <% safeSessions.forEach((session) => {
+          const focus = toFocusPreview(session);
+        %>
+          <article
+            class="card history-item <%= String(session.status || '').toUpperCase() === 'ABORTED' ? 'is-aborted' : '' %>"
+            data-session-id="<%= session.session_id %>"
+            data-session-status="<%= String(session.status || '').toUpperCase() %>"
+            data-session-score="<%= Math.max(0, Number(session.final_score) || 0) %>"
+          >
+            <header class="history-item-header">
+              <div class="history-item-date">
+                <strong><%= new Date(session.started_at).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }) %></strong>
+                <span><%= new Date(session.started_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) %></span>
+              </div>
+              <div class="history-item-tags">
+                <span class="history-tag mode"><%= modeLabelMap[session.mode] || session.mode || '-' %></span>
+                <span class="history-tag status <%= String(session.status || '').toLowerCase() %>"><%= statusLabelMap[session.status] || session.status || '-' %></span>
+                <span class="history-tag view"><%= viewLabelMap[session.selected_view] || session.selected_view || '-' %></span>
+              </div>
+            </header>
 
-        <div class="insight-metrics" id="insightMetrics"></div>
-
-        <div class="insight-grid">
-          <article class="insight-panel-block">
-            <div class="chart-header-row">
-              <h3>평균 점수 추이</h3>
-              <span id="scoreTrendHint" class="trend-hint">집계 중...</span>
-            </div>
-            <div id="scoreChart" class="chart-wrap" aria-live="polite"></div>
-          </article>
-          <article class="insight-panel-block">
-            <div class="chart-header-row">
-              <h3>운동 시간 추이</h3>
-              <span id="timeTrendHint" class="trend-hint">집계 중...</span>
-            </div>
-            <div id="timeChart" class="chart-wrap" aria-live="polite"></div>
-          </article>
-        </div>
-
-        <div class="insight-grid">
-          <article class="insight-panel-block">
-            <div class="chart-header-row">
-              <h3>활동 히트 스트립</h3>
-              <span class="trend-hint">최근 선택 기간</span>
-            </div>
-            <div id="activityStrip" class="chart-wrap compact" aria-live="polite"></div>
-          </article>
-          <article class="insight-panel-block">
-            <div class="chart-header-row">
-              <h3>운동별 분포</h3>
-              <span class="trend-hint">상위 8개</span>
-            </div>
-            <div id="exerciseBreakdown" class="chart-wrap compact" aria-live="polite"></div>
-          </article>
-        </div>
-      </section>
-
-      <section class="card history-filter-card">
-        <div class="history-filter-header">
-          <h2>기록 필터</h2>
-          <p class="muted">필터 변경 시 자동으로 다시 조회됩니다.</p>
-        </div>
-        <form method="GET" action="/history" class="history-filter-form">
-          <div class="filter-field">
-            <label for="historyExercise">운동</label>
-            <select id="historyExercise" name="exercise" onchange="this.form.submit()">
-              <option value="all">전체</option>
-              <% safeExercises.forEach((exercise) => { %>
-                <option value="<%= exercise.exercise_id %>" <%= String(exercise.exercise_id) === String(filters.exercise) ? 'selected' : '' %>>
-                  <%= exercise.name %>
-                </option>
-              <% }) %>
-            </select>
-          </div>
-          <div class="filter-field">
-            <label for="historyPeriod">기간</label>
-            <select id="historyPeriod" name="period" onchange="this.form.submit()">
-              <option value="all" <%= filters.period === 'all' ? 'selected' : '' %>>전체</option>
-              <option value="today" <%= filters.period === 'today' ? 'selected' : '' %>>오늘</option>
-              <option value="week" <%= filters.period === 'week' ? 'selected' : '' %>>이번 주</option>
-              <option value="month" <%= filters.period === 'month' ? 'selected' : '' %>>이번 달</option>
-              <option value="90d" <%= filters.period === '90d' ? 'selected' : '' %>>최근 90일</option>
-            </select>
-          </div>
-          <div class="filter-field">
-            <label for="historyStatus">상태</label>
-            <select id="historyStatus" name="status" onchange="this.form.submit()">
-              <option value="DONE" <%= filters.status === 'DONE' ? 'selected' : '' %>>완료</option>
-              <option value="ABORTED" <%= filters.status === 'ABORTED' ? 'selected' : '' %>>중단</option>
-              <option value="ALL" <%= filters.status === 'ALL' ? 'selected' : '' %>>전체</option>
-            </select>
-          </div>
-          <div class="filter-field">
-            <label for="historySort">정렬</label>
-            <select id="historySort" name="sort" onchange="this.form.submit()">
-              <option value="latest" <%= filters.sort === 'latest' ? 'selected' : '' %>>최신순</option>
-              <option value="oldest" <%= filters.sort === 'oldest' ? 'selected' : '' %>>오래된순</option>
-              <option value="score" <%= filters.sort === 'score' ? 'selected' : '' %>>점수 높은순</option>
-            </select>
-          </div>
-        </form>
-      </section>
-
-      <section class="history-feed-section">
-        <% if (safeSessions.length === 0) { %>
-          <div class="card empty-state">
-            <h3>조건에 맞는 기록이 없습니다</h3>
-            <p class="muted">필터를 바꾸거나 새 운동을 시작해보세요.</p>
-            <div class="empty-actions">
-              <a class="primary" href="/workout/free">자율 운동 시작</a>
-              <a class="ghost" href="/routine">루틴 보러가기</a>
-            </div>
-          </div>
-        <% } else { %>
-          <div class="history-feed">
-            <% safeSessions.forEach((session) => { %>
-              <article
-                class="card history-item <%= String(session.status || '').toUpperCase() === 'ABORTED' ? 'is-aborted' : '' %>"
-                data-session-id="<%= session.session_id %>"
-                data-session-status="<%= String(session.status || '').toUpperCase() %>"
-                data-session-score="<%= Math.max(0, Number(session.final_score) || 0) %>"
-              >
-                <header class="history-item-header">
-                  <div class="history-item-date">
-                    <strong><%= new Date(session.started_at).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }) %></strong>
-                    <span><%= new Date(session.started_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) %></span>
+            <div class="history-item-body">
+              <div class="history-item-main">
+                <h3 class="history-item-title"><%= session.exercise?.name || '운동' %></h3>
+                <div class="history-item-facts">
+                  <div class="fact-chip">
+                    <span>결과</span>
+                    <strong><%= formatResultValue(session) %></strong>
                   </div>
-                  <div class="history-item-tags">
-                    <span class="history-tag mode"><%= modeLabelMap[session.mode] || session.mode || '-' %></span>
-                    <span class="history-tag status <%= String(session.status || '').toLowerCase() %>"><%= statusLabelMap[session.status] || session.status || '-' %></span>
-                    <span class="history-tag view"><%= viewLabelMap[session.selected_view] || session.selected_view || '-' %></span>
+                  <div class="fact-chip">
+                    <span>운동 시간</span>
+                    <strong><%= formatDuration(session.duration_sec) %></strong>
                   </div>
-                </header>
-
-                <div class="history-item-body">
-                  <div class="history-item-main">
-                    <h3 class="history-item-title"><%= session.exercise?.name || '운동' %></h3>
-                    <div class="history-item-facts">
-                      <div class="fact-chip">
-                        <span>결과</span>
-                        <strong><%= formatResultValue(session) %></strong>
-                      </div>
-                      <div class="fact-chip">
-                        <span>운동 시간</span>
-                        <strong><%= formatDuration(session.duration_sec) %></strong>
-                      </div>
-                      <% if (session.final_snapshot) { %>
-                        <div class="fact-chip">
-                          <span>FINAL 스냅샷</span>
-                          <strong>#<%= session.final_snapshot.snapshot_no %></strong>
-                        </div>
-                      <% } %>
-                    </div>
-                    <% if (session.summary_feedback) { %>
-                      <p class="history-item-feedback"><%= session.summary_feedback %></p>
-                    <% } else { %>
-                      <p class="history-item-feedback muted">요약 피드백이 없는 세션입니다.</p>
-                    <% } %>
-                  </div>
-                  <div class="history-item-score">
-                    <div class="score-badge <%= scoreTier(session.final_score, session.status) %>">
-                      <strong><%= String(session.status || '').toUpperCase() === 'ABORTED' ? '-' : Math.round(session.final_score || 0) %></strong>
-                      <span>점수</span>
-                    </div>
+                  <div class="fact-chip">
+                    <span>개선 1순위</span>
+                    <strong><%= focus.issue %></strong>
                   </div>
                 </div>
 
-                <footer class="history-item-actions">
-                  <button type="button" class="ghost small" onclick="viewDetail('<%= session.session_id %>')">상세</button>
-                  <% if (String(session.status || '').toUpperCase() === 'DONE') { %>
-                    <a class="ghost small link-btn" href="/workout/result/<%= session.session_id %>">결과</a>
-                  <% } %>
-                  <button type="button" class="danger small" onclick="deleteSession('<%= session.session_id %>')">삭제</button>
-                </footer>
-              </article>
-            <% }) %>
-          </div>
+                <p class="history-focus-headline">
+                  <strong>핵심 문제</strong>
+                  <span><%= focus.headline %></span>
+                </p>
+                <p class="history-focus-action">
+                  <strong>다음 행동</strong>
+                  <span><%= focus.action %></span>
+                </p>
+              </div>
 
-          <% if (pagination.totalPages > 1) { %>
-            <nav class="history-pagination" aria-label="페이지 이동">
-              <% if (pagination.page > 1) { %>
-                <a class="page-btn" href="?page=<%= pagination.page - 1 %>&exercise=<%= filters.exercise %>&period=<%= filters.period %>&status=<%= filters.status %>&sort=<%= filters.sort %>">이전</a>
-              <% } %>
-              <span class="page-info"><%= pagination.page %> / <%= pagination.totalPages %> · 총 <%= pagination.total %>건</span>
-              <% if (pagination.page < pagination.totalPages) { %>
-                <a class="page-btn" href="?page=<%= pagination.page + 1 %>&exercise=<%= filters.exercise %>&period=<%= filters.period %>&status=<%= filters.status %>&sort=<%= filters.sort %>">다음</a>
-              <% } %>
-            </nav>
+              <div class="history-item-score">
+                <div class="score-badge <%= scoreTier(session.final_score, session.status) %>">
+                  <strong><%= String(session.status || '').toUpperCase() === 'ABORTED' ? '-' : Math.round(session.final_score || 0) %></strong>
+                  <span>정확도</span>
+                </div>
+              </div>
+            </div>
+
+            <footer class="history-item-actions">
+              <button type="button" class="ghost small" onclick="viewDetail('<%= session.session_id %>')">상세</button>
+              <button type="button" class="danger small" onclick="deleteSession('<%= session.session_id %>')">삭제</button>
+            </footer>
+          </article>
+        <% }) %>
+      </div>
+
+      <% if (pagination.totalPages > 1) { %>
+        <nav class="history-pagination" aria-label="페이지 이동">
+          <% if (pagination.page > 1) { %>
+            <a class="page-btn" href="?page=<%= pagination.page - 1 %>&exercise=<%= filters.exercise %>&period=<%= filters.period %>&status=<%= filters.status %>&sort=<%= filters.sort %>">이전</a>
           <% } %>
-        <% } %>
-      </section>
-    </div>
-
-    <aside class="history-side-column">
-      <section class="card side-summary-card">
-        <h3>현재 화면 요약</h3>
-        <div class="side-summary-grid">
-          <article>
-            <span>표시 세션</span>
-            <strong id="visibleSessionCount"><%= safeSessions.length %></strong>
-          </article>
-          <article>
-            <span>완료</span>
-            <strong id="visibleDoneCount"><%= doneSessions.length %></strong>
-          </article>
-          <article>
-            <span>중단</span>
-            <strong id="visibleAbortedCount"><%= abortedSessions.length %></strong>
-          </article>
-          <article>
-            <span>평균 점수</span>
-            <strong id="visibleAvgScore"><%= pageAvgScore %></strong>
-          </article>
-        </div>
-      </section>
-
-      <section class="card side-guide-card">
-        <h3>세션 라벨 가이드</h3>
-        <div class="side-guide-list">
-          <div><span class="history-tag mode">자율/루틴/학습</span><p class="muted">세션이 시작된 모드를 표시합니다.</p></div>
-          <div><span class="history-tag status done">완료</span><p class="muted">정상 종료되어 결과 점수와 스냅샷이 남은 세션입니다.</p></div>
-          <div><span class="history-tag status aborted">중단</span><p class="muted">도중 종료된 세션으로 점수는 참고용으로만 보세요.</p></div>
-          <div><span class="history-tag view">정면/측면/대각선</span><p class="muted">선택한 시점의 뷰(view) 값을 보여줍니다.</p></div>
-        </div>
-      </section>
-    </aside>
+          <span class="page-info"><%= pagination.page %> / <%= pagination.totalPages %> · 총 <%= pagination.total %>건</span>
+          <% if (pagination.page < pagination.totalPages) { %>
+            <a class="page-btn" href="?page=<%= pagination.page + 1 %>&exercise=<%= filters.exercise %>&period=<%= filters.period %>&status=<%= filters.status %>&sort=<%= filters.sort %>">다음</a>
+          <% } %>
+        </nav>
+      <% } %>
+    <% } %>
   </section>
 </div>
 
@@ -374,9 +254,4 @@
   </div>
 </div>
 
-<script>
-  window.__HISTORY_BOOTSTRAP__ = {
-    initialDays: <%= initialInsightDays %>
-  };
-</script>
 <script src="/js/history-page.js"></script>

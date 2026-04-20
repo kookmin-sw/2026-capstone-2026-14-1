@@ -247,6 +247,272 @@ const buildMetricSeries = ({ startedAt, snapshots = [], metricRows = [] }) => {
         });
 };
 
+const sanitizeMetricRows = (rows = []) => {
+    if (!Array.isArray(rows)) return [];
+
+    return rows
+        .map((row) => {
+            const metricKey = String(row?.metric_key || '').trim();
+            const metricName = String(row?.metric_name || metricKey).trim();
+            if (!metricKey) return null;
+
+            return {
+                session_snapshot_id: row?.session_snapshot_id || null,
+                metric_key: metricKey,
+                metric_name: metricName || metricKey,
+                avg_score: clampScore(row?.avg_score),
+                avg_raw_value: Number.isFinite(Number(row?.avg_raw_value)) ? Number(row.avg_raw_value) : null,
+                min_raw_value: Number.isFinite(Number(row?.min_raw_value)) ? Number(row.min_raw_value) : null,
+                max_raw_value: Number.isFinite(Number(row?.max_raw_value)) ? Number(row.max_raw_value) : null,
+                sample_count: toRoundedNonNegativeInt(row?.sample_count, 0)
+            };
+        })
+        .filter(Boolean);
+};
+
+const sortMetricsByScore = (rows = [], ascending = false) => {
+    return [...rows].sort((a, b) => {
+        const scoreDiff = toFiniteNumber(a?.avg_score, 0) - toFiniteNumber(b?.avg_score, 0);
+        if (scoreDiff !== 0) {
+            return ascending ? scoreDiff : -scoreDiff;
+        }
+        return String(a?.metric_name || a?.metric_key || '').localeCompare(
+            String(b?.metric_name || b?.metric_key || ''),
+            'ko'
+        );
+    });
+};
+
+const toScoreGrade = (score) => {
+    const safeScore = Math.max(0, Math.min(100, Math.round(toFiniteNumber(score, 0))));
+    if (safeScore >= 90) return 'A';
+    if (safeScore >= 80) return 'B';
+    if (safeScore >= 70) return 'C';
+    if (safeScore >= 60) return 'D';
+    return 'E';
+};
+
+const buildMetricAction = (metric) => {
+    const source = `${String(metric?.metric_key || '')} ${String(metric?.metric_name || '')}`.toLowerCase();
+
+    if (
+        source.includes('depth') ||
+        source.includes('깊이') ||
+        source.includes('hip') ||
+        source.includes('힙')
+    ) {
+        return '하강 구간에서 엉덩이를 더 뒤로 보내고 가동범위를 조금씩 늘려보세요.';
+    }
+    if (
+        source.includes('knee') ||
+        source.includes('무릎') ||
+        source.includes('alignment') ||
+        source.includes('정렬')
+    ) {
+        return '무릎이 발끝 방향을 따라가도록 유지하고 좌우 흔들림을 줄여보세요.';
+    }
+    if (
+        source.includes('spine') ||
+        source.includes('back') ||
+        source.includes('허리') ||
+        source.includes('상체')
+    ) {
+        return '코어에 힘을 주고 상체 각도를 일정하게 유지해 보세요.';
+    }
+    if (
+        source.includes('tempo') ||
+        source.includes('speed') ||
+        source.includes('리듬') ||
+        source.includes('속도')
+    ) {
+        return '내려갈 때 2초, 올라올 때 1초처럼 일정한 리듬으로 반복해 보세요.';
+    }
+    if (
+        source.includes('balance') ||
+        source.includes('symmetry') ||
+        source.includes('균형')
+    ) {
+        return '좌우 체중 분배를 맞추고 중심이 한쪽으로 쏠리지 않게 의식해 보세요.';
+    }
+    return `${metric?.metric_name || '자세'} 구간을 천천히 반복하며 정확도를 먼저 확보해 보세요.`;
+};
+
+const buildMetricIssue = (metric, priority = 1) => {
+    const safeScore = Math.max(0, Math.min(100, Math.round(toFiniteNumber(metric?.avg_score, 0))));
+    const metricName = metric?.metric_name || metric?.metric_key || '자세';
+
+    return {
+        priority,
+        metric_key: metric?.metric_key || null,
+        metric_name: metricName,
+        current_score: safeScore,
+        reason: `${metricName} 평균 점수가 ${safeScore}점입니다.`,
+        action: buildMetricAction(metric)
+    };
+};
+
+const buildCameraInsight = (sessionEvents = []) => {
+    const eventCounts = {};
+    for (const event of Array.isArray(sessionEvents) ? sessionEvents : []) {
+        const type = String(event?.type || '').trim().toUpperCase();
+        if (!type) continue;
+        eventCounts[type] = (eventCounts[type] || 0) + 1;
+    }
+
+    const lowScoreHintCount = toRoundedNonNegativeInt(eventCounts.LOW_SCORE_HINT, 0);
+    const cameraIssueCount = Object.entries(eventCounts).reduce((sum, [type, count]) => {
+        if (type.includes('NO_PERSON') || type.includes('CAMERA') || type.includes('STALE')) {
+            return sum + toRoundedNonNegativeInt(count, 0);
+        }
+        return sum;
+    }, 0);
+
+    let note = '카메라 이탈 이슈는 크지 않았습니다.';
+    if (cameraIssueCount >= 5) {
+        note = '카메라 이탈이 잦아 자세 판정 신뢰도가 낮아질 수 있습니다.';
+    } else if (cameraIssueCount > 0) {
+        note = '카메라 이탈이 일부 감지되었습니다. 다음 세션에서 화면 정렬을 먼저 맞춰주세요.';
+    }
+
+    return {
+        event_counts: eventCounts,
+        camera_issue_count: cameraIssueCount,
+        low_score_hint_count: lowScoreHintCount,
+        note,
+        action: cameraIssueCount > 0
+            ? '전신이 화면 안에 고정되도록 카메라 거리와 높이를 먼저 맞춰주세요.'
+            : null
+    };
+};
+
+const buildAccuracyFocus = ({ session, metrics = [], metricSeries = [] }) => {
+    const normalizedMetrics = sanitizeMetricRows(metrics);
+    const sortedDesc = sortMetricsByScore(normalizedMetrics, false);
+    const sortedAsc = sortMetricsByScore(normalizedMetrics, true);
+
+    const trendByMetricKey = new Map();
+    for (const series of Array.isArray(metricSeries) ? metricSeries : []) {
+        const metricKey = String(series?.metric_key || '').trim();
+        const points = Array.isArray(series?.points) ? series.points : [];
+        if (!metricKey || points.length < 2) continue;
+
+        const first = Number(points[0]?.avg_score);
+        const last = Number(points[points.length - 1]?.avg_score);
+        if (!Number.isFinite(first) || !Number.isFinite(last)) continue;
+        trendByMetricKey.set(metricKey, Number((last - first).toFixed(1)));
+    }
+
+    const toMetricItem = (metric) => ({
+        metric_key: metric.metric_key,
+        metric_name: metric.metric_name,
+        avg_score: toFiniteNumber(metric.avg_score, 0),
+        sample_count: toRoundedNonNegativeInt(metric.sample_count, 0),
+        trend_delta: trendByMetricKey.has(metric.metric_key) ? trendByMetricKey.get(metric.metric_key) : null
+    });
+
+    const safeScore = Math.max(0, Math.min(100, Math.round(toFiniteNumber(session?.final_score, 0))));
+
+    return {
+        overall_score: safeScore,
+        score_grade: toScoreGrade(safeScore),
+        metric_count: sortedDesc.length,
+        best_metric: sortedDesc.length > 0 ? toMetricItem(sortedDesc[0]) : null,
+        weakest_metric: sortedAsc.length > 0 ? toMetricItem(sortedAsc[0]) : null,
+        top_metrics: sortedDesc.slice(0, 3).map(toMetricItem),
+        weak_metrics: sortedAsc.slice(0, 3).map(toMetricItem)
+    };
+};
+
+const buildImprovementFocus = ({ session, metrics = [], sessionEvents = [] }) => {
+    const normalizedMetrics = sanitizeMetricRows(metrics);
+    const weakMetrics = sortMetricsByScore(normalizedMetrics, true).slice(0, 3);
+    const issues = weakMetrics.map((metric, index) => buildMetricIssue(metric, index + 1));
+
+    const cameraInsight = buildCameraInsight(sessionEvents);
+
+    const actions = [];
+    for (const issue of issues) {
+        if (issue.action && !actions.includes(issue.action)) {
+            actions.push(issue.action);
+        }
+    }
+    if (cameraInsight.action && !actions.includes(cameraInsight.action)) {
+        actions.push(cameraInsight.action);
+    }
+    if (actions.length === 0 && session?.summary_feedback) {
+        actions.push(String(session.summary_feedback));
+    }
+    if (actions.length === 0) {
+        actions.push('현재 점수는 안정적입니다. 다음 세션에서도 같은 자세 리듬을 유지해 보세요.');
+    }
+
+    const totalSamples = normalizedMetrics.reduce(
+        (sum, metric) => sum + toRoundedNonNegativeInt(metric.sample_count, 0),
+        0
+    );
+
+    let confidenceScore = 0.45;
+    if (totalSamples >= 30) confidenceScore = 0.9;
+    else if (totalSamples >= 15) confidenceScore = 0.75;
+    else if (totalSamples >= 5) confidenceScore = 0.6;
+
+    confidenceScore -= Math.min(0.25, cameraInsight.camera_issue_count * 0.05);
+    confidenceScore = Number(Math.max(0.3, Math.min(0.95, confidenceScore)).toFixed(2));
+
+    let headline = '현재 세션 데이터 기준으로 개선 우선순위를 정리했습니다.';
+    if (issues.length > 0) {
+        headline = `${issues[0].metric_name} 정확도 개선이 가장 우선입니다.`;
+    } else if (cameraInsight.camera_issue_count > 0) {
+        headline = '자세 자체보다 카메라 안정화가 우선입니다.';
+    } else if (session?.summary_feedback) {
+        headline = String(session.summary_feedback);
+    }
+
+    return {
+        headline,
+        priority_issues: issues,
+        actions: actions.slice(0, 4),
+        camera_note: cameraInsight.note,
+        event_counts: cameraInsight.event_counts,
+        confidence_score: confidenceScore
+    };
+};
+
+const buildFocusPreview = ({ session, metrics = [] }) => {
+    const status = String(session?.status || '').toUpperCase();
+    if (status === 'ABORTED') {
+        return {
+            headline: '세션이 중단되어 정확도 분석이 제한적입니다.',
+            primary_issue: '세션 중단',
+            primary_action: '다음 세션에서는 짧은 목표로 완주를 먼저 시도해 보세요.'
+        };
+    }
+
+    const weakMetric = sortMetricsByScore(sanitizeMetricRows(metrics), true)[0] || null;
+    if (weakMetric) {
+        const safeScore = Math.max(0, Math.min(100, Math.round(toFiniteNumber(weakMetric.avg_score, 0))));
+        return {
+            headline: `${weakMetric.metric_name} 정확도가 가장 낮았습니다.`,
+            primary_issue: `${weakMetric.metric_name} ${safeScore}점`,
+            primary_action: buildMetricAction(weakMetric)
+        };
+    }
+
+    if (session?.summary_feedback) {
+        return {
+            headline: String(session.summary_feedback),
+            primary_issue: '요약 피드백 참고',
+            primary_action: '다음 세션에서 동일 동작을 천천히 반복해 정확도를 확인해 보세요.'
+        };
+    }
+
+    return {
+        headline: '메트릭 데이터가 충분하지 않습니다.',
+        primary_issue: '분석 데이터 부족',
+        primary_action: '다음 세션에서 동작 시간을 조금 더 길게 가져가 보세요.'
+    };
+};
+
 const calculateStreak = (rows = []) => {
     if (!Array.isArray(rows) || rows.length === 0) return 0;
 
@@ -316,7 +582,8 @@ const fetchFinalSnapshotMaps = async (sessionIds = []) => {
     if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
         return {
             snapshotHeaderBySessionId: new Map(),
-            snapshotScoreBySessionId: new Map()
+            snapshotScoreBySessionId: new Map(),
+            snapshotMetricsBySessionId: new Map()
         };
     }
 
@@ -344,32 +611,64 @@ const fetchFinalSnapshotMaps = async (sessionIds = []) => {
     if (snapshotIds.length === 0) {
         return {
             snapshotHeaderBySessionId,
-            snapshotScoreBySessionId: new Map()
+            snapshotScoreBySessionId: new Map(),
+            snapshotMetricsBySessionId: new Map()
         };
     }
 
-    const { data: scoreRows, error: scoreError } = await supabase
-        .from('session_snapshot_score')
-        .select('session_snapshot_id, score, result_basis, result_value, result_unit, summary_feedback')
-        .in('session_snapshot_id', snapshotIds);
+    const [
+        { data: scoreRows, error: scoreError },
+        { data: metricRows, error: metricError }
+    ] = await Promise.all([
+        supabase
+            .from('session_snapshot_score')
+            .select('session_snapshot_id, score, result_basis, result_value, result_unit, summary_feedback')
+            .in('session_snapshot_id', snapshotIds),
+        supabase
+            .from('session_snapshot_metric')
+            .select('session_snapshot_id, metric_key, metric_name, avg_score, avg_raw_value, min_raw_value, max_raw_value, sample_count')
+            .in('session_snapshot_id', snapshotIds)
+    ]);
 
     if (scoreError) throw scoreError;
+    if (metricError) throw metricError;
 
     const scoreBySnapshotId = new Map(
         (scoreRows || []).map((row) => [row.session_snapshot_id, row])
     );
 
     const snapshotScoreBySessionId = new Map();
+    const snapshotMetricsBySessionId = new Map();
+    const metricsBySnapshotId = new Map();
+
+    for (const row of sanitizeMetricRows(metricRows || [])) {
+        const key = row.session_snapshot_id || null;
+        if (!key) continue;
+        if (!metricsBySnapshotId.has(key)) {
+            metricsBySnapshotId.set(key, []);
+        }
+        metricsBySnapshotId.get(key).push(row);
+    }
+
     for (const [sessionId, snapshotHeader] of snapshotHeaderBySessionId.entries()) {
         const snapshotScore = scoreBySnapshotId.get(snapshotHeader.session_snapshot_id) || null;
         if (snapshotScore) {
             snapshotScoreBySessionId.set(sessionId, snapshotScore);
         }
+
+        const finalMetrics = metricsBySnapshotId.get(snapshotHeader.session_snapshot_id) || [];
+        if (finalMetrics.length > 0) {
+            snapshotMetricsBySessionId.set(
+                sessionId,
+                sortMetricsByScore(finalMetrics, false)
+            );
+        }
     }
 
     return {
         snapshotHeaderBySessionId,
-        snapshotScoreBySessionId
+        snapshotScoreBySessionId,
+        snapshotMetricsBySessionId
     };
 };
 
@@ -466,8 +765,6 @@ const loadRoutineContextBySetId = async (setId) => {
 const getHistoryPage = async (req, res, next) => {
     try {
         const userId = req.user.user_id;
-        const today = getTodayRange();
-        const week = getWeekRange();
 
         const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
         const limit = 12;
@@ -548,17 +845,26 @@ const getHistoryPage = async (req, res, next) => {
         const { data: sessions, error: sessionsError, count } = await query;
         if (sessionsError) throw sessionsError;
 
-        const { snapshotHeaderBySessionId, snapshotScoreBySessionId } = await fetchFinalSnapshotMaps(
+        const {
+            snapshotHeaderBySessionId,
+            snapshotScoreBySessionId,
+            snapshotMetricsBySessionId
+        } = await fetchFinalSnapshotMaps(
             (sessions || []).map((row) => row.session_id)
         );
 
         const normalizedSessions = (sessions || []).map((session) => {
             const snapshotHeader = snapshotHeaderBySessionId.get(session.session_id) || null;
             const snapshotScore = snapshotScoreBySessionId.get(session.session_id) || null;
+            const snapshotMetrics = snapshotMetricsBySessionId.get(session.session_id) || [];
             const merged = mergeSessionResult(session, snapshotScore);
 
             return {
                 ...merged,
+                focus_preview: buildFocusPreview({
+                    session: merged,
+                    metrics: snapshotMetrics
+                }),
                 final_snapshot: snapshotHeader
                     ? {
                         session_snapshot_id: snapshotHeader.session_snapshot_id,
@@ -575,74 +881,6 @@ const getHistoryPage = async (req, res, next) => {
             .eq('is_active', true)
             .order('name');
         if (exerciseError) throw exerciseError;
-
-        const [
-            { data: todaySessions, error: todayError },
-            { data: weekSessions, error: weekError },
-            { data: recentSessions, error: recentError },
-            { count: totalDoneCount, error: totalDoneError },
-            { count: totalAbortedCount, error: totalAbortedError },
-            { data: bestSession, error: bestError },
-            { data: streakRows, error: streakError }
-        ] = await Promise.all([
-            supabase
-                .from('workout_session')
-                .select('started_at, ended_at, final_score, result_basis, total_result_value, total_result_unit')
-                .eq('user_id', userId)
-                .eq('status', 'DONE')
-                .gte('started_at', today.start.toISOString())
-                .lte('started_at', today.end.toISOString()),
-            supabase
-                .from('workout_session')
-                .select('started_at, ended_at, final_score, result_basis, total_result_value, total_result_unit')
-                .eq('user_id', userId)
-                .eq('status', 'DONE')
-                .gte('started_at', week.start.toISOString())
-                .lte('started_at', week.end.toISOString()),
-            supabase
-                .from('workout_session')
-                .select('started_at, ended_at, final_score, result_basis, total_result_value, total_result_unit')
-                .eq('user_id', userId)
-                .eq('status', 'DONE')
-                .gte('started_at', new Date(Date.now() - (29 * 86400000)).toISOString()),
-            supabase
-                .from('workout_session')
-                .select('session_id', { count: 'exact', head: true })
-                .eq('user_id', userId)
-                .eq('status', 'DONE'),
-            supabase
-                .from('workout_session')
-                .select('session_id', { count: 'exact', head: true })
-                .eq('user_id', userId)
-                .eq('status', 'ABORTED'),
-            supabase
-                .from('workout_session')
-                .select('final_score, started_at, exercise:exercise_id(name)')
-                .eq('user_id', userId)
-                .eq('status', 'DONE')
-                .order('final_score', { ascending: false, nullsFirst: false })
-                .limit(1)
-                .maybeSingle(),
-            supabase
-                .from('workout_session')
-                .select('started_at')
-                .eq('user_id', userId)
-                .eq('status', 'DONE')
-                .order('started_at', { ascending: false })
-        ]);
-
-        if (todayError) throw todayError;
-        if (weekError) throw weekError;
-        if (recentError) throw recentError;
-        if (totalDoneError) throw totalDoneError;
-        if (totalAbortedError) throw totalAbortedError;
-        if (bestError) throw bestError;
-        if (streakError) throw streakError;
-
-        const todayStats = buildPeriodStats(todaySessions || []);
-        const weekStats = buildPeriodStats(weekSessions || []);
-        const recentStats = buildPeriodStats(recentSessions || []);
-        const streak = calculateStreak(streakRows || []);
 
         const totalPages = Math.ceil((count || 0) / limit);
 
@@ -661,17 +899,6 @@ const getHistoryPage = async (req, res, next) => {
                 page,
                 totalPages,
                 total: count || 0
-            },
-            stats: {
-                today: todayStats,
-                week: weekStats,
-                recent30: recentStats,
-                overview: {
-                    doneCount: totalDoneCount || 0,
-                    abortedCount: totalAbortedCount || 0,
-                    streak,
-                    best: bestSession || null
-                }
             }
         });
     } catch (error) {
@@ -818,6 +1045,20 @@ const getSessionDetail = async (req, res, next) => {
             if (scoreDiff !== 0) return scoreDiff;
             return String(a.metric_name || '').localeCompare(String(b.metric_name || ''), 'ko');
         });
+        const accuracyFocus = buildAccuracyFocus({
+            session: mergedSession,
+            metrics: sortedMetrics,
+            metricSeries
+        });
+        const improvementFocus = buildImprovementFocus({
+            session: mergedSession,
+            metrics: sortedMetrics,
+            sessionEvents: sessionEvents || []
+        });
+        const focusPreview = buildFocusPreview({
+            session: mergedSession,
+            metrics: sortedMetrics
+        });
 
         const routineContext = await loadRoutineContextBySetId(mergedSession.set_id);
 
@@ -835,6 +1076,9 @@ const getSessionDetail = async (req, res, next) => {
             },
             metrics: sortedMetrics,
             metric_series: metricSeries,
+            accuracy_focus: accuracyFocus,
+            improvement_focus: improvementFocus,
+            focus_preview: focusPreview,
             timeline,
             session_events: sessionEvents || [],
             routine_context: routineContext
