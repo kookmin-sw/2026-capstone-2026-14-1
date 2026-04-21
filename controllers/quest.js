@@ -1088,6 +1088,7 @@ module.exports = {
     updateQuestProgress,
     claimQuestReward,
     refreshAllActiveQuestProgress,
+    refreshQuestProgressForRows,
     buildQuestProgressView,
     buildQuestCardModel,
     getWeekRange,

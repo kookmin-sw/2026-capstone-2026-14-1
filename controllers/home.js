@@ -1,5 +1,5 @@
 const { supabase } = require('../config/db');
-const { buildQuestCardModel, refreshAllActiveQuestProgress } = require('./quest');
+const { buildQuestCardModel, refreshQuestProgressForRows } = require('./quest');
 
 const RESULT_BASIS_CODES = ['REPS', 'DURATION'];
 const RESULT_UNIT_CODES = ['COUNT', 'SEC'];
@@ -36,6 +36,54 @@ const computeDurationSecFromRange = (startedAtIso, endedAtIso = new Date().toISO
 
 const pad2 = (value) => String(value).padStart(2, '0');
 const toLocalDateKey = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+const ACTIVITY_HEATMAP_DAYS = 365;
+
+const getActivityLevel = (workoutCount) => {
+    const count = toSafeInt(workoutCount, 0);
+    if (count >= 6) return 4;
+    if (count >= 4) return 3;
+    if (count >= 2) return 2;
+    if (count >= 1) return 1;
+    return 0;
+};
+
+const getActivityHeatmapRange = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const start = new Date(today);
+    start.setDate(start.getDate() - (ACTIVITY_HEATMAP_DAYS - 1));
+
+    const alignedStart = new Date(start);
+    alignedStart.setDate(alignedStart.getDate() - alignedStart.getDay());
+    alignedStart.setHours(0, 0, 0, 0);
+
+    return {
+        start: alignedStart,
+        end: today
+    };
+};
+
+const buildActivityHeatmapDays = (workoutCountByDate = new Map()) => {
+    const { start, end } = getActivityHeatmapRange();
+    const days = [];
+    const cursor = new Date(start);
+
+    while (cursor <= end) {
+        const dateKey = toLocalDateKey(cursor);
+        const workoutCount = toSafeInt(workoutCountByDate.get(dateKey), 0);
+        const level = getActivityLevel(workoutCount);
+        days.push({
+            date: dateKey,
+            workoutCount,
+            hasWorkout: level > 0,
+            level
+        });
+        cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return days;
+};
 
 const parseDateKey = (dateKey) => {
     const [year, month, day] = String(dateKey).split('-').map((v) => Number(v));
@@ -175,50 +223,34 @@ const calculateStreak = async (userId) => {
     }
 };
 
-const getLast28DaysActivity = async (userId) => {
+const getYearActivityHeatmap = async (userId) => {
     try {
-        const start = new Date();
-        start.setDate(start.getDate() - 27);
-        start.setHours(0, 0, 0, 0);
+        const { start, end } = getActivityHeatmapRange();
+        const endExclusive = new Date(end);
+        endExclusive.setDate(endExclusive.getDate() + 1);
 
         const { data: sessions, error } = await supabase
             .from('workout_session')
             .select('started_at')
             .eq('user_id', userId)
             .eq('status', 'DONE')
-            .gte('started_at', start.toISOString());
+            .gte('started_at', start.toISOString())
+            .lt('started_at', endExclusive.toISOString());
         if (error) throw error;
 
-        const activeSet = new Set();
+        const countByDate = new Map();
         (sessions || []).forEach((session) => {
             const startedAt = new Date(session.started_at);
             if (Number.isNaN(startedAt.getTime())) return;
-            activeSet.add(toLocalDateKey(startedAt));
+            const dateKey = toLocalDateKey(startedAt);
+            const currentCount = toSafeInt(countByDate.get(dateKey), 0);
+            countByDate.set(dateKey, currentCount + 1);
         });
 
-        const days = [];
-        for (let i = 27; i >= 0; i -= 1) {
-            const date = new Date();
-            date.setHours(0, 0, 0, 0);
-            date.setDate(date.getDate() - i);
-            const key = toLocalDateKey(date);
-            days.push({
-                date: key,
-                hasWorkout: activeSet.has(key)
-            });
-        }
-
-        return days;
+        return buildActivityHeatmapDays(countByDate);
     } catch (error) {
         console.error('Activity fetch error:', error);
-        const fallback = [];
-        for (let i = 27; i >= 0; i -= 1) {
-            const date = new Date();
-            date.setHours(0, 0, 0, 0);
-            date.setDate(date.getDate() - i);
-            fallback.push({ date: toLocalDateKey(date), hasWorkout: false });
-        }
-        return fallback;
+        return buildActivityHeatmapDays();
     }
 };
 
@@ -377,6 +409,33 @@ const getExerciseEmoji = (code) => {
     return map[normalized] || '🎯';
 };
 
+const sortQuestCardsForHome = (cards = []) => {
+    const list = Array.isArray(cards) ? [...cards] : [];
+
+    const completionRank = (quest) => {
+        const status = String(quest?.status || '').toUpperCase();
+        const isCompleted = status === 'DONE';
+        return isCompleted ? 1 : 0;
+    };
+
+    const progressRatio = (quest) => {
+        const progress = toSafeInt(quest?.progress, 0);
+        const target = Math.max(1, toSafeInt(quest?.target, 1));
+        return Math.min(1, progress / target);
+    };
+
+    return list.sort((a, b) => {
+        const completionDiff = completionRank(a) - completionRank(b);
+        if (completionDiff !== 0) return completionDiff;
+
+        // 미완료 그룹에서는 달성률이 높은 퀘스트를 먼저 보여준다.
+        const ratioDiff = progressRatio(b) - progressRatio(a);
+        if (ratioDiff !== 0) return ratioDiff;
+
+        return toSafeInt(b?.reward, 0) - toSafeInt(a?.reward, 0);
+    });
+};
+
 // 홈페이지 렌더링 (로그인 사용자용)
 const getHomePage = async (req, res, next) => {
     try {
@@ -393,40 +452,33 @@ const getHomePage = async (req, res, next) => {
                 weekSummary: { count: 0, totalMinutes: 0, totalReps: 0, totalDurationResultSec: 0, avgScore: 0 },
                 dailyQuests: [],
                 weeklyQuests: [],
+                activityDays: buildActivityHeatmapDays(),
                 quickRoutines: [],
                 routines: [],
                 exercises: [],
                 recentSessions: [],
-                activityDays: Array.from({ length: 28 }).map(() => ({ date: '', hasWorkout: false })),
                 tierInfo: null
             });
         }
 
         const userId = user.user_id;
-        try {
-            await refreshAllActiveQuestProgress(userId);
-        } catch (questSyncError) {
-            console.error('Home quest progress sync error:', questSyncError);
-        }
 
         const todayRange = getTodayRange();
         const weekRange = getWeekRange();
+        const todayYmd = toLocalDateKey(todayRange.start);
+        const weekStartYmd = toLocalDateKey(weekRange.start);
+        const weekEndYmd = toLocalDateKey(weekRange.end);
 
         const [
             streak,
             activityDays,
             todaySessionsResult,
             weekSessionsResult,
-            recentSessionsResult,
             dailyQuestsResult,
-            weeklyQuestsResult,
-            routinesResult,
-            exercisesResult,
-            pointsResult,
-            tierRulesResult
+            weeklyQuestsResult
         ] = await Promise.all([
             calculateStreak(userId),
-            getLast28DaysActivity(userId),
+            getYearActivityHeatmap(userId),
             supabase
                 .from('workout_session')
                 .select('session_id, started_at, ended_at, final_score, result_basis, total_result_value, total_result_unit')
@@ -442,26 +494,26 @@ const getHomePage = async (req, res, next) => {
                 .gte('started_at', weekRange.start.toISOString())
                 .lte('started_at', weekRange.end.toISOString()),
             supabase
-                .from('workout_session')
+                .from('user_quest')
                 .select(`
-                    session_id,
-                    started_at,
-                    ended_at,
-                    final_score,
-                    result_basis,
-                    total_result_value,
-                    total_result_unit,
-                    selected_view,
-                    exercise:exercise_id (
-                        exercise_id,
-                        code,
-                        name
+                    user_quest_id,
+                    progress,
+                    status,
+                    period_start,
+                    period_end,
+                    quest_template:quest_template_id (
+                        quest_template_id,
+                        title,
+                        scope,
+                        type,
+                        condition,
+                        reward_points
                     )
                 `)
                 .eq('user_id', userId)
-                .eq('status', 'DONE')
-                .order('started_at', { ascending: false })
-                .limit(5),
+                .in('status', ['ACTIVE', 'DONE'])
+                .lte('period_start', todayYmd)
+                .gte('period_end', todayYmd),
             supabase
                 .from('user_quest')
                 .select(`
@@ -481,90 +533,50 @@ const getHomePage = async (req, res, next) => {
                 `)
                 .eq('user_id', userId)
                 .in('status', ['ACTIVE', 'DONE'])
-                .lte('period_start', todayRange.end.toISOString().split('T')[0])
-                .gte('period_end', todayRange.start.toISOString().split('T')[0]),
-            supabase
-                .from('user_quest')
-                .select(`
-                    user_quest_id,
-                    progress,
-                    status,
-                    period_start,
-                    period_end,
-                    quest_template:quest_template_id (
-                        quest_template_id,
-                        title,
-                        scope,
-                        type,
-                        condition,
-                        reward_points
-                    )
-                `)
-                .eq('user_id', userId)
-                .in('status', ['ACTIVE', 'DONE'])
-                .lte('period_start', weekRange.end.toISOString().split('T')[0])
-                .gte('period_end', weekRange.start.toISOString().split('T')[0]),
-            supabase
-                .from('routine')
-                .select(`
-                    routine_id,
-                    name,
-                    updated_at,
-                    routine_setup (
-                        step_id
-                    )
-                `)
-                .eq('user_id', userId)
-                .eq('is_active', true)
-                .order('updated_at', { ascending: false })
-                .limit(4),
-            supabase
-                .from('exercise')
-                .select('exercise_id, code, name, default_target_type')
-                .eq('is_active', true)
-                .order('name'),
-            supabase
-                .from('point_ledger')
-                .select('points')
-                .eq('user_id', userId),
-            supabase
-                .from('tier_rule')
-                .select('tier, min_points, name')
-                .order('tier', { ascending: true })
+                .lte('period_start', weekEndYmd)
+                .gte('period_end', weekStartYmd)
         ]);
 
         if (todaySessionsResult.error) throw todaySessionsResult.error;
         if (weekSessionsResult.error) throw weekSessionsResult.error;
-        if (recentSessionsResult.error) throw recentSessionsResult.error;
         if (dailyQuestsResult.error) throw dailyQuestsResult.error;
         if (weeklyQuestsResult.error) throw weeklyQuestsResult.error;
-        if (routinesResult.error) throw routinesResult.error;
-        if (exercisesResult.error) throw exercisesResult.error;
-        if (pointsResult.error) throw pointsResult.error;
-        if (tierRulesResult.error) throw tierRulesResult.error;
 
-        const dailyQuests = (dailyQuestsResult.data || [])
-            .filter((quest) => quest.quest_template?.scope === 'DAILY')
-            .map(buildQuestCardModel);
+        const dailyQuestRows = (dailyQuestsResult.data || [])
+            .filter((quest) => quest.quest_template?.scope === 'DAILY');
+        const weeklyQuestRows = (weeklyQuestsResult.data || [])
+            .filter((quest) => quest.quest_template?.scope === 'WEEKLY');
 
-        const weeklyQuests = (weeklyQuestsResult.data || [])
-            .filter((quest) => quest.quest_template?.scope === 'WEEKLY')
-            .map(buildQuestCardModel);
+        const activeQuestRows = [...dailyQuestRows, ...weeklyQuestRows]
+            .filter((quest) => String(quest.status || '').toUpperCase() === 'ACTIVE');
 
-        const routines = routinesResult.data || [];
-        const quickRoutines = await enrichQuickRoutines(userId, routines);
+        let refreshedProgressMap = new Map();
+        if (activeQuestRows.length > 0) {
+            try {
+                refreshedProgressMap = await refreshQuestProgressForRows(userId, activeQuestRows);
+            } catch (questSyncError) {
+                console.error('Home quest progress sync error:', questSyncError);
+            }
+        }
 
-        const exercises = (exercisesResult.data || []).map((exercise) => ({
-            ...exercise,
-            emoji: getExerciseEmoji(exercise.code)
-        }));
+        const applyLatestProgress = (quest) => {
+            const latestProgress = refreshedProgressMap.get(quest.user_quest_id);
+            if (!latestProgress) return quest;
+            return { ...quest, progress: latestProgress };
+        };
+
+        // 최신 퀘스트 구조(JSONB progress)를 카드 모델로 변환 후,
+        // 홈에서는 미완료 퀘스트가 먼저 보이도록 정렬한다.
+        const dailyQuests = sortQuestCardsForHome(
+            dailyQuestRows.map(applyLatestProgress).map(buildQuestCardModel)
+        );
+
+        const weeklyQuests = sortQuestCardsForHome(
+            weeklyQuestRows.map(applyLatestProgress).map(buildQuestCardModel)
+        );
 
         const todaySummary = aggregateSessionSummary(todaySessionsResult.data || []);
         const weekSummary = aggregateSessionSummary(weekSessionsResult.data || []);
-
-        const recentSessions = (recentSessionsResult.data || []).map((session) => normalizeSessionResult(session));
-
-        const tierInfo = getTierInfo(pointsResult.data || [], tierRulesResult.data || []);
 
         return res.render('home', {
             title: 'Home',
@@ -575,12 +587,12 @@ const getHomePage = async (req, res, next) => {
             weekSummary,
             dailyQuests,
             weeklyQuests,
-            quickRoutines,
-            routines: quickRoutines,
-            exercises,
-            recentSessions,
             activityDays,
-            tierInfo
+            quickRoutines: [],
+            routines: [],
+            exercises: [],
+            recentSessions: [],
+            tierInfo: null
         });
     } catch (error) {
         console.error('Home page error:', error);
@@ -592,4 +604,3 @@ module.exports = {
     getHomePage,
     formatKoreanDate
 };
-

@@ -2,34 +2,59 @@
   const safeToday = today || '';
   const safeTodaySummary = todaySummary || { count: 0, totalMinutes: 0, totalReps: 0, totalDurationResultSec: 0, avgScore: 0 };
   const safeWeekSummary = weekSummary || { count: 0, totalMinutes: 0, totalReps: 0, totalDurationResultSec: 0, avgScore: 0 };
-  const safeQuickRoutines = Array.isArray(quickRoutines) ? quickRoutines : [];
-  const safeRecentSessions = Array.isArray(recentSessions) ? recentSessions : [];
-  const safeExercises = Array.isArray(exercises) ? exercises : [];
   const safeActivityDays = Array.isArray(activityDays) ? activityDays : [];
+  const safeDailyQuests = Array.isArray(dailyQuests) ? dailyQuests : [];
+  const safeWeeklyQuests = Array.isArray(weeklyQuests) ? weeklyQuests : [];
 
-  const formatResultValue = (session) => {
-    const basis = String(session?.result_basis || '').toUpperCase();
-    const unit = String(session?.total_result_unit || '').toUpperCase();
-    const value = Math.max(0, Number(session?.total_result_value) || 0);
-    if (basis === 'REPS' || unit === 'COUNT') return `${value}회`;
-    if (basis === 'DURATION' || unit === 'SEC') return `${value}초`;
-    return `${value}`;
-  };
+  const dailyDoneCount = safeDailyQuests.filter((quest) => quest.status === 'DONE').length;
+  const dailyTotalCount = safeDailyQuests.length;
+  const dailyProgressRate = dailyTotalCount > 0 ? Math.round((dailyDoneCount / dailyTotalCount) * 100) : 0;
+
+  const weeklyDoneCount = safeWeeklyQuests.filter((quest) => quest.status === 'DONE').length;
+  const weeklyTotalCount = safeWeeklyQuests.length;
+  const weeklyProgressRate = weeklyTotalCount > 0 ? Math.round((weeklyDoneCount / weeklyTotalCount) * 100) : 0;
+
+  const weekDayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const activityWeeks = [];
+  for (let index = 0; index < safeActivityDays.length; index += 7) {
+    activityWeeks.push(safeActivityDays.slice(index, index + 7));
+  }
+
+  const monthMarkers = [];
+  const monthMarkerKeys = new Set();
+  safeActivityDays.forEach((day, index) => {
+    if (!day || !day.date) return;
+    const parsedDate = new Date(`${day.date}T00:00:00`);
+    if (Number.isNaN(parsedDate.getTime())) return;
+
+    const month = parsedDate.getMonth() + 1;
+    const monthKey = `${parsedDate.getFullYear()}-${month}`;
+    const isFirstCell = index === 0;
+    const isFirstDayOfMonth = parsedDate.getDate() === 1;
+    if (!isFirstCell && !isFirstDayOfMonth) return;
+    if (monthMarkerKeys.has(monthKey)) return;
+
+    monthMarkers.push({
+      label: `${month}월`,
+      column: Math.floor(index / 7) + 1
+    });
+    monthMarkerKeys.add(monthKey);
+  });
 %>
 
 <div class="page active home-v2-page">
   <section class="page-header">
     <div>
-      <h1>반갑습니다, <%= typeof user !== 'undefined' && user ? user.nickname : '게스트' %>님!</h1>
+      <h1>반갑습니다, <%= typeof user !== 'undefined' && user ? user.nickname : '게스트' %>님</h1>
       <p class="date"><%= safeToday %></p>
     </div>
   </section>
 
-  <div class="grid four home-summary-grid">
+  <div class="grid three home-summary-grid">
     <div class="card hero home-summary-card">
       <span class="summary-label">연속 운동</span>
       <strong class="summary-value"><%= streak || 0 %>일</strong>
-      <span class="summary-meta">꾸준함이 실력입니다</span>
+      <span class="summary-meta">꾸준함이 실력을 만듭니다</span>
     </div>
     <div class="card home-summary-card">
       <span class="summary-label">오늘</span>
@@ -41,36 +66,30 @@
       <strong class="summary-value"><%= safeWeekSummary.count %>회</strong>
       <span class="summary-meta"><%= safeWeekSummary.totalMinutes %>분 · 평균 <%= safeWeekSummary.avgScore %>점</span>
     </div>
-    <div class="card home-summary-card">
-      <span class="summary-label">주간 반복/버티기</span>
-      <strong class="summary-value"><%= safeWeekSummary.totalReps %>회</strong>
-      <span class="summary-meta">시간형 합계 <%= safeWeekSummary.totalDurationResultSec %>초</span>
-    </div>
   </div>
 
-  <div class="grid three">
+  <div class="grid two home-quest-grid">
     <div class="card">
       <div class="card-header">
-        <h3>오늘의 퀘스트</h3>
+        <h3>일일 퀘스트</h3>
         <a href="/quest" class="ghost" style="font-size: 12px;">전체보기</a>
       </div>
       <ul class="quest-list">
-        <% if (dailyQuests && dailyQuests.length > 0) { %>
-          <% dailyQuests.slice(0, 3).forEach((quest) => { %>
-            <li class="<%= quest.status === 'DONE' || quest.progress >= quest.target ? 'completed' : '' %>">
+        <% if (safeDailyQuests.length > 0) { %>
+          <% safeDailyQuests.slice(0, 3).forEach((quest) => { %>
+            <li class="<%= quest.status === 'DONE' ? 'completed' : '' %>">
               <span><%= quest.title %></span>
-              <span class="muted"><%= quest.progress %>/<%= quest.target %><%= quest.progressUnit || '' %></span>
+              <% if (quest.status === 'DONE') { %>
+                <span class="muted">완료</span>
+              <% } else { %>
+                <span class="muted"><%= quest.progress %>/<%= quest.target %><%= quest.progressUnit || '' %></span>
+              <% } %>
             </li>
           <% }) %>
         <% } else { %>
-          <li class="empty"><span class="muted">오늘의 퀘스트가 없습니다</span></li>
+          <li class="empty"><span class="muted">일일 퀘스트가 없습니다</span></li>
         <% } %>
       </ul>
-      <%
-        const dailyDoneCount = dailyQuests ? dailyQuests.filter((quest) => quest.status === 'DONE' || quest.progress >= quest.target).length : 0;
-        const dailyTotalCount = dailyQuests ? dailyQuests.length : 0;
-        const dailyProgressRate = dailyTotalCount > 0 ? Math.round((dailyDoneCount / dailyTotalCount) * 100) : 0;
-      %>
       <div class="quest">
         <div class="progress">
           <div class="progress-bar" style="width: <%= dailyProgressRate %>%"></div>
@@ -81,25 +100,25 @@
 
     <div class="card">
       <div class="card-header">
-        <h3>주간 목표</h3>
+        <h3>주간 퀘스트</h3>
+        <a href="/quest" class="ghost" style="font-size: 12px;">전체보기</a>
       </div>
       <ul class="quest-list">
-        <% if (weeklyQuests && weeklyQuests.length > 0) { %>
-          <% weeklyQuests.slice(0, 3).forEach((quest) => { %>
-            <li class="<%= quest.status === 'DONE' || quest.progress >= quest.target ? 'completed' : '' %>">
+        <% if (safeWeeklyQuests.length > 0) { %>
+          <% safeWeeklyQuests.slice(0, 3).forEach((quest) => { %>
+            <li class="<%= quest.status === 'DONE' ? 'completed' : '' %>">
               <span><%= quest.title %></span>
-              <span class="muted"><%= quest.progress %>/<%= quest.target %><%= quest.progressUnit || '' %></span>
+              <% if (quest.status === 'DONE') { %>
+                <span class="muted">완료</span>
+              <% } else { %>
+                <span class="muted"><%= quest.progress %>/<%= quest.target %><%= quest.progressUnit || '' %></span>
+              <% } %>
             </li>
           <% }) %>
         <% } else { %>
           <li class="empty"><span class="muted">주간 퀘스트가 없습니다</span></li>
         <% } %>
       </ul>
-      <%
-        const weeklyDoneCount = weeklyQuests ? weeklyQuests.filter((quest) => quest.status === 'DONE' || quest.progress >= quest.target).length : 0;
-        const weeklyTotalCount = weeklyQuests ? weeklyQuests.length : 0;
-        const weeklyProgressRate = weeklyTotalCount > 0 ? Math.round((weeklyDoneCount / weeklyTotalCount) * 100) : 0;
-      %>
       <div class="quest">
         <div class="progress">
           <div class="progress-bar" style="width: <%= weeklyProgressRate %>%"></div>
@@ -107,123 +126,56 @@
         <span class="quest-progress">주간 퀘스트 <%= weeklyDoneCount %>/<%= weeklyTotalCount %> 완료</span>
       </div>
     </div>
+  </div>
 
-    <div class="card">
-      <div class="card-header">
-        <h3>나의 티어</h3>
+  <div class="card home-attendance-card">
+    <div class="attendance-header">
+      <div class="attendance-header-copy">
+        <span class="attendance-kicker">WORKOUT STREAK</span>
+        <h3>현재 <%= streak || 0 %>일</h3>
+        <p class="muted attendance-period-label" id="attendancePeriodLabel">연속 운동 일 수</p>
       </div>
-      <% if (typeof isAuthenticated !== 'undefined' && isAuthenticated && tierInfo) { %>
-        <div style="display: flex; align-items: center; gap: 14px;">
-          <div style="font-size: 44px;"><%= tierInfo.emoji %></div>
-          <div>
-            <div style="font-weight: 700; font-size: 20px;"><%= tierInfo.name %></div>
-            <% if (tierInfo.nextTierName) { %>
-              <p class="muted">다음 티어까지 <%= tierInfo.pointsToNext %>점</p>
-            <% } else { %>
-              <p class="muted">최고 티어 달성</p>
-            <% } %>
-            <div class="progress" style="width: 180px; margin-top: 8px;">
-              <div class="progress-bar" style="width: <%= tierInfo.progress %>%"></div>
-            </div>
-            <p class="muted" style="font-size: 12px; margin-top: 4px;">현재 <%= tierInfo.points %>점</p>
-          </div>
+    </div>
+
+    <div class="attendance-heatmap-shell">
+      <div class="attendance-weekday-labels">
+        <% weekDayLabels.forEach((label) => { %>
+          <span><%= label %></span>
+        <% }) %>
+      </div>
+
+      <div
+        class="attendance-heatmap-main"
+        id="attendanceHeatmapMain"
+        style="--attendance-week-count: <%= Math.max(1, activityWeeks.length) %>;"
+      >
+        <div class="attendance-month-labels" id="attendanceMonthLabels">
+          <% monthMarkers.forEach((marker) => { %>
+            <span style="grid-column: <%= marker.column %>;"><%= marker.label %></span>
+          <% }) %>
         </div>
-      <% } else { %>
-        <p class="muted">로그인하면 티어 시스템을 이용할 수 있어요.</p>
-        <a href="/signup" class="primary">회원가입</a>
-      <% } %>
-    </div>
-  </div>
 
-  <div class="grid two">
-    <div class="card">
-      <div class="card-header">
-        <h3>루틴 빠른 시작</h3>
-        <a href="/routine" class="ghost" style="font-size: 12px;">루틴 관리</a>
-      </div>
-      <% if (typeof isAuthenticated !== 'undefined' && isAuthenticated) { %>
-        <% if (safeQuickRoutines.length > 0) { %>
-          <div class="quick-routine-list">
-            <% safeQuickRoutines.forEach((routine) => { %>
-              <% const stats = routine.runtime_stats || {}; %>
-              <button type="button" class="quick-routine-item" onclick="startRoutine('<%= routine.routine_id %>')">
-                <div class="quick-routine-main">
-                  <strong><%= routine.name %></strong>
-                  <span class="muted"><%= routine.step_count || 0 %>개 운동 · 완료 <%= stats.done_runs || 0 %>회</span>
-                </div>
-                <span class="quick-routine-score"><%= stats.avg_score != null ? Math.round(stats.avg_score) + '점' : '-' %></span>
-              </button>
-            <% }) %>
-          </div>
-        <% } else { %>
-          <p class="muted">아직 루틴이 없습니다. 새 루틴을 만들어보세요.</p>
-        <% } %>
-        <p class="card-note"><a href="/routine/new">+ 새 루틴 만들기</a></p>
-      <% } else { %>
-        <p class="muted">로그인하면 나만의 루틴을 만들 수 있어요.</p>
-        <a href="/login" class="primary full">로그인하기</a>
-      <% } %>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h3>자율 운동</h3>
-      </div>
-      <p class="muted">운동을 선택하면 바로 세션을 시작합니다.</p>
-      <div class="chip-grid">
-        <% if (safeExercises.length > 0) { %>
-          <% safeExercises.forEach((exercise) => { %>
-            <button type="button" class="chip" onclick="startFreeWorkout('<%= exercise.code.toLowerCase() %>')">
-              <%= exercise.emoji || '🎯' %> <%= exercise.name %>
-            </button>
-          <% }) %>
-        <% } else { %>
-          <p class="muted">운동 정보를 불러올 수 없습니다.</p>
-        <% } %>
-      </div>
-      <a href="/workout/free" class="ghost full" style="margin-top: 8px;">전체 운동 보기 →</a>
-    </div>
-  </div>
-
-  <div class="grid two">
-    <div class="card">
-      <div class="card-header">
-        <h3>최근 운동 기록</h3>
-        <a href="/history" class="ghost" style="font-size: 12px;">더보기</a>
-      </div>
-      <% if (safeRecentSessions.length > 0) { %>
-        <ul class="recent-session-list">
-          <% safeRecentSessions.forEach((session) => { %>
-            <li>
-              <div>
-                <strong><%= session.exercise?.name || '운동' %></strong>
-                <p class="muted">
-                  <%= new Date(session.started_at).toLocaleDateString('ko-KR') %> ·
-                  <%= formatResultValue(session) %> ·
-                  <%= session.duration_sec %>초
-                </p>
-              </div>
-              <span class="recent-score"><%= session.final_score %>점</span>
-            </li>
-          <% }) %>
-        </ul>
-      <% } else { %>
-        <p class="muted">최근 운동 기록이 없습니다.</p>
-      <% } %>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <h3>운동 출석</h3>
-      </div>
-      <div class="streak-grid">
-        <% if (safeActivityDays.length > 0) { %>
+        <div class="attendance-heatmap-grid" id="attendanceHeatmapGrid">
           <% safeActivityDays.forEach((day) => { %>
-            <div class="streak <%= day.hasWorkout ? 'active' : '' %>" title="<%= day.date %>"></div>
+            <% const workoutCount = Number(day.workoutCount || 0); %>
+            <% const rawLevel = Number.isFinite(day.level) ? day.level : (day.hasWorkout ? 1 : 0); %>
+            <% const cellLevel = Math.max(0, Math.min(4, rawLevel)); %>
+            <% const cellTitle = workoutCount > 0 ? `${day.date} · ${workoutCount}회 운동` : `${day.date} · 기록 없음`; %>
+            <div class="attendance-cell level-<%= cellLevel %>" title="<%= cellTitle %>"></div>
           <% }) %>
-        <% } %>
+        </div>
       </div>
-      <p class="muted">최근 4주간 운동 기록</p>
+    </div>
+
+    <div class="attendance-legend">
+      <span class="legend-label">적음</span>
+      <span class="attendance-cell level-0 legend-cell"></span>
+      <span class="attendance-cell level-1 legend-cell"></span>
+      <span class="attendance-cell level-2 legend-cell"></span>
+      <span class="attendance-cell level-3 legend-cell"></span>
+      <span class="attendance-cell level-4 legend-cell"></span>
+      <span class="legend-label">많음</span>
+      <span class="legend-scale">1 / 2-3 / 4-5 / 6+</span>
     </div>
   </div>
 </div>
@@ -259,6 +211,35 @@
     color: var(--muted);
   }
 
+  .home-quest-grid {
+    margin-top: 4px;
+  }
+
+  .home-attendance-card {
+    margin-top: 4px;
+    --attendance-surface: linear-gradient(140deg, #f8fafc 0%, #f1f5ff 100%);
+    --attendance-border: #dbe4f3;
+    --attendance-text: #0f172a;
+    --attendance-muted: #64748b;
+    --attendance-empty: #e2e8f0;
+    --attendance-level-1: #fcd34d;
+    --attendance-level-2: #fb923c;
+    --attendance-level-3: #fb7185;
+    --attendance-level-4: #ec4899;
+  }
+
+  [data-theme="dark"] .home-attendance-card {
+    --attendance-surface: linear-gradient(150deg, #031325 0%, #081b35 100%);
+    --attendance-border: rgba(89, 122, 163, 0.4);
+    --attendance-text: #e2e8f0;
+    --attendance-muted: #9fb4cb;
+    --attendance-empty: #1e2f47;
+    --attendance-level-1: #f8d564;
+    --attendance-level-2: #f7a95f;
+    --attendance-level-3: #ff7b77;
+    --attendance-level-4: #ff4f9a;
+  }
+
   .quest-list li.completed span:first-child {
     text-decoration: line-through;
     opacity: 0.65;
@@ -266,7 +247,7 @@
 
   .quest-list li.completed::before {
     content: '✓';
-    color: var(--color-success);
+    color: #22c55e;
     margin-right: 8px;
     font-weight: bold;
   }
@@ -276,120 +257,454 @@
     padding: 16px;
   }
 
-  .quick-routine-list {
+  .attendance-header {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .quick-routine-item {
-    width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--input-bg);
-    color: var(--text);
-    padding: 10px 12px;
-    display: flex;
+    align-items: flex-start;
     justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
+    gap: 12px;
   }
 
-  .quick-routine-item:hover {
-    background: var(--ghost-hover);
-  }
-
-  .quick-routine-main {
+  .attendance-header-copy {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    text-align: left;
+    gap: 6px;
   }
 
-  .quick-routine-score {
-    font-size: 13px;
+  .attendance-kicker {
+    font-size: 11px;
+    letter-spacing: 0.1em;
     font-weight: 700;
-    color: var(--primary);
-    white-space: nowrap;
+    color: var(--muted);
   }
 
-  .recent-session-list {
-    list-style: none;
+  .attendance-header h3 {
     margin: 0;
-    padding: 0;
+    font-size: 34px;
+    line-height: 1.1;
+    color: var(--attendance-text);
+  }
+
+  .attendance-header-copy .muted {
+    color: var(--attendance-muted);
+    margin: 0;
+  }
+
+  .attendance-range-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    color-scheme: light;
+    border-radius: 10px;
+    border: 1px solid var(--attendance-border);
+    background: color-mix(in srgb, var(--attendance-surface) 82%, transparent);
+    color: var(--attendance-text);
+    padding: 8px 34px 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--attendance-muted) 50%),
+      linear-gradient(135deg, var(--attendance-muted) 50%, transparent 50%);
+    background-position:
+      calc(100% - 16px) calc(50% - 2px),
+      calc(100% - 11px) calc(50% - 2px);
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+
+  .attendance-range-select option {
+    background: #ffffff;
+    color: #0f172a;
+  }
+
+  [data-theme="dark"] .attendance-range-select {
+    color-scheme: dark;
+    background-color: #10233f;
+    color: #e2e8f0;
+  }
+
+  [data-theme="dark"] .attendance-range-select option {
+    background: #10233f;
+    color: #e2e8f0;
+  }
+
+  .attendance-range-select:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--attendance-level-2) 65%, var(--attendance-border));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--attendance-level-2) 24%, transparent);
+  }
+
+  .attendance-heatmap-shell {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
+    border-radius: 16px;
+    border: 1px solid var(--attendance-border);
+    background: var(--attendance-surface);
+    padding: 14px 14px 12px;
+    overflow-x: auto;
+  }
+
+  .attendance-weekday-labels {
+    display: grid;
+    grid-template-rows: repeat(7, 1fr);
+    gap: 4px;
+    padding-top: 22px;
+    min-width: 14px;
+  }
+
+  .attendance-weekday-labels span {
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--attendance-muted);
+    font-weight: 600;
+  }
+
+  .attendance-heatmap-main {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    width: 100%;
+    min-width: 640px;
   }
 
-  .recent-session-list li {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--input-bg);
-    padding: 10px 12px;
+  .attendance-month-labels {
+    display: grid;
+    grid-template-columns: repeat(var(--attendance-week-count), minmax(0, 1fr));
+    min-height: 14px;
+    width: 100%;
+  }
+
+  .attendance-month-labels span {
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--attendance-muted);
+    font-weight: 600;
+    white-space: nowrap;
+    transform: translateX(-2px);
+  }
+
+  .attendance-heatmap-grid {
+    display: grid;
+    grid-template-rows: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--attendance-week-count), minmax(0, 1fr));
+    grid-auto-flow: column;
+    gap: clamp(2px, 0.28vw, 4px);
+    width: 100%;
+  }
+
+  .attendance-cell {
+    background: var(--attendance-empty);
+    border-radius: 4px;
+    transition: transform 0.2s ease, filter 0.2s ease;
+  }
+
+  .attendance-heatmap-grid .attendance-cell {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+  }
+
+  .attendance-cell.level-1 {
+    background: var(--attendance-level-1);
+  }
+
+  .attendance-cell.level-2 {
+    background: var(--attendance-level-2);
+  }
+
+  .attendance-cell.level-3 {
+    background: var(--attendance-level-3);
+  }
+
+  .attendance-cell.level-4 {
+    background: var(--attendance-level-4);
+  }
+
+  .attendance-cell:hover {
+    transform: scale(1.08);
+    filter: brightness(1.08);
+  }
+
+  .attendance-legend {
     display: flex;
-    justify-content: space-between;
-    gap: 10px;
     align-items: center;
-  }
-
-  .recent-session-list li p {
-    margin: 4px 0 0 0;
+    gap: 8px;
+    flex-wrap: wrap;
+    color: var(--attendance-muted);
     font-size: 12px;
   }
 
-  .recent-score {
-    font-weight: 700;
-    color: var(--primary);
-    white-space: nowrap;
+  .legend-label {
+    font-weight: 600;
   }
 
-  .streak-grid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 4px;
-    margin-bottom: 8px;
+  .legend-cell {
+    width: 12px;
+    height: 12px;
   }
 
-  .streak {
-    width: 100%;
-    aspect-ratio: 1;
-    min-height: 20px;
-    background: #e5e7eb;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-  }
-
-  .streak.active {
-    background: var(--color-primary, #10b981);
-  }
-
-  .streak:hover {
-    transform: scale(1.08);
+  .legend-scale {
+    margin-left: 6px;
+    font-size: 11px;
+    color: var(--attendance-muted);
   }
 
   @media (max-width: 980px) {
     .home-summary-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .attendance-header h3 {
+      font-size: 28px;
+    }
+
+    .attendance-heatmap-main {
+      min-width: 600px;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .attendance-heatmap-main {
+      width: max-content;
+      min-width: 0;
+    }
+
+    .attendance-month-labels {
+      width: max-content;
+    }
+
+    .attendance-heatmap-grid {
+      width: max-content;
+      grid-template-rows: repeat(7, 11px);
+      grid-template-columns: repeat(var(--attendance-week-count), 11px);
+      gap: 3px;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .home-summary-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .home-quest-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .attendance-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .attendance-range-select {
+      padding: 6px 10px;
+      padding-right: 30px;
+    }
+
+    .attendance-weekday-labels span {
+      font-size: 10px;
+    }
+
+    .legend-scale {
+      width: 100%;
+      margin-left: 0;
+    }
   }
 </style>
 
+<script id="attendanceActivityDaysData" type="application/json"><%- JSON.stringify(safeActivityDays).replace(/</g, '\\u003c') %></script>
 <script>
-  function startRoutine(routineId) {
-    <% if (typeof isAuthenticated !== 'undefined' && isAuthenticated) { %>
-      window.location.href = `/workout/routine/${routineId}`;
-    <% } else { %>
-      window.location.href = '/login?error=로그인이 필요합니다';
-    <% } %>
-  }
+  (function initAttendanceHeatmapRangeSelector() {
+    const rangeSelect = document.getElementById('attendanceRangeSelect');
+    const periodLabel = document.getElementById('attendancePeriodLabel');
+    const heatmapMain = document.getElementById('attendanceHeatmapMain');
+    const monthLabelsEl = document.getElementById('attendanceMonthLabels');
+    const heatmapGridEl = document.getElementById('attendanceHeatmapGrid');
+    const rawDataEl = document.getElementById('attendanceActivityDaysData');
+    const shellEl = heatmapMain ? heatmapMain.closest('.attendance-heatmap-shell') : null;
+    const weekdayLabelsEl = shellEl ? shellEl.querySelector('.attendance-weekday-labels') : null;
+    if (!rangeSelect || !periodLabel || !heatmapMain || !monthLabelsEl || !heatmapGridEl || !rawDataEl) return;
 
-  function startFreeWorkout(exerciseCode) {
-    <% if (typeof isAuthenticated !== 'undefined' && isAuthenticated) { %>
-      window.location.href = `/workout/free/${exerciseCode}`;
-    <% } else { %>
-      window.location.href = '/login?error=로그인이 필요합니다';
-    <% } %>
-  }
+    const AUTO_PERIOD_KEY = 'auto';
+    const FIXED_PERIOD_DAYS = {
+      '1m': 30,
+      '3m': 90,
+      '6m': 180,
+      '1y': 365
+    };
+
+    const FIXED_PERIOD_LABEL = {
+      '1m': '최근 1달 출석 히트맵',
+      '3m': '최근 3달 출석 히트맵',
+      '6m': '최근 6달 출석 히트맵',
+      '1y': '최근 1년 출석 히트맵'
+    };
+
+    const toSafeNumber = (value, fallback = 0) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
+    const parseCssPixels = (value, fallback = 0) => {
+      const parsed = parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
+    const clampLevel = (value) => Math.max(0, Math.min(4, Math.round(toSafeNumber(value, 0))));
+
+    const escapeAttr = (value) => String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    const normalizeDate = (value) => {
+      const date = new Date(value);
+      date.setHours(0, 0, 0, 0);
+      return date;
+    };
+
+    const setAutoOptionLabel = (dayCount) => {
+      const autoOption = rangeSelect.querySelector('option[value="auto"]');
+      if (!autoOption) return;
+      autoOption.textContent = `자동 (최근 ${dayCount}일)`;
+    };
+
+    const computeAutoWindowDays = () => {
+      if (!shellEl) return 365;
+
+      const shellStyles = getComputedStyle(shellEl);
+      const shellWidth = shellEl.clientWidth || shellEl.getBoundingClientRect().width;
+      const paddingX = parseCssPixels(shellStyles.paddingLeft, 0) + parseCssPixels(shellStyles.paddingRight, 0);
+      const shellGap = parseCssPixels(shellStyles.columnGap || shellStyles.gap, 0);
+      const weekdayWidth = weekdayLabelsEl
+        ? (weekdayLabelsEl.clientWidth || weekdayLabelsEl.getBoundingClientRect().width)
+        : 0;
+
+      const availableGridWidth = Math.max(140, shellWidth - paddingX - shellGap - weekdayWidth);
+      const isMobile = window.matchMedia('(max-width: 768px)').matches;
+      const targetCellSize = isMobile ? 11 : 14;
+      const targetCellGap = isMobile ? 3 : 4;
+      const weekCount = Math.max(4, Math.floor((availableGridWidth + targetCellGap) / (targetCellSize + targetCellGap)));
+      return Math.max(28, Math.min(365, weekCount * 7));
+    };
+
+    let allDays = [];
+    try {
+      allDays = JSON.parse(rawDataEl.textContent || '[]');
+    } catch (error) {
+      console.error('Attendance heatmap data parse error:', error);
+      return;
+    }
+
+    allDays = allDays
+      .map((day) => {
+        if (!day || !day.date) return null;
+        const date = normalizeDate(`${day.date}T00:00:00`);
+        if (Number.isNaN(date.getTime())) return null;
+        return { ...day, _date: date };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a._date.getTime() - b._date.getTime());
+
+    if (!allDays.length) return;
+
+    const buildVisibleDays = (periodKey, autoWindowDays) => {
+      const windowSize = periodKey === AUTO_PERIOD_KEY
+        ? autoWindowDays
+        : (FIXED_PERIOD_DAYS[periodKey] || FIXED_PERIOD_DAYS['1y']);
+      const endDate = normalizeDate(allDays[allDays.length - 1]._date);
+      const startDate = new Date(endDate);
+      startDate.setDate(startDate.getDate() - (windowSize - 1));
+
+      const alignedStart = new Date(startDate);
+      alignedStart.setDate(alignedStart.getDate() - alignedStart.getDay());
+      alignedStart.setHours(0, 0, 0, 0);
+
+      return allDays.filter((day) => day._date >= alignedStart && day._date <= endDate);
+    };
+
+    const buildMonthMarkers = (days) => {
+      const markers = [];
+      const seen = new Set();
+      days.forEach((day, index) => {
+        const month = day._date.getMonth() + 1;
+        const markerKey = `${day._date.getFullYear()}-${month}`;
+        const shouldRender = index === 0 || day._date.getDate() === 1;
+        if (!shouldRender || seen.has(markerKey)) return;
+        markers.push({
+          label: `${month}월`,
+          column: Math.floor(index / 7) + 1
+        });
+        seen.add(markerKey);
+      });
+      return markers;
+    };
+
+    const renderHeatmap = (periodKey) => {
+      const autoWindowDays = computeAutoWindowDays();
+      setAutoOptionLabel(autoWindowDays);
+
+      const visibleDays = buildVisibleDays(periodKey, autoWindowDays);
+      const weekCount = Math.max(1, Math.ceil(visibleDays.length / 7));
+      heatmapMain.style.setProperty('--attendance-week-count', String(weekCount));
+      periodLabel.textContent = periodKey === AUTO_PERIOD_KEY
+        ? `최근 ${autoWindowDays}일 출석 히트맵`
+        : (FIXED_PERIOD_LABEL[periodKey] || FIXED_PERIOD_LABEL['1y']);
+
+      const monthMarkersInPeriod = buildMonthMarkers(visibleDays);
+      monthLabelsEl.innerHTML = monthMarkersInPeriod
+        .map((marker) => `<span style="grid-column: ${marker.column};">${escapeAttr(marker.label)}</span>`)
+        .join('');
+
+      heatmapGridEl.innerHTML = visibleDays
+        .map((day) => {
+          const workoutCount = Math.max(0, Math.round(toSafeNumber(day.workoutCount, 0)));
+          const level = clampLevel(Number.isFinite(Number(day.level)) ? day.level : (day.hasWorkout ? 1 : 0));
+          const title = workoutCount > 0
+            ? `${day.date} · ${workoutCount}회 운동`
+            : `${day.date} · 기록 없음`;
+          return `<div class="attendance-cell level-${level}" title="${escapeAttr(title)}"></div>`;
+        })
+        .join('');
+    };
+
+    let currentPeriod = rangeSelect.querySelector('option[value="auto"]') ? 'auto' : '1y';
+    rangeSelect.value = currentPeriod;
+    renderHeatmap(currentPeriod);
+
+    rangeSelect.addEventListener('change', () => {
+      currentPeriod = rangeSelect.value;
+      renderHeatmap(currentPeriod);
+    });
+
+    let rerenderRaf = null;
+    const scheduleAutoRerender = () => {
+      if (currentPeriod !== AUTO_PERIOD_KEY) return;
+      if (rerenderRaf != null) {
+        window.cancelAnimationFrame(rerenderRaf);
+      }
+      rerenderRaf = window.requestAnimationFrame(() => {
+        rerenderRaf = null;
+        renderHeatmap(AUTO_PERIOD_KEY);
+      });
+    };
+
+    window.addEventListener('resize', scheduleAutoRerender);
+
+    if (typeof ResizeObserver !== 'undefined' && shellEl) {
+      const shellResizeObserver = new ResizeObserver(() => {
+        scheduleAutoRerender();
+      });
+      shellResizeObserver.observe(shellEl);
+    } else if (shellEl) {
+      window.addEventListener('orientationchange', () => {
+        scheduleAutoRerender();
+      });
+    }
+
+    if (currentPeriod === AUTO_PERIOD_KEY) {
+      renderHeatmap(currentPeriod);
+    }
+  })();
 </script>
