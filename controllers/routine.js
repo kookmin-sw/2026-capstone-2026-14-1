@@ -460,6 +460,18 @@ const persistRoutineSteps = async (routineId, steps) => {
     if (error) throw error;
 };
 
+const countRunningRoutineInstances = async (userId, routineId) => {
+    const { count, error } = await supabase
+        .from('routine_instance')
+        .select('routine_instance_id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('routine_id', routineId)
+        .eq('status', 'RUNNING');
+
+    if (error) throw error;
+    return count || 0;
+};
+
 // 루틴 생성 API
 const createRoutine = async (req, res, next) => {
     try {
@@ -519,23 +531,40 @@ const updateRoutine = async (req, res, next) => {
             return res.status(404).json({ error: '루틴을 찾을 수 없습니다.' });
         }
 
-        const nowIso = new Date().toISOString();
-        const { error: updateError } = await supabase
+        const runningCount = await countRunningRoutineInstances(userId, routineId);
+        if (runningCount > 0) {
+            return res.status(409).json({ error: 'This routine has a running session, so it cannot be revised right now.' });
+        }
+
+        const { data: newRoutine, error: createError } = await supabase
             .from('routine')
-            .update({ name, updated_at: nowIso })
+            .insert({
+                user_id: userId,
+                name
+            })
+            .select('routine_id')
+            .single();
+        if (createError || !newRoutine) {
+            throw createError || createHttpError(500, 'Failed to create a new routine version.');
+        }
+
+        await persistRoutineSteps(newRoutine.routine_id, steps);
+
+        const { error: deactivateError } = await supabase
+            .from('routine')
+            .update({
+                is_active: false,
+                updated_at: new Date().toISOString()
+            })
             .eq('routine_id', routineId)
             .eq('user_id', userId);
-        if (updateError) throw updateError;
+        if (deactivateError) throw deactivateError;
 
-        const { error: deleteError } = await supabase
-            .from('routine_setup')
-            .delete()
-            .eq('routine_id', routineId);
-        if (deleteError) throw deleteError;
-
-        await persistRoutineSteps(routineId, steps);
-
-        return res.json({ success: true });
+        return res.json({
+            success: true,
+            routine_id: newRoutine.routine_id,
+            replaced_from_routine_id: routineId
+        });
     } catch (error) {
         if (error?.statusCode) {
             return res.status(error.statusCode).json({ error: error.message });
@@ -591,4 +620,3 @@ module.exports = {
     updateRoutine,
     deleteRoutine
 };
-
