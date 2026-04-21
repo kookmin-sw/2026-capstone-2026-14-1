@@ -196,28 +196,9 @@ const updateTheme = asyncHandler(async (req, res) => {
     });
 });
 
-// @desc 현재 사용자 설정 조회 (API)
-// @route GET /api/settings
-const getUserSettings = asyncHandler(async (req, res) => {
-    const userId = req.user?.user_id;
-    
-    if (!userId) {
-        return res.json({ theme: 'system' });
-    }
-    
-    const { data: settings } = await supabase
-        .from('user_settings')
-        .select('theme')
-        .eq('user_id', userId)
-        .single();
-    
-    res.json(settings || { theme: 'system' });
-});
-
 module.exports = {
     getSettingsPage,
     updateNickname,
     updatePassword,
-    updateTheme,
-    getUserSettings
+    updateTheme
 };
