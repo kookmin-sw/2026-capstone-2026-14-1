@@ -282,7 +282,11 @@ async function initSession(workoutData) {
     const stepIndex = Math.min(state.currentStepIndex, steps.length - 1);
     const step = steps[stepIndex] || {};
     const targetSummary = getRoutineTargetSummary(step);
-    const progressPercent = Math.round(((stepIndex + 1) / steps.length) * 100);
+    const completedSteps = Math.min(
+      Math.max(0, state.currentStepIndex),
+      steps.length,
+    );
+    const progressPercent = Math.round((completedSteps / steps.length) * 100);
 
     routineStepEl.textContent = `\uD604\uC7AC ${stepIndex + 1} / ${steps.length} \uC6B4\uB3D9`;
 
