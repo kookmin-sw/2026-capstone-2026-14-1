@@ -1,6 +1,6 @@
-const SessionQualityGate = (typeof window !== 'undefined' && window.SessionQualityGate)
-  || (typeof globalThis !== 'undefined' && globalThis.SessionQualityGate)
-  || (typeof module !== 'undefined' && typeof require === 'function'
+const SessionQualityGate = typeof window !== 'undefined'
+  ? window.SessionQualityGate
+  : (typeof module !== 'undefined' && typeof require === 'function'
     ? require('./quality-gate-session.js')
     : null);
 

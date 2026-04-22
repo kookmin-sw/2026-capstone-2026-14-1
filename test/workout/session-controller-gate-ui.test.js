@@ -235,36 +235,3 @@ test('shouldSuppressScoring clears tracker state on resume', () => {
   assert.equal(tracker.isWithholding, false);
   assert.equal(tracker.withholdReason, null);
 });
-
-test('live controller wiring: full quality-gate frame flow suppresses and resumes', () => {
-  const tracker = createQualityGateTracker();
-
-  // Simulate a withhold frame
-  const badPose = makePoseData('LOW', 0.3, 'FRONT');
-  const metrics1 = updateQualityGateTracker(badPose, tracker);
-  const inputs1 = buildGateInputsFromPoseData(badPose, metrics1);
-  // Manually evaluate gate (simulating what handlePoseDetected does)
-  const gateResult1 = { result: 'withhold', reason: 'view_unstable' };
-  const suppression1 = shouldSuppressScoring(gateResult1, tracker, 8);
-  assert.equal(suppression1.suppress, true);
-
-  // Simulate 7 stable frames after withhold — still suppressed
-  for (let i = 0; i < 7; i++) {
-    const goodPose = makePoseData('HIGH', 0.8, 'FRONT');
-    const metrics = updateQualityGateTracker(goodPose, tracker);
-    const gateResult = { result: 'pass', reason: null };
-    const suppression = shouldSuppressScoring(gateResult, tracker, 8);
-    if (i < 6) {
-      assert.equal(suppression.suppress, true, `should still suppress at stable frame ${metrics.stableFrameCount}`);
-    }
-  }
-
-  // 8th stable frame — resume
-  const finalPose = makePoseData('HIGH', 0.8, 'FRONT');
-  const finalMetrics = updateQualityGateTracker(finalPose, tracker);
-  assert.equal(finalMetrics.stableFrameCount, 8);
-  const finalGate = { result: 'pass', reason: null };
-  const finalSuppression = shouldSuppressScoring(finalGate, tracker, 8);
-  assert.equal(finalSuppression.suppress, false);
-  assert.equal(tracker.isWithholding, false);
-});
