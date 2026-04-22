@@ -767,7 +767,7 @@ async function initSession(workoutData) {
     if (state.phase !== "WORKING" || state.isPaused) return;
 
     const { angles } = poseData;
-    updateViewInfo(angles);
+    // updateViewInfo(angles);
 
     const stabilityMetrics = updateQualityGateTracker(poseData, qualityGateTracker);
     const gateInputs = buildGateInputsFromPoseData(poseData, stabilityMetrics);
@@ -829,7 +829,7 @@ async function initSession(workoutData) {
       movement: repCounter?.currentMovementScores?.length || 0,
     };
     const timeOrRepResult = repCounter.update(angles, scoreForState);
-    updateViewInfo(angles);
+    // updateViewInfo(angles);
 
     if (isTimeBasedExercise()) {
       updatePlankRuntimeDisplay(timeOrRepResult || repCounter.getTimeSummary());
