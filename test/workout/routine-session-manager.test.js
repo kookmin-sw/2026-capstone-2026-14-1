@@ -3,7 +3,11 @@ const assert = require('node:assert/strict');
 
 const {
   createRoutineSessionManager,
+  resetRoutineSetState,
+  resetRoutineStepState,
+  resolveNextRoutineStepIndex,
   resolveRoutineAdvanceAction,
+  resolveRoutineStepConfig,
 } = require('../../public/js/workout/routine-session-manager.js');
 
 test('resolveRoutineAdvanceAction returns NEXT_SET when server asks for next set', () => {
@@ -34,6 +38,95 @@ test('resolveRoutineAdvanceAction falls back to ROUTINE_COMPLETE for final step'
     restSec: 0,
     nextSessionId: null,
   });
+});
+
+test('resetRoutineStepState resets step-scoped routine counters', () => {
+  const state = {
+    currentSet: 3,
+    currentRep: 12,
+    currentSetWorkSec: 18,
+    currentSegmentSec: 6,
+    bestHoldSec: 27,
+    plankGoalReached: true,
+    restAfterAction: 'NEXT_EXERCISE',
+    repMetricBuffer: { tempo: 1 },
+    lastRepMetricSummary: ['tempo'],
+    repInProgressPrev: true,
+  };
+
+  resetRoutineStepState(state);
+
+  assert.deepEqual(state, {
+    currentSet: 1,
+    currentRep: 0,
+    currentSetWorkSec: 0,
+    currentSegmentSec: 0,
+    bestHoldSec: 0,
+    plankGoalReached: false,
+    restAfterAction: null,
+    repMetricBuffer: {},
+    lastRepMetricSummary: [],
+    repInProgressPrev: false,
+  });
+});
+
+test('resetRoutineSetState preserves set index while clearing set-local tracking', () => {
+  const state = {
+    currentSet: 2,
+    currentRep: 7,
+    currentSetWorkSec: 13,
+    currentSegmentSec: 4,
+    bestHoldSec: 19,
+    plankGoalReached: true,
+    repMetricBuffer: { depth: 1 },
+    lastRepMetricSummary: ['depth'],
+    repInProgressPrev: true,
+  };
+
+  resetRoutineSetState(state);
+
+  assert.equal(state.currentSet, 2);
+  assert.equal(state.currentRep, 0);
+  assert.equal(state.currentSetWorkSec, 0);
+  assert.equal(state.currentSegmentSec, 0);
+  assert.equal(state.bestHoldSec, 0);
+  assert.equal(state.plankGoalReached, false);
+  assert.deepEqual(state.repMetricBuffer, {});
+  assert.deepEqual(state.lastRepMetricSummary, []);
+  assert.equal(state.repInProgressPrev, false);
+});
+
+test('resolveRoutineStepConfig derives exercise runtime inputs for TIME targets', () => {
+  const result = resolveRoutineStepConfig({
+    routineSetup: [
+      {
+        target_type: 'TIME',
+        target_value: 45,
+        scoring_profile: { id: 3 },
+        exercise: { code: 'plank', name: '플랭크' },
+      },
+    ],
+    stepIndex: 0,
+    normalizeTargetType: (value) => String(value || '').toUpperCase(),
+    resolveDefaultView: (exercise) => `${exercise.code}_VIEW`,
+  });
+
+  assert.deepEqual(result, {
+    exercise: { code: 'plank', name: '플랭크' },
+    scoringProfile: { id: 3 },
+    selectedView: 'plank_VIEW',
+    targetSec: 45,
+  });
+});
+
+test('resolveNextRoutineStepIndex returns null when the routine is complete', () => {
+  assert.equal(
+    resolveNextRoutineStepIndex({
+      currentStepIndex: 1,
+      routineSetup: [{}, {}],
+    }),
+    null,
+  );
 });
 
 test('checkRoutineProgress returns NONE before target is reached', async () => {
@@ -69,6 +162,30 @@ test('checkRoutineProgress returns NONE before target is reached', async () => {
     nextSessionId: null,
   });
   assert.equal(fetchCalls, 0);
+});
+
+test('manager reset helpers mutate the injected session state', () => {
+  const state = {
+    currentSet: 4,
+    currentRep: 9,
+    currentSetWorkSec: 22,
+    currentSegmentSec: 8,
+    bestHoldSec: 30,
+    plankGoalReached: true,
+    restAfterAction: 'NEXT_SET',
+    repMetricBuffer: { cadence: 1 },
+    lastRepMetricSummary: ['cadence'],
+    repInProgressPrev: true,
+  };
+  const manager = createRoutineSessionManager({ state });
+
+  manager.resetSetState();
+  assert.equal(state.currentSet, 4);
+  assert.equal(state.currentRep, 0);
+
+  manager.resetStepState();
+  assert.equal(state.currentSet, 1);
+  assert.equal(state.restAfterAction, null);
 });
 
 test('checkRoutineProgress starts rest for NEXT_SET responses', async () => {
