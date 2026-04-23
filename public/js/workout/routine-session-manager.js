@@ -36,6 +36,62 @@ function resolveRoutineAdvanceAction({
   };
 }
 
+function resetRoutineStepState(state = {}) {
+  state.currentSet = 1;
+  state.currentRep = 0;
+  state.currentSetWorkSec = 0;
+  state.currentSegmentSec = 0;
+  state.bestHoldSec = 0;
+  state.plankGoalReached = false;
+  state.restAfterAction = null;
+  state.repMetricBuffer = {};
+  state.lastRepMetricSummary = [];
+  state.repInProgressPrev = false;
+}
+
+function resetRoutineSetState(state = {}) {
+  state.currentRep = 0;
+  state.currentSetWorkSec = 0;
+  state.currentSegmentSec = 0;
+  state.bestHoldSec = 0;
+  state.plankGoalReached = false;
+  state.repMetricBuffer = {};
+  state.lastRepMetricSummary = [];
+  state.repInProgressPrev = false;
+}
+
+function resolveRoutineStepConfig({
+  routineSetup = [],
+  stepIndex = 0,
+  normalizeTargetType = (value) => value,
+  resolveDefaultView = () => null,
+}) {
+  const step = routineSetup[stepIndex];
+  const exercise = step?.exercise || null;
+
+  if (!exercise) {
+    return null;
+  }
+
+  return {
+    exercise,
+    scoringProfile: step?.scoring_profile || null,
+    selectedView: resolveDefaultView(exercise),
+    targetSec:
+      normalizeTargetType(step?.target_type) === 'TIME'
+        ? Math.max(1, Number(step?.target_value) || 1)
+        : 0,
+  };
+}
+
+function resolveNextRoutineStepIndex({
+  currentStepIndex = 0,
+  routineSetup = [],
+}) {
+  const nextStepIndex = currentStepIndex + 1;
+  return nextStepIndex < routineSetup.length ? nextStepIndex : null;
+}
+
 function createRoutineSessionManager(deps = {}) {
   const state = deps.state || {};
   const fetchImpl =
@@ -50,6 +106,14 @@ function createRoutineSessionManager(deps = {}) {
     typeof deps.finishWorkout === 'function'
       ? deps.finishWorkout
       : async () => {};
+
+  function resetStepState() {
+    resetRoutineStepState(state);
+  }
+
+  function resetSetState() {
+    resetRoutineSetState(state);
+  }
 
   async function recordRoutineSetCompletion({
     actualValue,
@@ -165,7 +229,11 @@ function createRoutineSessionManager(deps = {}) {
   return {
     checkRoutineProgress,
     recordRoutineSetCompletion,
+    resetSetState,
+    resetStepState,
+    resolveNextRoutineStepIndex,
     resolveRoutineAdvanceAction,
+    resolveRoutineStepConfig,
   };
 }
 
@@ -176,6 +244,10 @@ if (typeof window !== 'undefined') {
 if (typeof module !== 'undefined') {
   module.exports = {
     createRoutineSessionManager,
+    resetRoutineSetState,
+    resetRoutineStepState,
+    resolveNextRoutineStepIndex,
     resolveRoutineAdvanceAction,
+    resolveRoutineStepConfig,
   };
 }

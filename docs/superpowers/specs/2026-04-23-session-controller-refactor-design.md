@@ -1,14 +1,31 @@
 # Session Controller 리팩토링 설계서
 
 **작성일:** 2026-04-23
-**상태:** 승인됨
-**범위:** `public/js/workout/session-controller.js`만 대상
+**상태:** 승인됨, 구현 진행 중
+**범위:** `public/js/workout/session-controller.js`를 중심으로 `session-ui.js`, `routine-session-manager.js`, `quality-gate-session.js`까지 포함
 
 ---
 
 ## 핵심 설계 문장
 
 > `session-controller.js`는 운동 세션의 최상위 오케스트레이터로 유지하고, DOM 렌더링, 루틴 진행 정책, 세션 측 품질 게이트 보조 로직은 역할이 분명한 별도 모듈로 분리한다.
+
+---
+
+## 구현 반영 상태 (2026-04-23 기준)
+
+현재 코드베이스에는 이 설계의 일부가 이미 반영되어 있다.
+
+- `quality-gate-session.js`는 생성되어 있으며, 품질 게이트 세션 헬퍼와 seam 테스트가 분리되어 있다.
+- `session-ui.js`는 생성되어 있으며, 루틴 progress DOM 구성, 상태 뱃지, 플랭크 런타임 패널, 점수 렌더링을 담당한다.
+- `routine-session-manager.js`는 생성되어 있으며, 루틴 세트 완료 서버 기록, 다음 액션 해석, step/set state reset, 다음 step index 계산, step config 해석을 담당한다.
+- `session-controller.js`는 위 모듈들을 로드해 orchestration에 사용하고 있다.
+
+아직 완전히 끝난 상태는 아니다.
+
+- `session-controller.js`는 2026-04-23 현재 약 1900줄 수준으로 여전히 크다.
+- 루틴 단계 표시 계산, 일부 라이프사이클 UI 전환, 세션 종료/abort 흐름은 여전히 controller 내부에 남아 있다.
+- 따라서 본 설계의 방향은 유지하되, 문서를 읽을 때는 “목표 아키텍처 + 현재 구현 진행 상태”를 함께 해석해야 한다.
 
 ---
 
@@ -108,6 +125,13 @@ session-controller.js
 
 반대로 `session-controller.js`는 더 이상 상세 렌더링 정책, 루틴 진행 정책, 세션 측 품질 게이트 보조 로직 내부 구현을 직접 소유하지 않아야 한다.
 
+2026-04-23 현재 구현 상태:
+
+- 품질 게이트 세션 helper 호출은 `quality-gate-session.js`로 이동했다.
+- 상태 뱃지, 토스트, 점수판, 루틴 progress DOM 렌더링은 `session-ui.js`를 통해 수행한다.
+- 루틴 step/set 상태 reset과 step config 해석, next step index 계산은 `routine-session-manager.js`가 담당한다.
+- 다만 controller는 아직 `updateRoutineStepDisplay()`, `switchRoutineStep()`, `nextExercise()` 같은 orchestration 성격의 wrapper를 일부 보유한다.
+
 ### 4.2 `session-ui.js`
 
 `session-ui.js`는 DOM 렌더링과 DOM 전용 동작을 담당한다.
@@ -143,6 +167,12 @@ session-controller.js
 - 세션 상태 전이를 결정하면 안 된다.
 - `RepCounter`나 `ScoringEngine`의 정책을 직접 소유하면 안 된다.
 
+2026-04-23 현재 구현 상태:
+
+- 이 모듈은 이미 도입되었고 `createSessionUi()` factory를 통해 controller에 주입된다.
+- `showToast()`와 `updateStatus()`의 직접 구현은 controller에서 제거되었고, `ui.showToast()`, `ui.updateStatus()` 호출로 정리되었다.
+- 루틴 progress DOM 생성과 step chip 갱신은 이 모듈이 담당한다.
+
 ### 4.3 `routine-session-manager.js`
 
 `routine-session-manager.js`는 루틴 진행 정책과 루틴 전용 서버 동기화를 담당한다.
@@ -174,6 +204,13 @@ session-controller.js
 - DOM 직접 렌더링을 소유하면 안 된다.
 - 두 번째 최상위 컨트롤러가 되면 안 된다.
 
+2026-04-23 현재 구현 상태:
+
+- `checkRoutineProgress()`와 `recordRoutineSetCompletion()`은 이미 이 모듈로 이동했다.
+- 추가로 `resetRoutineStepState()`, `resetRoutineSetState()`, `resolveRoutineStepConfig()`, `resolveNextRoutineStepIndex()`가 도입되었다.
+- controller는 이 결과를 받아 engine rebinding, UI refresh, session buffer event 기록만 수행한다.
+- 다만 `switchRoutineStep()`와 `nextExercise()` 자체는 아직 controller에 남아 있으며, controller가 루틴 전환 순서를 조율한다.
+
 ### 4.4 `quality-gate-session.js`
 
 `quality-gate-session.js`는 세션 측 품질 게이트 보조 로직만 담당한다.
@@ -201,6 +238,12 @@ session-controller.js
 - UX용 메시지를 제공할 수 있다.
 - 최종 gate authority를 가져서는 안 된다.
 - 최종 gate authority는 계속 `scoring-engine.js`에 남아 있어야 한다.
+
+2026-04-23 현재 구현 상태:
+
+- 본 모듈은 이미 생성되어 `SessionQualityGate`로 노출된다.
+- controller는 tracker 갱신, gate input 생성, suppress/resume 판정만 이 모듈에 위임한다.
+- gate authority 자체는 계속 `scoring-engine.js`에 남아 있다.
 
 ---
 
@@ -366,3 +409,9 @@ session-controller.js
 4. 세션 측 품질 게이트 보조 로직이 `quality-gate-session.js`로 분리된다.
 5. 현재 런타임 동작과 페이지 진입 방식이 그대로 유지된다.
 6. 이후 UI, 루틴, 품질 게이트 보조 로직 변경 시 `session-controller.js` 깊숙한 곳까지 수정하지 않아도 되는 구조가 된다.
+
+2026-04-23 현재 판정:
+
+- 2, 3, 4는 부분적으로 달성되었다.
+- 5는 현재 자동 테스트 범위에서는 유지되고 있다.
+- 1과 6은 아직 완전히 달성되지 않았다. `session-controller.js`가 여전히 크고, 일부 루틴/UI orchestration wrapper가 남아 있기 때문이다.

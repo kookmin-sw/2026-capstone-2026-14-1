@@ -507,15 +507,6 @@ const ui = sessionUiFactory({
     });
   }
 
-  /** 루틴 카운터/프로그레스 전체 새로고침 — 단계 표시 + 프로그레스 바 */
-  function refreshRoutineCounterUi() {
-    updatePrimaryCounterDisplay();
-    updateRoutineStepDisplay();
-    updatePlankRuntimeDisplay(
-      repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
-    );
-  }
-
   let isEndingSession = false;
   let pendingSessionPayload = null;
   let hasUnloadAbortSent = false;
@@ -941,7 +932,11 @@ const ui = sessionUiFactory({
       }
       state.phase = "WORKING";
       syncPlankTargetUi();
-      refreshRoutineCounterUi();
+      updatePrimaryCounterDisplay();
+      updateRoutineStepDisplay();
+      updatePlankRuntimeDisplay(
+        repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
+      );
 
       resetSessionBufferForSession(state.sessionId, {
         exerciseCode: workoutData.exercise.code,
@@ -951,7 +946,7 @@ const ui = sessionUiFactory({
       });
       state.currentTargetSec = getCurrentTargetSec();
 
-      updateStatus("running", "운동 중");
+      ui.updateStatus("running", "운동 중");
       cameraOverlay.hidden = true;
       startBtn.hidden = true;
       const sourceSelectEl = document.getElementById("sourceSelect");
@@ -1566,70 +1561,42 @@ const ui = sessionUiFactory({
           ? "좋아요! 👍"
           : "계속 해보세요!");
 
-    showToast(`${repRecord.repNumber}회 ${msg}`);
+    ui.showToast(`${repRecord.repNumber}회 ${msg}`);
   }
 
-  /** 화면 하단 짧은 토스트 메시지 — 2초 후 자동 사라짐 */
-  function showToast(message) {
-    ui.showToast(message);
-  }
-
-  /**
-   * 루틴 단계 전환 시 UI 상태 초기화
-   * - 카운터, 점수, phase, 세트 정보 리셋
-   * - RepCounter/SessionBuffer 새로 생성
-   * - ScoringEngine 재바인딩
-   */
-  function resetStepUiState() {
-    state.currentSet = 1;
-    state.currentRep = 0;
-    state.currentSetWorkSec = 0;
-    state.currentSegmentSec = 0;
-    state.bestHoldSec = 0;
-    state.plankGoalReached = false;
-    state.restAfterAction = null;
-    state.repMetricBuffer = {};
-    state.lastRepMetricSummary = [];
-    state.repInProgressPrev = false;
-    setCountEl.textContent = 1;
-    updatePrimaryCounterDisplay();
-    liveScoreEl.textContent = "--";
-    scoreBreakdownEl.innerHTML =
-      '<div class="score-item"><span class="muted">rep 시작하면 표시됩니다.</span></div>';
+  /** RepCounter 런타임 상태 리셋 + 목표 시간 재주입 */
+  function resetRepCounterRuntime() {
     if (repCounter) {
       repCounter.reset();
       if (repCounter.setTargetSec) {
         repCounter.setTargetSec(getCurrentTargetSec());
       }
     }
+  }
+
+  /**
+   * 루틴 단계 전환 시 UI 상태 초기화
+   * - 실제 state reset 정책은 routine-session-manager.js에 위임
+   * - 여기서는 점수판/카운터 등 표시 상태만 다시 맞춘다
+   */
+  function resetRoutineStepUiState() {
+    setCountEl.textContent = 1;
+    updatePrimaryCounterDisplay();
+    liveScoreEl.textContent = "--";
+    scoreBreakdownEl.innerHTML =
+      '<div class="score-item"><span class="muted">rep 시작하면 표시됩니다.</span></div>';
+    resetRepCounterRuntime();
     updatePlankRuntimeDisplay(
       repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
     );
   }
 
   /**
-   * 현재 세트 추적 데이터 초기화 — 세트 전환 시 세트 내 누적 데이터 리셋
-   * - state.currentSetWorkSec: 세트 작업 시간
-   * - RepCounter: rep 추적 상태 리셋
-   * - SessionBuffer: 세트 완료 이벤트 기록
+   * 현재 세트 추적 UI 동기화
+   * - 실제 set-local state reset 정책은 routine-session-manager.js에 위임
    */
-  function resetCurrentSetTracking() {
-    state.currentRep = 0;
-    state.currentSetWorkSec = 0;
-    state.currentSegmentSec = 0;
-    state.bestHoldSec = 0;
-    state.plankGoalReached = false;
-    state.repMetricBuffer = {};
-    state.lastRepMetricSummary = [];
-    state.repInProgressPrev = false;
-
-    if (repCounter) {
-      repCounter.reset();
-      if (repCounter.setTargetSec) {
-        repCounter.setTargetSec(getCurrentTargetSec());
-      }
-    }
-
+  function resetRoutineSetUiState() {
+    resetRepCounterRuntime();
     updatePrimaryCounterDisplay();
     updatePlankRuntimeDisplay(
       repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
@@ -1645,39 +1612,40 @@ const ui = sessionUiFactory({
    * 5. syncPlankTargetUi(): 플랭크 목표 시간 UI 동기화
    */
   function switchRoutineStep(stepIndex) {
-    const step = workoutData.routine?.routine_setup?.[stepIndex];
-    const nextExercise = step?.exercise;
+    const stepConfig = routineManager.resolveRoutineStepConfig({
+      normalizeTargetType: normalizeRoutineTargetType,
+      resolveDefaultView,
+      routineSetup: workoutData.routine?.routine_setup,
+      stepIndex,
+    });
 
-    if (!nextExercise) {
+    if (!stepConfig?.exercise) {
       return false;
     }
 
-    workoutData.exercise = nextExercise;
-    workoutData.scoringProfile = step?.scoring_profile || null;
-    state.selectedView = resolveDefaultView(nextExercise);
-    state.currentTargetSec =
-      normalizeRoutineTargetType(step?.target_type) === "TIME"
-        ? Math.max(1, Number(step?.target_value) || 1)
-        : 0;
+    workoutData.exercise = stepConfig.exercise;
+    workoutData.scoringProfile = stepConfig.scoringProfile;
+    state.selectedView = stepConfig.selectedView;
+    state.currentTargetSec = stepConfig.targetSec;
 
     if (!bindEnginesToCurrentExercise()) {
       return false;
     }
 
     syncPlankTargetUi();
-
-    resetStepUiState();
+    routineManager.resetStepState();
+    resetRoutineStepUiState();
 
     if (sessionBuffer) {
       sessionBuffer.addEvent("ROUTINE_STEP_CHANGE", {
         stepIndex,
-        exercise_id: nextExercise.exercise_id,
-        exercise_code: nextExercise.code,
+        exercise_id: stepConfig.exercise.exercise_id,
+        exercise_code: stepConfig.exercise.code,
         selected_view: state.selectedView,
       });
     }
 
-    refreshRoutineCounterUi();
+    updateRoutineStepDisplay();
     return true;
   }
 
@@ -1815,7 +1783,8 @@ const ui = sessionUiFactory({
 
         state.currentSet++;
         setCountEl.textContent = state.currentSet;
-        resetCurrentSetTracking();
+        routineManager.resetSetState();
+        resetRoutineSetUiState();
         showAlert("다음 세트", `${state.currentSet}세트 시작!`);
         return;
       }
@@ -1867,25 +1836,20 @@ const ui = sessionUiFactory({
     timerValueEl.textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   }
 
-  /** 상태 뱃지 UI 업데이트 (PREPARING/WORKING/PAUSED/FINISHED 등) */
-  function updateStatus(className, text) {
-    ui.updateStatus(className, text);
-  }
-
   /** 일시정지/재개 토글 — 타이머/프레임 루프 정지 & Wake Lock 해제/재획득 */
   function togglePause() {
     state.isPaused = !state.isPaused;
 
     if (state.isPaused) {
       state.phase = "PAUSED";
-      updateStatus("paused", "일시정지");
+      ui.updateStatus("paused", "일시정지");
       pauseBtn.innerHTML = "계속하기";
       if (poseEngine) poseEngine.stop();
       if (sessionBuffer) sessionBuffer.addEvent("PAUSE");
       releaseWakeLock();
     } else {
       state.phase = "WORKING";
-      updateStatus("running", "운동 중");
+      ui.updateStatus("running", "운동 중");
       pauseBtn.innerHTML = "일시정지";
       if (poseEngine) poseEngine.start();
       if (sessionBuffer) sessionBuffer.addEvent("RESUME");
@@ -1898,7 +1862,7 @@ const ui = sessionUiFactory({
     state.phase = "RESTING";
     state.restTimeLeft = seconds;
     state.restAfterAction = afterAction;
-    updateStatus("rest", "휴식 중");
+    ui.updateStatus("rest", "휴식 중");
     timerLabelEl.textContent = "휴식 시간";
     restTimerEl.hidden = false;
     restValueEl.textContent = seconds;
@@ -1925,7 +1889,7 @@ const ui = sessionUiFactory({
     restTimerEl.hidden = true;
     state.phase = "WORKING";
     timerLabelEl.textContent = "운동 시간";
-    updateStatus("running", "운동 중");
+    ui.updateStatus("running", "운동 중");
     syncPlankTargetUi();
 
     const action = state.restAfterAction || "NEXT_SET";
@@ -1940,7 +1904,8 @@ const ui = sessionUiFactory({
 
     state.currentSet++;
     setCountEl.textContent = state.currentSet;
-    resetCurrentSetTracking();
+    routineManager.resetSetState();
+    resetRoutineSetUiState();
 
     if (poseEngine) poseEngine.start();
     if (sessionBuffer) sessionBuffer.addEvent("REST_END");
@@ -1964,21 +1929,24 @@ const ui = sessionUiFactory({
   /** 루틴 다음 운동으로 전환 (버튼/자동) — switchRoutineStep 래퍼 */
   function nextExercise() {
     state.restAfterAction = null;
-    state.currentStepIndex++;
     const routineSteps = workoutData.routine.routine_setup;
+    const nextStepIndex = routineManager.resolveNextRoutineStepIndex({
+      currentStepIndex: state.currentStepIndex,
+      routineSetup: routineSteps,
+    });
 
-    if (state.currentStepIndex >= routineSteps.length) {
+    if (nextStepIndex == null) {
       finishWorkout();
       return;
     }
 
+    state.currentStepIndex = nextStepIndex;
     const switched = switchRoutineStep(state.currentStepIndex);
     if (!switched) {
       showAlert("루틴 오류", "다음 운동의 채점 설정을 불러오지 못했습니다.");
       finishWorkout();
       return;
     }
-    updateRoutineStepDisplay();
     if (sessionBuffer) {
       sessionBuffer.addEvent("NEXT_EXERCISE", {
         stepIndex: state.currentStepIndex,
@@ -2018,7 +1986,7 @@ const ui = sessionUiFactory({
     sessionCamera.destroy();
     releaseWakeLock();
 
-    updateStatus("finished", "완료");
+    ui.updateStatus("finished", "완료");
 
     try {
       const isTimeBased = isTimeBasedExercise();
@@ -2204,7 +2172,11 @@ const ui = sessionUiFactory({
   } else {
     syncPlankTargetUi();
   }
-  refreshRoutineCounterUi();
+  updatePrimaryCounterDisplay();
+  updateRoutineStepDisplay();
+  updatePlankRuntimeDisplay(
+    repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
+  );
   await connectCameraSource(selectedCameraSource);
 }
 
