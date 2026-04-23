@@ -1,23 +1,65 @@
-const SessionQualityGate = typeof window !== 'undefined'
-  ? window.SessionQualityGate
-  : (typeof module !== 'undefined' && typeof require === 'function'
-    ? require('./quality-gate-session.js')
-    : null);
+function loadSessionQualityGate() {
+  if (typeof module !== 'undefined' && typeof require === 'function') {
+    return require('./quality-gate-session.js');
+  }
 
-if (!SessionQualityGate) {
+  if (typeof window !== 'undefined') {
+    return window.SessionQualityGate || null;
+  }
+
+  return null;
+}
+
+const sessionQualityGateHelpers = loadSessionQualityGate();
+
+function loadSessionUiFactory() {
+  if (typeof module !== 'undefined' && typeof require === 'function') {
+    return require('./session-ui.js').createSessionUi;
+  }
+
+  if (typeof window !== 'undefined') {
+    return window.createSessionUi || null;
+  }
+
+  return null;
+}
+
+const sessionUiFactory = loadSessionUiFactory();
+
+function loadRoutineSessionManagerFactory() {
+  if (typeof module !== 'undefined' && typeof require === 'function') {
+    return require('./routine-session-manager.js').createRoutineSessionManager;
+  }
+
+  if (typeof window !== 'undefined') {
+    return window.createRoutineSessionManager || null;
+  }
+
+  return null;
+}
+
+const routineSessionManagerFactory = loadRoutineSessionManagerFactory();
+
+if (!sessionQualityGateHelpers) {
   throw new Error('SessionQualityGate helpers are unavailable.');
 }
 
+if (typeof sessionUiFactory !== 'function') {
+  throw new Error('createSessionUi factory is unavailable.');
+}
+
+if (typeof routineSessionManagerFactory !== 'function') {
+  throw new Error('createRoutineSessionManager factory is unavailable.');
+}
+
 const {
-  mapWithholdReasonToMessage,
-  shouldResumeScoring,
-  isFrameStable,
-  shouldMirrorSourcePreview,
-  createQualityGateTracker,
-  updateQualityGateTracker,
-  buildGateInputsFromPoseData,
-  shouldSuppressScoring,
-} = SessionQualityGate;
+  mapWithholdReasonToMessage: mapGateWithholdReasonToMessage,
+  shouldMirrorSourcePreview: shouldMirrorPreviewSource,
+  createQualityGateTracker: createGateTracker,
+  updateQualityGateTracker: updateGateTracker,
+  buildGateInputsFromPoseData: buildGateInputs,
+  shouldSuppressScoring: shouldGateSuppressScoring,
+} = sessionQualityGateHelpers;
 
 /**
  * 운동 세션 페이지 — 포즈/점수/루틴/세션 저장 오케스트레이션
@@ -95,14 +137,49 @@ async function initSession(workoutData) {
   const plankBestHoldEl = document.getElementById("plankBestHold");
   const plankPhaseInfoEl = document.getElementById("plankPhaseInfo");
   const plankProgressEl = document.getElementById("plankProgress");
+  const plankRuntimePanelEl = document.getElementById("plankRuntimePanel");
   const plankStateLabelEl = document.getElementById("plankStateLabel");
   const plankGoalLabelEl = document.getElementById("plankGoalLabel");
   const plankSegmentLabelEl = document.getElementById("plankSegmentLabel");
+  const plankTimerPanelEl = document.getElementById("plankTimerPanel");
   let routineProgressCountEl = null;
   let routineProgressPercentEl = null;
   let routineCurrentExerciseEl = null;
   let routineTargetSummaryEl = null;
   let routineStepListEl = null;
+  const uiRefs = {
+    alertContainer,
+    alertMessage,
+    alertTitle,
+    liveScoreEl,
+    plankBestHoldEl,
+    plankCurrentHoldEl,
+    plankGoalLabelEl,
+    plankPhaseInfoEl,
+    plankProgressEl,
+    plankRuntimePanelEl,
+    plankSegmentLabelEl,
+    plankStateLabelEl,
+    plankTargetHint,
+    plankTargetInput,
+    plankTargetReadoutEl,
+    plankTargetSelectRoot,
+    plankTimerPanelEl,
+    repCountEl,
+    repCountLabelEl,
+    routineCurrentExerciseEl,
+    routineProgressCountEl,
+    routineProgressEl,
+    routineProgressPercentEl,
+    routineStepEl,
+    routineStepListEl,
+    routineTargetSummaryEl,
+    scoreBreakdownEl,
+    scoreModeLabelEl,
+    startBtn,
+    statusBadge,
+    timerLabelEl,
+  };
 
   const normalizeViewCode = (value) => {
     const normalized = (value || "").toString().trim().toUpperCase();
@@ -121,6 +198,18 @@ async function initSession(workoutData) {
     const secs = safe % 60;
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
+
+  const ui = sessionUiFactory({
+    refs: uiRefs,
+    createElement: document.createElement.bind(document),
+    formatClock,
+  });
+  const routineManager = routineSessionManagerFactory({
+    state,
+    fetchImpl: (...args) => fetch(...args),
+    startRest,
+    finishWorkout,
+  });
 
   const isTimeBasedExercise = () => Boolean(repCounter?.pattern?.isTimeBased);
 
@@ -198,71 +287,19 @@ async function initSession(workoutData) {
   function setupRoutineProgressUi() {
     if (!routineProgressEl || !routineStepEl) return;
 
-    const card = routineProgressEl.closest(".progress-card");
-    const progressTrack = routineProgressEl.parentElement;
-    const labelEl = card?.querySelector('span.muted:not(#routineStep)');
-    if (!card || !progressTrack || !labelEl || card.dataset.enhanced === "true") {
-      return;
-    }
-
-    card.dataset.enhanced = "true";
-    card.classList.add("routine-progress-card");
-    progressTrack.classList.add("routine-progress-track");
-
-    const header = document.createElement("div");
-    header.className = "routine-progress-header";
-
-    const titleGroup = document.createElement("div");
-    titleGroup.className = "routine-progress-title-group";
-    routineCurrentExerciseEl = document.createElement("strong");
-    routineCurrentExerciseEl.className = "routine-progress-current";
-    titleGroup.append(labelEl, routineCurrentExerciseEl);
-
-    const stats = document.createElement("div");
-    stats.className = "routine-progress-stats";
-    routineProgressCountEl = document.createElement("strong");
-    routineProgressCountEl.className = "routine-progress-count";
-    routineProgressPercentEl = document.createElement("span");
-    routineProgressPercentEl.className = "routine-progress-percent";
-    stats.append(routineProgressCountEl, routineProgressPercentEl);
-
-    header.append(titleGroup, stats);
-
-    const meta = document.createElement("div");
-    meta.className = "routine-progress-meta";
-    routineTargetSummaryEl = document.createElement("span");
-    routineTargetSummaryEl.className = "routine-progress-target";
-    meta.append(routineStepEl, routineTargetSummaryEl);
-
-    routineStepListEl = document.createElement("div");
-    routineStepListEl.className = "routine-step-list";
-    routineStepListEl.setAttribute("aria-label", "\uB8E8\uD2F4 \uB2E8\uACC4");
-
-    getRoutineSteps().forEach((step, index) => {
-      const chip = document.createElement("div");
-      chip.className = "routine-step-chip";
-      chip.setAttribute("data-routine-step-index", String(index));
-
-      const chipIndex = document.createElement("span");
-      chipIndex.className = "routine-step-index";
-      chipIndex.textContent = String(index + 1);
-
-      const chipCopy = document.createElement("div");
-      chipCopy.className = "routine-step-copy";
-
-      const chipTitle = document.createElement("strong");
-      chipTitle.textContent =
-        step?.exercise?.name || `${index + 1}\uBC88\uC9F8 \uC6B4\uB3D9`;
-
-      const chipMeta = document.createElement("span");
-      chipMeta.textContent = getRoutineTargetSummary(step).text;
-
-      chipCopy.append(chipTitle, chipMeta);
-      chip.append(chipIndex, chipCopy);
-      routineStepListEl.append(chip);
+    ui.setupRoutineProgressUi({
+      steps: getRoutineSteps().map((step, index) => ({
+        exerciseName:
+          step?.exercise?.name || `${index + 1}\uBC88\uC9F8 \uC6B4\uB3D9`,
+        targetSummary: getRoutineTargetSummary(step).text,
+      })),
     });
 
-    card.replaceChildren(header, progressTrack, meta, routineStepListEl);
+    routineCurrentExerciseEl = uiRefs.routineCurrentExerciseEl;
+    routineProgressCountEl = uiRefs.routineProgressCountEl;
+    routineProgressPercentEl = uiRefs.routineProgressPercentEl;
+    routineStepListEl = uiRefs.routineStepListEl;
+    routineTargetSummaryEl = uiRefs.routineTargetSummaryEl;
   }
 
   function isRoutineTimeTarget() {
@@ -272,19 +309,13 @@ async function initSession(workoutData) {
   }
 
   function updatePrimaryCounterDisplay() {
-    if (repCountLabelEl) {
-      repCountLabelEl.textContent =
-        isTimeBasedExercise() || isRoutineTimeTarget()
-          ? "\uC2DC\uAC04(\uCD08)"
-          : "\uD69F\uC218";
-    }
-
-    const value = isTimeBasedExercise()
-      ? Math.max(0, Math.round(state.currentSegmentSec))
-      : isRoutineTimeTarget()
-        ? Math.max(0, Math.round(state.currentSetWorkSec))
-        : Math.max(0, Math.round(state.currentRep));
-    repCountEl.textContent = String(value);
+    ui.updatePrimaryCounterDisplay({
+      isRoutineTimeTarget: isRoutineTimeTarget(),
+      isTimeBased: isTimeBasedExercise(),
+      currentRep: state.currentRep,
+      currentSegmentSec: state.currentSegmentSec,
+      currentSetWorkSec: state.currentSetWorkSec,
+    });
   }
 
   function updateRoutineStepDisplay() {
@@ -309,40 +340,14 @@ async function initSession(workoutData) {
     );
     const progressPercent = Math.round((completedSteps / steps.length) * 100);
 
-    routineStepEl.textContent = `\uD604\uC7AC ${stepIndex + 1} / ${steps.length} \uC6B4\uB3D9`;
-
-    if (routineProgressEl) {
-      routineProgressEl.style.width = `${progressPercent}%`;
-    }
-    if (routineProgressCountEl) {
-      routineProgressCountEl.textContent = `${stepIndex + 1} / ${steps.length}`;
-    }
-    if (routineProgressPercentEl) {
-      routineProgressPercentEl.textContent = `${progressPercent}%`;
-    }
-    if (routineCurrentExerciseEl) {
-      routineCurrentExerciseEl.textContent =
-        step?.exercise?.name || `${stepIndex + 1}\uBC88\uC9F8 \uC6B4\uB3D9`;
-    }
-    if (routineTargetSummaryEl) {
-      routineTargetSummaryEl.textContent = targetSummary.text;
-    }
-    if (routineStepListEl) {
-      routineStepListEl
-        .querySelectorAll("[data-routine-step-index]")
-        .forEach((chip) => {
-          const chipIndex = Number(chip.getAttribute("data-routine-step-index"));
-          chip.classList.toggle("is-complete", chipIndex < stepIndex);
-          chip.classList.toggle("is-active", chipIndex === stepIndex);
-          chip.classList.toggle("is-upcoming", chipIndex > stepIndex);
-
-          if (chipIndex === stepIndex) {
-            chip.setAttribute("aria-current", "step");
-          } else {
-            chip.removeAttribute("aria-current");
-          }
-        });
-    }
+    ui.updateRoutineStepDisplay({
+      currentExerciseName:
+        step?.exercise?.name || `${stepIndex + 1}\uBC88\uC9F8 \uC6B4\uB3D9`,
+      progressPercent,
+      stepIndex,
+      targetSummary: targetSummary.text,
+      totalSteps: steps.length,
+    });
   }
 
   function syncPlankTargetUi() {
@@ -352,48 +357,14 @@ async function initSession(workoutData) {
     const showFreeTargetUi =
       isPlank && workoutData.mode !== "ROUTINE" && state.phase === "PREPARING";
 
-    if (plankTargetSelectRoot) {
-      plankTargetSelectRoot.hidden = !showFreeTargetUi;
-      plankTargetSelectRoot
-        .querySelectorAll("[data-plank-target-sec]")
-        .forEach((button) => {
-          const buttonSec = Number(
-            button.getAttribute("data-plank-target-sec"),
-          );
-          button.classList.toggle("active", buttonSec === targetSec);
-          button.disabled = isRoutinePlank;
-        });
-    }
-
-    if (plankTargetInput) {
-      if (targetSec > 0) {
-        plankTargetInput.value = String(targetSec);
-      }
-      plankTargetInput.disabled = isRoutinePlank;
-    }
-
-    if (plankTargetHint) {
-      plankTargetHint.textContent = isRoutinePlank
-        ? `루틴 목표 시간 ${targetSec}초가 자동으로 적용됩니다.`
-        : "플랭크는 목표 시간을 먼저 정한 뒤 시작합니다. 목표 시간은 세션 종료 시 점수 정규화 기준이 됩니다.";
-    }
-
-    if (plankTargetReadoutEl) {
-      plankTargetReadoutEl.textContent =
-        targetSec > 0 ? `${targetSec}초` : "--";
-    }
-
-    if (scoreModeLabelEl) {
-      scoreModeLabelEl.textContent = isPlank
-        ? "현재 자세 점수"
-        : "이번 rep 점수";
-    }
-    if (timerLabelEl) {
-      timerLabelEl.textContent = isPlank ? "플랭크 시간" : "운동 시간";
-    }
-    if (startBtn && state.phase === "PREPARING") {
-      startBtn.textContent = isPlank ? "플랭크 시작" : "운동 시작";
-    }
+    ui.syncPlankTargetUi({
+      canStart: canStartCurrentExercise(),
+      isPlank,
+      isRoutinePlank,
+      phase: state.phase,
+      showFreeTargetUi,
+      targetSec,
+    });
   }
 
   function applyTargetSec(nextTargetSec) {
@@ -443,16 +414,6 @@ async function initSession(workoutData) {
 
   function updatePlankRuntimeDisplay(summary = null) {
     const isPlank = isPlankExerciseCode();
-    const wrapperIds = ["plankRuntimePanel", "plankTimerPanel"];
-    wrapperIds.forEach((id) => {
-      const element = document.getElementById(id);
-      if (element) {
-        element.hidden = !isPlank;
-      }
-    });
-
-    if (!isPlank) return;
-
     const phase = summary?.currentPhase || window.TIME_PHASES?.SETUP || "SETUP";
     const currentSegmentSec = Math.max(
       0,
@@ -467,26 +428,15 @@ async function initSession(workoutData) {
     state.bestHoldSec = bestHoldSec;
     state.plankGoalReached = targetSec > 0 && bestHoldSec >= targetSec;
 
-    if (plankCurrentHoldEl)
-      plankCurrentHoldEl.textContent = formatClock(currentSegmentSec);
-    if (plankBestHoldEl) plankBestHoldEl.textContent = formatClock(bestHoldSec);
-    if (plankPhaseInfoEl) plankPhaseInfoEl.textContent = phase;
-    if (plankStateLabelEl) plankStateLabelEl.textContent = phase;
-    if (plankSegmentLabelEl)
-      plankSegmentLabelEl.textContent = formatClock(currentSegmentSec);
-    if (plankTargetReadoutEl)
-      plankTargetReadoutEl.textContent =
-        targetSec > 0 ? `${targetSec}초` : "--";
-    if (plankGoalLabelEl) {
-      plankGoalLabelEl.textContent = state.plankGoalReached
-        ? "달성"
-        : targetSec > 0
-          ? `${Math.max(0, targetSec - bestHoldSec)}초 남음`
-          : "대기 중";
-    }
-    if (plankProgressEl) {
-      plankProgressEl.style.width = `${Math.round(progressRatio * 100)}%`;
-    }
+    ui.updatePlankRuntimeDisplay({
+      bestHoldSec,
+      currentSegmentSec,
+      goalReached: state.plankGoalReached,
+      isPlank,
+      phase,
+      progressPercent: Math.round(progressRatio * 100),
+      targetSec,
+    });
   }
 
   function refreshRoutineCounterUi() {
@@ -509,7 +459,7 @@ async function initSession(workoutData) {
     if (!cameraFrame) return;
     cameraFrame.setAttribute(
       "data-preview-mirrored",
-      shouldMirrorSourcePreview(sourceType) ? "true" : "false",
+      shouldMirrorPreviewSource(sourceType) ? "true" : "false",
     );
   }
 
@@ -548,7 +498,7 @@ async function initSession(workoutData) {
 
   let noPersonCount = 0;
   const NO_PERSON_THRESHOLD = 30;
-  let qualityGateTracker = createQualityGateTracker();
+  let qualityGateTracker = createGateTracker();
   state.selectedView =
     normalizeViewCode(workoutData.selectedView) || resolveDefaultView();
   state.currentTargetSec = Math.max(0, Number(workoutData.plankTargetSec) || 0);
@@ -931,8 +881,8 @@ async function initSession(workoutData) {
     const { angles } = poseData;
     // updateViewInfo(angles);
 
-    const stabilityMetrics = updateQualityGateTracker(poseData, qualityGateTracker);
-    const gateInputs = buildGateInputsFromPoseData(poseData, stabilityMetrics);
+    const stabilityMetrics = updateGateTracker(poseData, qualityGateTracker);
+    const gateInputs = buildGateInputs(poseData, stabilityMetrics);
     const gateContext = {
       allowedViews: getAllowedViews(),
       // selectedView is the user-chosen scoring camera angle for this session.
@@ -945,7 +895,11 @@ async function initSession(workoutData) {
     const gateThreshold = (typeof QUALITY_GATE_THRESHOLDS !== 'undefined')
       ? QUALITY_GATE_THRESHOLDS.stableFrameCount
       : 8;
-    const suppression = shouldSuppressScoring(gateResult, qualityGateTracker, gateThreshold);
+    const suppression = shouldGateSuppressScoring(
+      gateResult,
+      qualityGateTracker,
+      gateThreshold,
+    );
 
     if (suppression.suppress) {
       state.pauseRepScoring = true;
@@ -962,9 +916,12 @@ async function initSession(workoutData) {
         score: 0,
         breakdown: [],
         gated: true,
-        message: mapWithholdReasonToMessage(suppression.reason),
+        message: mapGateWithholdReasonToMessage(suppression.reason),
       });
-      showAlert("자세 인식 대기", mapWithholdReasonToMessage(suppression.reason));
+      showAlert(
+        "자세 인식 대기",
+        mapGateWithholdReasonToMessage(suppression.reason),
+      );
       if (sessionBuffer) {
         sessionBuffer.addEvent("QUALITY_GATE_WITHHOLD", {
           reason: suppression.reason,
@@ -1253,23 +1210,19 @@ async function initSession(workoutData) {
       : (hasAnyRep || isRepInProgress) && repCounter?.getCurrentRepScore
         ? repCounter.getCurrentRepScore()
         : 0;
+    const displayText =
+      !isTimeBased && !hasAnyRep && !isRepInProgress
+        ? "--"
+        : String(displayScore);
 
     state.liveScore = displayScore;
-    liveScoreEl.textContent =
-      !isTimeBased && !hasAnyRep && !isRepInProgress ? "--" : displayScore;
-
-    liveScoreEl.style.background = "none";
-    liveScoreEl.style.webkitBackgroundClip = "unset";
-    liveScoreEl.style.webkitTextFillColor = "unset";
-
+    let color = "#94a3b8";
     if (displayScore >= 80) {
-      liveScoreEl.style.color = "#22c55e";
+      color = "#22c55e";
     } else if (displayScore >= 60) {
-      liveScoreEl.style.color = "#eab308";
+      color = "#eab308";
     } else if (displayScore > 0) {
-      liveScoreEl.style.color = "#ef4444";
-    } else {
-      liveScoreEl.style.color = "#94a3b8";
+      color = "#ef4444";
     }
 
     const shouldShowBreakdown = isTimeBased
@@ -1292,7 +1245,7 @@ async function initSession(workoutData) {
             }))
           : state.lastRepMetricSummary;
 
-      scoreBreakdownEl.innerHTML = items
+      const breakdown = items
         .map((item) => ({
           ...item,
           displayScore: getNormalizedMetricScore(item),
@@ -1303,24 +1256,32 @@ async function initSession(workoutData) {
           (a, b) => b.displayScore - a.displayScore,
         )
         .slice(0, 3)
-        .map(
-          (item) => `
-          <div class="score-item">
-            <span>${item.title || item.key}</span>
-            <span>${Math.round(item.displayScore)}</span>
-          </div>
-        `,
-        )
-        .join("");
-    } else if (scoreResult.gated && scoreResult.message) {
-      scoreBreakdownEl.innerHTML = `<div class="score-item"><span class="muted">${scoreResult.message}</span></div>`;
-    } else if (scoreResult.score === 0) {
-      scoreBreakdownEl.innerHTML =
-        '<div class="score-item"><span class="muted">포즈 감지 중...</span></div>';
-    } else if (!isTimeBased && !isRepInProgress) {
-      scoreBreakdownEl.innerHTML =
-        '<div class="score-item"><span class="muted">rep 시작하면 표시됩니다</span></div>';
+        .map((item) => ({
+          key: item.key,
+          title: item.title,
+          score: item.displayScore,
+        }));
+
+      ui.updateScoreDisplay({
+        breakdown,
+        color,
+        displayText,
+        score: displayScore,
+      });
+      return;
     }
+
+    ui.updateScoreDisplay({
+      color,
+      emptyMessage:
+        scoreResult.score === 0
+          ? "포즈 감지 중..."
+          : "rep 시작하면 표시됩니다",
+      gated: scoreResult.gated,
+      message: scoreResult.message,
+      displayText,
+      score: displayScore,
+    });
   }
 
   function checkFeedback(scoreResult) {
@@ -1391,11 +1352,7 @@ async function initSession(workoutData) {
   }
 
   function showToast(message) {
-    const toast = document.createElement("div");
-    toast.className = "toast workout-session-toast";
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2000);
+    ui.showToast(message);
   }
 
   function resetStepUiState() {
@@ -1485,48 +1442,6 @@ async function initSession(workoutData) {
     return true;
   }
 
-  async function recordRoutineSetCompletion({
-    actualValue,
-    targetType,
-    durationSec,
-    score,
-    sessionPayload = null,
-  }) {
-    if (!state.sessionId) {
-      throw new Error("sessionId가 없어 루틴 세트를 저장할 수 없습니다.");
-    }
-
-    const payload =
-      sessionPayload && typeof sessionPayload === "object"
-        ? { ...sessionPayload }
-        : {};
-
-    payload.actual_value = Math.max(0, Math.round(Number(actualValue) || 0));
-    payload.duration_sec = Math.max(0, Math.round(Number(durationSec) || 0));
-    payload.score = Number.isFinite(Number(score))
-      ? Math.round(Number(score))
-      : null;
-
-    if (targetType === "REPS") {
-      payload.actual_reps = payload.actual_value;
-    }
-
-    const response = await fetch(`/api/workout/session/${state.sessionId}/set`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok || !data?.success) {
-      throw new Error(
-        data?.error || data?.message || "루틴 세트 저장에 실패했습니다.",
-      );
-    }
-
-    return data?.routine || null;
-  }
-
   async function checkRoutineProgress(trigger = "REP") {
     if (state.phase !== "WORKING") return;
     if (state.routineSetSyncPending) return;
@@ -1548,6 +1463,8 @@ async function initSession(workoutData) {
 
     state.routineSetSyncPending = true;
     const fallbackRestSec = Math.max(0, Number(currentStep.rest_sec) || 0);
+    const hasNextExerciseStep =
+      state.currentStepIndex < workoutData.routine.routine_setup.length - 1;
 
     try {
       let sessionPayload = null;
@@ -1587,33 +1504,31 @@ async function initSession(workoutData) {
         };
       }
 
-      const routineState = await recordRoutineSetCompletion({
+      const actionResult = await routineManager.checkRoutineProgress({
         actualValue,
-        targetType,
-        durationSec: state.currentSetWorkSec,
-        score: state.liveScore,
-        sessionPayload,
+        targetValue,
+        currentSet: state.currentSet,
+        totalSets: Math.max(1, Number(currentStep.sets) || 1),
+        hasNextExerciseStep,
+        fallbackRestSec,
+        payload: {
+          actualValue,
+          targetType,
+          durationSec: state.currentSetWorkSec,
+          score: state.liveScore,
+          sessionPayload,
+        },
       });
+      const action = actionResult.action;
+      const restSec = actionResult.restSec;
+      const routineState = actionResult.routineState || null;
 
-      const action = String(routineState?.action || "").toUpperCase();
-      const restSec = Math.max(
-        0,
-        Number(
-          routineState?.rest_sec != null
-            ? routineState.rest_sec
-            : fallbackRestSec,
-        ) || 0,
-      );
-
-      if (action === "ALREADY_PROCESSED") {
+      if (action === "ALREADY_PROCESSED" || action === "NONE") {
         return;
       }
 
       if (action === "NEXT_SET" || action === "NEXT_STEP") {
-        const nextSessionId = Number(routineState?.next_session?.session_id);
-        if (!Number.isFinite(nextSessionId) || nextSessionId <= 0) {
-          throw new Error("다음 루틴 세션 정보를 받지 못했습니다.");
-        }
+        const nextSessionId = actionResult.nextSessionId;
 
         const nextTargetType =
           action === "NEXT_STEP"
@@ -1646,56 +1561,32 @@ async function initSession(workoutData) {
         });
       }
 
+      if (action === "ROUTINE_COMPLETE") {
+        return;
+      }
+
       state.currentSetWorkSec = 0;
       updatePrimaryCounterDisplay();
 
       if (action === "NEXT_SET") {
         if (restSec > 0) {
-          startRest(restSec, "NEXT_SET");
-        } else {
-          state.currentSet++;
-          setCountEl.textContent = state.currentSet;
-          resetCurrentSetTracking();
-          showAlert("다음 세트", `${state.currentSet}세트 시작!`);
+          return;
         }
+
+        state.currentSet++;
+        setCountEl.textContent = state.currentSet;
+        resetCurrentSetTracking();
+        showAlert("다음 세트", `${state.currentSet}세트 시작!`);
         return;
       }
 
       if (action === "NEXT_STEP") {
         if (restSec > 0) {
-          startRest(restSec, "NEXT_EXERCISE");
-        } else {
-          nextExercise();
+          return;
         }
-        return;
-      }
 
-      if (action === "ROUTINE_COMPLETE") {
         nextExercise();
         return;
-      }
-
-      // 서버 응답에 루틴 액션이 없으면 기존 클라이언트 흐름으로 폴백
-      const hasNextExerciseStep =
-        state.currentStepIndex < workoutData.routine.routine_setup.length - 1;
-
-      if (state.currentSet < currentStep.sets) {
-        if (restSec > 0) {
-          startRest(restSec, "NEXT_SET");
-        } else {
-          state.currentSet++;
-          setCountEl.textContent = state.currentSet;
-          resetCurrentSetTracking();
-          showAlert("다음 세트", `${state.currentSet}세트 시작!`);
-        }
-      } else if (hasNextExerciseStep) {
-        if (restSec > 0) {
-          startRest(restSec, "NEXT_EXERCISE");
-        } else {
-          nextExercise();
-        }
-      } else {
-        nextExercise();
       }
     } catch (error) {
       console.error("[Session] 루틴 세트 동기화 실패:", error);
@@ -1735,8 +1626,7 @@ async function initSession(workoutData) {
   }
 
   function updateStatus(className, text) {
-    statusBadge.className = "status " + className;
-    statusBadge.textContent = text;
+    ui.updateStatus(className, text);
   }
 
   function togglePause() {
@@ -1815,13 +1705,11 @@ async function initSession(workoutData) {
   function showAlert(title, message) {
     if (state.alertCooldown) return;
 
-    alertTitle.textContent = title;
-    alertMessage.textContent = message;
-    alertContainer.hidden = false;
+    ui.showAlert(title, message);
 
     state.alertCooldown = true;
     setTimeout(() => {
-      alertContainer.hidden = true;
+      ui.hideAlert();
       state.alertCooldown = false;
     }, 3000);
   }
@@ -1842,20 +1730,7 @@ async function initSession(workoutData) {
       finishWorkout();
       return;
     }
-
-    const progress = (state.currentStepIndex / routineSteps.length) * 100;
-    document.getElementById("routineProgress").style.width = `${progress}%`;
-    document.getElementById("routineStep").textContent =
-      `${state.currentStepIndex + 1} / ${routineSteps.length} 운동`;
-
-    state.currentSet = 1;
-    state.currentRep = 0;
-    state.currentSetWorkSec = 0;
-    setCountEl.textContent = 1;
-    updatePrimaryCounterDisplay();
     updateRoutineStepDisplay();
-
-    if (repCounter) repCounter.reset();
     if (sessionBuffer) {
       sessionBuffer.addEvent("NEXT_EXERCISE", {
         stepIndex: state.currentStepIndex,

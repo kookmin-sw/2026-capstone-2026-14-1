@@ -56,6 +56,18 @@ function updateQualityGateTracker(poseData, tracker) {
   };
 }
 
+function resolveBuildQualityGateInputs() {
+  if (typeof module !== 'undefined' && typeof require === 'function') {
+    return require('./pose-engine.js').buildQualityGateInputs;
+  }
+
+  if (typeof window !== 'undefined') {
+    return window.buildQualityGateInputs || null;
+  }
+
+  return null;
+}
+
 function buildGateInputsFromPoseData(poseData, stabilityMetrics) {
   const quality = poseData?.angles?.quality || {};
   const view = poseData?.angles?.view || 'UNKNOWN';
@@ -73,11 +85,12 @@ function buildGateInputsFromPoseData(poseData, stabilityMetrics) {
     cameraDistanceOk: true,
   };
 
-  if (typeof buildQualityGateInputs === 'function') {
-    return buildQualityGateInputs(rawInputs);
+  const buildQualityGateInputs = resolveBuildQualityGateInputs();
+  if (typeof buildQualityGateInputs !== 'function') {
+    throw new Error('buildQualityGateInputs helper is unavailable.');
   }
 
-  return rawInputs;
+  return buildQualityGateInputs(rawInputs);
 }
 
 function shouldSuppressScoring(gateResult, tracker, threshold) {

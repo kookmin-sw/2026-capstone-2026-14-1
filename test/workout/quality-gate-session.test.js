@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const helperPath = require.resolve('../../public/js/workout/quality-gate-session.js');
+const poseEnginePath = require.resolve('../../public/js/workout/pose-engine.js');
+
 const {
   mapWithholdReasonToMessage,
   shouldResumeScoring,
@@ -74,6 +77,81 @@ test('buildGateInputsFromPoseData returns normalized gate fields', () => {
   assert.equal(result.frameInclusionRatio, 0.95);
   assert.equal(result.stableFrameCount, 5);
   assert.equal(result.unstableFrameRatio, 0.1);
+});
+
+test('buildGateInputsFromPoseData delegates normalization to the adjacent pose-engine module in CommonJS', () => {
+  const originalPoseEngineCache = require.cache[poseEnginePath];
+
+  delete require.cache[helperPath];
+  require.cache[poseEnginePath] = {
+    id: poseEnginePath,
+    filename: poseEnginePath,
+    loaded: true,
+    exports: {
+      buildQualityGateInputs(rawInputs) {
+        return {
+          ...rawInputs,
+          normalizedBy: 'pose-engine-stub',
+        };
+      },
+    },
+  };
+
+  try {
+    const reloadedHelpers = require('../../public/js/workout/quality-gate-session.js');
+    const result = reloadedHelpers.buildGateInputsFromPoseData(
+      makePoseData('HIGH', 0.7, 'SIDE'),
+      {
+        stableFrameCount: 5,
+        unstableFrameRatio: 0.1,
+      },
+    );
+
+    assert.equal(result.normalizedBy, 'pose-engine-stub');
+  } finally {
+    delete require.cache[helperPath];
+
+    if (originalPoseEngineCache) {
+      require.cache[poseEnginePath] = originalPoseEngineCache;
+    } else {
+      delete require.cache[poseEnginePath];
+    }
+  }
+});
+
+test('buildGateInputsFromPoseData throws when pose-engine does not expose buildQualityGateInputs', () => {
+  const originalPoseEngineCache = require.cache[poseEnginePath];
+
+  delete require.cache[helperPath];
+  require.cache[poseEnginePath] = {
+    id: poseEnginePath,
+    filename: poseEnginePath,
+    loaded: true,
+    exports: {},
+  };
+
+  try {
+    const reloadedHelpers = require('../../public/js/workout/quality-gate-session.js');
+
+    assert.throws(
+      () => reloadedHelpers.buildGateInputsFromPoseData(
+        makePoseData('HIGH', 0.7, 'SIDE'),
+        {
+          stableFrameCount: 5,
+          unstableFrameRatio: 0.1,
+        },
+      ),
+      /buildQualityGateInputs helper is unavailable/,
+    );
+  } finally {
+    delete require.cache[helperPath];
+
+    if (originalPoseEngineCache) {
+      require.cache[poseEnginePath] = originalPoseEngineCache;
+    } else {
+      delete require.cache[poseEnginePath];
+    }
+  }
 });
 
 test('shouldSuppressScoring preserves withholding until stable frames return', () => {
