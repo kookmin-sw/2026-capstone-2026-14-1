@@ -1,8 +1,14 @@
-# 세션 유실 방지 강화 계획
+# 세션 유실 방지·복구 강화 Implementation Plan
 
-이 문서는 운동 중 새로고침, 탭 닫힘, 모바일 백그라운드 전환, 네트워크 저장 실패가 발생했을 때 세션 데이터를 최대한 보존하기 위한 구현 계획이다.
+> **REQUIRED SUB-SKILL:** Use the executing-plans skill to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-목표는 기존 세션 저장 구조를 크게 바꾸지 않고, 현재 구현된 `SessionBuffer`, `beforeunload`, `sendBeacon`, stale session cleanup을 바탕으로 복구 UX와 재시도 흐름을 추가하는 것이다.
+**Goal:** 운동 중 새로고침, 탭 닫힘, 모바일 백그라운드 전환, 네트워크 저장 실패가 발생해도 세션 데이터를 최대한 보존·복구할 수 있게 한다. 기존 `SessionBuffer`, `beforeunload`, `sendBeacon`, stale session cleanup을 크게 바꾸지 않고 복구 UX와 재시도 흐름, `recovered` 저장 경로를 추가한다.
+
+**Architecture:** `localStorage`의 `fitplus_session_*` 백업을 탐색·표시하는 UI, `fitplus_pending_end_*`로 종료 실패 payload 재시도, `PUT /api/workout/session/:sessionId/end`에 `recovered: true`를 실어 ABORTED 세션도 snapshot·event를 저장(옵션 A 권장), 결과·히스토리에서 복구 기록을 구분한다.
+
+**Tech Stack:** Node.js, Express, EJS, vanilla JS (`session-buffer.js`, `session-controller.js`, `session-recovery.js`), `localStorage`, `navigator.sendBeacon` / `fetch(keepalive)`, Node built-in test runner
+
+---
 
 ## 현재 구현 상태
 
@@ -103,11 +109,13 @@ SESSION_END_RETRY_SUCCEEDED
 
 저장 실패 재시도 실패 시 클라이언트 localStorage에 실패 횟수를 누적한다.
 
-## 4차 구현 체크포인트: localStorage 백업 감지 UI
+---
 
-목표: 운동 페이지 진입 시 이전 세션 백업이 남아 있으면 사용자에게 알리고, 복구 시도 또는 삭제를 선택하게 한다.
+### Task 1: 4차 — localStorage 백업 감지 UI
 
-### 4-1. 백업 탐색 유틸 추가
+**Goal (4차):** 운동 페이지 진입 시 이전 세션 백업이 남아 있으면 사용자에게 알리고, 복구 시도 또는 삭제를 선택하게 한다.
+
+#### 4-1. 백업 탐색 유틸 추가
 
 - [ ] `public/js/workout/session-buffer.js`에 정적 helper를 추가한다.
   - [ ] `SessionBuffer.listStoredSessions()` 추가
@@ -125,7 +133,7 @@ SESSION_END_RETRY_SUCCEEDED
   - [ ] `repCount`
   - [ ] `eventCount`
 
-### 4-2. 복구 UI 추가
+#### 4-2. 복구 UI 추가
 
 - [ ] `views/workout/session.ejs`에 복구 안내 영역 또는 modal placeholder를 추가한다.
 - [ ] 안내 문구는 사용자가 이해할 수 있게 작성한다.
@@ -137,7 +145,7 @@ SESSION_END_RETRY_SUCCEEDED
 - [ ] `public/workout.css`에 기존 workout UI 톤에 맞는 스타일을 추가한다.
 - [ ] 복구 UI는 운동 시작 전 `PREPARING` 상태에서만 표시한다.
 
-### 4-3. controller 연결
+#### 4-3. controller 연결
 
 - [ ] `public/js/workout/session-controller.js` 초기화 말미에서 백업 목록을 조회한다.
 - [ ] 현재 세션 페이지와 관련 없는 운동 백업도 표시할지 결정한다.
@@ -146,7 +154,7 @@ SESSION_END_RETRY_SUCCEEDED
 - [ ] `복구 저장 시도` 클릭 시 5차의 재전송 로직이 없으면 "복구 저장 기능은 다음 단계에서 제공" 상태로 막지 말고, 4차에서는 최소한 payload 구성 가능 여부까지 검증한다.
 - [ ] 4차만 독립 배포해야 한다면 복구 버튼 대신 `백업 삭제`만 활성화하고, 복구 버튼은 비활성화하지 말고 안내 문구로 "저장 복구는 다음 단계에서 지원"을 표시한다.
 
-### 4-4. 테스트
+#### 4-4. 테스트
 
 - [ ] `test/workout/session-buffer.test.js`에 localStorage stub 기반 테스트를 추가한다.
   - [ ] 백업 목록을 읽는다.
@@ -159,18 +167,20 @@ SESSION_END_RETRY_SUCCEEDED
 npm test
 ```
 
-### 4차 완료 기준
+#### 4차 완료 기준
 
 - [ ] 운동 페이지 진입 시 localStorage 백업 존재 여부를 사용자가 알 수 있다.
 - [ ] 사용자가 오래된 백업을 삭제할 수 있다.
 - [ ] 복구 저장 자체는 5차에서 처리하더라도, UI와 데이터 탐색 계약이 고정된다.
 - [ ] `npm test`가 통과한다.
 
-## 5차 구현 체크포인트: 저장 실패 재시도 큐와 복구 저장
+---
 
-목표: 운동 종료 저장 실패 또는 unload 이후 남은 localStorage 백업을 서버에 다시 저장할 수 있게 한다.
+### Task 2: 5차 — 저장 실패 재시도 큐와 복구 저장
 
-### 5-1. pending end payload 저장
+**Goal (5차):** 운동 종료 저장 실패 또는 unload 이후 남은 localStorage 백업을 서버에 다시 저장할 수 있게 한다.
+
+#### 5-1. pending end payload 저장
 
 - [ ] `finishWorkout()`에서 `/end` 요청 전 payload를 `fitplus_pending_end_${sessionId}`로 저장한다.
 - [ ] 저장 성공 시 `fitplus_pending_end_${sessionId}`와 `fitplus_session_${sessionId}`를 모두 삭제한다.
@@ -183,7 +193,7 @@ npm test
   - [ ] `attemptCount`
   - [ ] `source: "finishWorkout"`
 
-### 5-2. 재시도 유틸 추가
+#### 5-2. 재시도 유틸 추가
 
 - [ ] 새 파일 `public/js/workout/session-recovery.js`를 추가한다.
 - [ ] CommonJS 테스트와 브라우저 전역을 모두 지원한다.
@@ -197,7 +207,7 @@ npm test
   - [ ] `retryEndPayload({ sessionId, payload, fetchImpl })`
 - [ ] `retryEndPayload()`는 HTTP 409/404/5xx를 구분해 결과 객체를 반환한다.
 
-### 5-3. ABORTED 세션 복구 저장 백엔드 처리
+#### 5-3. ABORTED 세션 복구 저장 백엔드 처리
 
 - [ ] `controllers/workout.js`의 `endWorkoutSession()`에서 `req.body.recovered === true`를 인식한다.
 - [ ] 세션 소유권은 기존처럼 `session_id + user_id`로 확인한다.
@@ -211,7 +221,7 @@ npm test
 - [ ] 기존 abort 이벤트를 삭제하지 않을지 결정한다.
   - 권장: 현재 `/end` 저장은 event replace-all 성격이므로 payload events에 recovery event를 추가해 함께 저장한다.
 
-### 5-4. 복구 UI 동작 연결
+#### 5-4. 복구 UI 동작 연결
 
 - [ ] 4차에서 만든 `복구 저장 시도` 버튼을 실제 재시도 함수에 연결한다.
 - [ ] 저장 중 상태를 표시한다.
@@ -225,7 +235,7 @@ npm test
   - [ ] 404: 세션을 찾을 수 없음을 설명하고 삭제 선택 제공
   - [ ] 네트워크 실패: 나중에 다시 시도할 수 있음을 설명
 
-### 5-5. 결과/히스토리 표시
+#### 5-5. 결과/히스토리 표시
 
 - [ ] 최소 구현: `session_event`에 recovery event가 있으면 히스토리 상세의 이벤트 목록에서 확인 가능하게 한다.
 - [ ] 권장 구현: `controllers/history.js`의 상세 응답에 `session.recovered` 또는 `recovery_info`를 추가한다.
@@ -234,7 +244,7 @@ npm test
   - [ ] "일부 실시간 데이터는 누락될 수 있습니다."
 - [ ] 결과 페이지에서도 동일 안내를 표시할지 결정한다.
 
-### 5-6. 테스트
+#### 5-6. 테스트
 
 - [ ] `test/workout/session-recovery.test.js`를 추가한다.
   - [ ] pending payload 저장/조회/삭제
@@ -248,7 +258,7 @@ npm test
 npm test
 ```
 
-### 5차 완료 기준
+#### 5차 완료 기준
 
 - [ ] 저장 실패 후 페이지를 새로 열어도 재시도 가능한 payload가 남아 있다.
 - [ ] unload abort 이후에도 localStorage 백업을 사용해 서버 기록을 복구 저장할 수 있다.
@@ -256,6 +266,8 @@ npm test
 - [ ] 실패한 복구는 사용자에게 이유와 다음 행동을 보여준다.
 - [ ] 복구된 기록임을 결과 또는 히스토리에서 확인할 수 있다.
 - [ ] `npm test`가 통과한다.
+
+---
 
 ## 수동 검증 체크리스트
 
@@ -321,5 +333,5 @@ npm test
   - 세션 유실 방지와 복구 기능이 사용자에게 보이는 수준까지 완성되면 짧게 추가한다.
 - [ ] `docs/workout_accuracy_evaluation.md`
   - 모바일 백그라운드 전환 제한사항 결과를 기록한다.
-- [ ] `docs/superpowers/specs/2026-04-16-workout-session-data-storage-design.md`
+- [ ] `docs/specs/2026-04-16-workout-session-data-storage-design.md`
   - 복구 저장 경로가 구현되면 현재 운영 스펙에 반영한다.
