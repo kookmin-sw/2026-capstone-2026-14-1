@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
 
 const controllerPath = require.resolve('../../public/js/workout/session-controller.js');
@@ -99,8 +100,7 @@ test('session-controller falls back to the adjacent quality-gate module when win
 });
 
 test('browser script loading does not throw when helper scripts load first', () => {
-  const scriptDir =
-    '/mnt/d/programming/2026-capstone-2026-14-1/.worktrees/session-controller-refactor/public/js/workout';
+  const scriptDir = path.resolve(__dirname, '../../public/js/workout');
   const browserLikeGlobal = {
     console,
     clearTimeout,

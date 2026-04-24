@@ -2,12 +2,17 @@
 
 - video_id:
 - file_name:
-- exercise_type: squat | push-up
+- exercise_type: squat | push-up | plank
 - expected_view:
 - actual_view_note:
 - expected_gate_result: pass | withhold
 - expected_withhold_reason:
+- expected_score_range:
+- expected_feedback:
 - expected_rep_result_summary:
+- actual_score:
+- actual_feedback:
+- verdict: pass | partial | fail | limitation
 - major_observed_issues:
 - notes:
 
@@ -21,7 +26,12 @@ expected_view: SIDE
 actual_view_note: side angle is mostly correct but right arm visibility drops intermittently
 expected_gate_result: withhold
 expected_withhold_reason: key_joints_not_visible
+expected_score_range: none
+expected_feedback: 전신이 보이도록 카메라 조정 안내
 expected_rep_result_summary: no reliable scoring should occur
+actual_score:
+actual_feedback:
+verdict:
 major_observed_issues: elbow/wrist visibility unstable, partial truncation
 notes: should not be treated as low-score push-up attempt
 ```
@@ -34,4 +44,7 @@ notes: should not be treated as low-score push-up attempt
 2. **기대 view** — `expected_view`
 3. **채점 가능 여부 정답** — `expected_gate_result`
 4. **보류 정답 사유 또는 정상 채점 기대** — `expected_withhold_reason`
-5. **주요 관찰 문제** — `major_observed_issues`
+5. **기대 점수 범위** — `expected_score_range`
+6. **기대 피드백** — `expected_feedback`
+7. **실제 결과와 판정** — `actual_score`, `actual_feedback`, `verdict`
+8. **주요 관찰 문제** — `major_observed_issues`
