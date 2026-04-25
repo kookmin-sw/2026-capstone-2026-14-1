@@ -155,6 +155,59 @@
       </form>
     </div>
 
+    <!-- TTS 설정 -->
+    <div class="card">
+      <div class="card-header">
+        <h3>음성 피드백 (TTS)</h3>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-item">
+          <div class="settings-label">
+            <span class="label-text">TTS 방식</span>
+          </div>
+          <div class="settings-control">
+            <select id="ttsMode">
+              <option value="browser">내장 TTS</option>
+              <option value="openrouter">AI TTS (OpenRouter)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-item" id="ttsModelItem" style="display:none;">
+          <div class="settings-label">
+            <span class="label-text">TTS 모델</span>
+          </div>
+          <div class="settings-control">
+            <select id="ttsModel">
+              <option value="">불러오는 중...</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-item" id="ttsVoiceItem" style="display:none;">
+          <div class="settings-label">
+            <span class="label-text">보이스</span>
+          </div>
+          <div class="settings-control">
+            <select id="ttsVoice">
+              <option value="nova">nova</option>
+              <option value="alloy">alloy</option>
+              <option value="echo">echo</option>
+              <option value="fable">fable</option>
+              <option value="onyx">onyx</option>
+              <option value="shimmer">shimmer</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-item" id="ttsTestItem" style="display:none;">
+          <button type="button" id="ttsTestBtn" class="ghost">음성 테스트</button>
+          <span class="field-message" id="ttsMessage" style="margin-left: 12px;"></span>
+        </div>
+      </div>
+    </div>
+
     <!-- 계정 정보 -->
     <div class="card">
       <div class="card-header">
@@ -273,7 +326,105 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// 테마 적용 함수
+  // TTS 설정
+  const STORAGE_KEY = 'fitplus_tts_config';
+  const ttsMode = document.getElementById('ttsMode');
+  const ttsModel = document.getElementById('ttsModel');
+  const ttsVoice = document.getElementById('ttsVoice');
+  const ttsModelItem = document.getElementById('ttsModelItem');
+  const ttsVoiceItem = document.getElementById('ttsVoiceItem');
+  const ttsTestItem = document.getElementById('ttsTestItem');
+  const ttsTestBtn = document.getElementById('ttsTestBtn');
+  const ttsMessage = document.getElementById('ttsMessage');
+
+  function loadTtsConfig() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { provider: 'browser' };
+    } catch {
+      return { provider: 'browser' };
+    }
+  }
+
+  function saveTtsConfig(config) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  }
+
+  function showAiFields(show) {
+    ttsModelItem.style.display = show ? '' : 'none';
+    ttsVoiceItem.style.display = show ? '' : 'none';
+    ttsTestItem.style.display = show ? '' : 'none';
+  }
+
+  async function fetchTtsModels() {
+    try {
+      const res = await fetch('/api/tts/models');
+      const data = await res.json();
+      ttsModel.innerHTML = '';
+      if (data.models && data.models.length > 0) {
+        data.models.forEach(m => {
+          ttsModel.innerHTML += `<option value="${m.id}">${m.name}</option>`;
+        });
+      } else {
+        ttsModel.innerHTML = '<option value="openai/gpt-4o-mini-tts-2025-12-15">OpenAI TTS (기본)</option>';
+      }
+      if (data.voices) {
+        ttsVoice.innerHTML = data.voices.map(v => `<option value="${v}">${v}</option>`).join('');
+      }
+      const config = loadTtsConfig();
+      if (config.model) ttsModel.value = config.model;
+      if (config.voice) ttsVoice.value = config.voice;
+    } catch {
+      ttsModel.innerHTML = '<option value="openai/gpt-4o-mini-tts-2025-12-15">OpenAI TTS (기본)</option>';
+    }
+  }
+
+  const config = loadTtsConfig();
+  ttsMode.value = config.provider || 'browser';
+  if (config.voice) ttsVoice.value = config.voice;
+  showAiFields(config.provider === 'openrouter');
+  if (config.provider === 'openrouter') fetchTtsModels();
+
+  ttsMode.addEventListener('change', () => {
+    const provider = ttsMode.value;
+    saveTtsConfig({ ...loadTtsConfig(), provider });
+    showAiFields(provider === 'openrouter');
+    if (provider === 'openrouter') fetchTtsModels();
+  });
+
+  ttsModel.addEventListener('change', () => {
+    saveTtsConfig({ ...loadTtsConfig(), model: ttsModel.value });
+  });
+
+  ttsVoice.addEventListener('change', () => {
+    saveTtsConfig({ ...loadTtsConfig(), voice: ttsVoice.value });
+  });
+
+  ttsTestBtn.addEventListener('click', async () => {
+    ttsTestBtn.disabled = true;
+    ttsMessage.textContent = '재생 중...';
+    try {
+      const config = loadTtsConfig();
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: '안녕하세요, 음성 테스트입니다.',
+          model: config.model || 'openai/gpt-4o-mini-tts-2025-12-15',
+          voice: config.voice || 'nova',
+        }),
+      });
+      if (!res.ok) throw new Error(res.status);
+      const blob = await res.blob();
+      const audio = new Audio(URL.createObjectURL(blob));
+      audio.onended = () => { ttsMessage.textContent = '테스트 완료'; ttsTestBtn.disabled = false; };
+      audio.play().catch(() => { ttsMessage.textContent = '재생 실패'; ttsTestBtn.disabled = false; });
+    } catch {
+      ttsMessage.textContent = 'API 오류';
+      ttsTestBtn.disabled = false;
+    }
+  });
+
+  // 테마 적용 함수
 function applyTheme(theme) {
   const html = document.documentElement;
   

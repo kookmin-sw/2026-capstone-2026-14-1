@@ -283,8 +283,35 @@ const ui = sessionUiFactory({
     startRest,
     finishWorkout,
   });
+
+  function readTtsConfig() {
+    try {
+      return JSON.parse((typeof window !== 'undefined' ? window.localStorage : null)?.getItem?.('fitplus_tts_config'))
+        || { provider: 'browser' };
+    } catch {
+      return { provider: 'browser' };
+    }
+  }
+
+  function createTtsProvider(config) {
+    if (config.provider === 'openrouter' && typeof createApiSpeechProvider === 'function') {
+      return createApiSpeechProvider({
+        endpoint: '/api/tts',
+        model: config.model || 'openai/gpt-4o-mini-tts-2025-12-15',
+        voice: config.voice || 'nova',
+      });
+    }
+    return createBrowserSpeechProvider();
+  }
+
+  const ttsConfig = readTtsConfig();
+  const ttsProvider = typeof createApiSpeechProvider !== 'undefined'
+    ? createTtsProvider(ttsConfig)
+    : createBrowserSpeechProvider();
+
   const voice = typeof sessionVoiceFactory === 'function'
     ? sessionVoiceFactory({
+        provider: ttsProvider,
         enabled: true,
         storage: typeof window !== 'undefined' ? window.localStorage : null,
       })
@@ -356,10 +383,8 @@ const ui = sessionUiFactory({
 
   function shouldSpeakFeedbackEvent(event) {
     if (!event?.message) return false;
-    if (event.type === 'QUALITY_GATE_WITHHOLD') {
-      return ['out_of_frame', 'view_mismatch', 'no_person'].includes(event.withhold_reason);
-    }
-    return true;
+    if (event.type === 'LOW_SCORE_HINT') return true;
+    return false;
   }
 
   function deliverFeedbackEvent(event, options = {}) {

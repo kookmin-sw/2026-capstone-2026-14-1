@@ -133,14 +133,74 @@ function createSessionVoice({
   };
 }
 
+function createApiSpeechProvider({
+    endpoint = '/api/tts',
+    model = 'openai/gpt-4o-mini-tts-2025-12-15',
+    voice = 'nova',
+    rate = 1.0,
+} = {}) {
+    let currentAudio = null;
+
+    return {
+        name: 'api-speech',
+        isSupported() {
+            return typeof fetch === 'function' && typeof Audio === 'function';
+        },
+        speak({ message, lang = 'ko-KR', voice: msgVoice, model: msgModel } = {}) {
+            if (!this.isSupported() || !message) {
+                return { spoken: false, reason: 'unsupported' };
+            }
+
+            this.cancel();
+            currentAudio = new Audio();
+            currentAudio.playbackRate = rate;
+
+            fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message,
+                    model: msgModel || model,
+                    voice: msgVoice || voice,
+                }),
+            })
+                .then((response) => {
+                    if (!response.ok) throw new Error('TTS failed: ' + response.status);
+                    return response.blob();
+                })
+                .then((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    if (currentAudio) {
+                        currentAudio.src = url;
+                        currentAudio.play().catch(() => {});
+                    }
+                })
+                .catch((err) => {
+                    console.error('API TTS error:', err.message);
+                });
+
+            return { spoken: true };
+        },
+        cancel() {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+                currentAudio = null;
+            }
+        },
+    };
+}
+
 if (typeof window !== 'undefined') {
   window.createBrowserSpeechProvider = createBrowserSpeechProvider;
+  window.createApiSpeechProvider = createApiSpeechProvider;
   window.createSessionVoice = createSessionVoice;
 }
 
 if (typeof module !== 'undefined') {
   module.exports = {
     createBrowserSpeechProvider,
+    createApiSpeechProvider,
     createSessionVoice,
   };
 }

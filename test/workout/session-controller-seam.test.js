@@ -128,6 +128,7 @@ test('browser script loading does not throw when helper scripts load first', () 
   assert.equal(typeof context.initSession, 'function');
   assert.equal(typeof context.createSessionUi, 'function');
   assert.equal(typeof context.createSessionVoice, 'function');
+  assert.equal(typeof context.createApiSpeechProvider, 'function');
   assert.equal(typeof context.createRoutineSessionManager, 'function');
   assert.equal(typeof context.SessionQualityGate, 'object');
 });
