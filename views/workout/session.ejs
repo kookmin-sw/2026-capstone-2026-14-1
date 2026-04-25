@@ -60,6 +60,7 @@
   <script src="/js/workout/session-camera.js"></script>
   <script src="/js/workout/quality-gate-session.js"></script>
   <script src="/js/workout/session-ui.js"></script>
+  <script src="/js/workout/session-voice.js"></script>
   <script src="/js/workout/routine-session-manager.js"></script>
   <script src="/js/workout/onboarding-guide.js"></script>
   <script src="/js/workout/session-controller.js"></script>
@@ -142,6 +143,20 @@
               <% }) %>
             </div>
             <p class="source-select-hint muted">운동 시작 전에 허용된 자세 중 하나를 선택하세요. 선택한 자세가 세션 기록과 채점 로직에 함께 반영됩니다.</p>
+          </div>
+
+          <div class="source-select" id="voiceFeedbackSelect" role="group" aria-label="음성 피드백 설정">
+            <span class="source-select-label muted" id="voiceFeedbackStatus">음성 피드백 켜짐</span>
+            <div class="source-select-buttons">
+              <button
+                type="button"
+                class="ghost source-btn active"
+                id="voiceFeedbackToggle"
+                data-voice-feedback-toggle="true">
+                켜짐
+              </button>
+            </div>
+            <p class="source-select-hint muted" id="voiceFeedbackHint">운동 중 주요 피드백을 음성으로 안내합니다.</p>
           </div>
 
           <div class="source-select" id="plankTargetSelect" role="group" aria-label="플랭크 목표 시간 선택" data-plank-target-ui <%= isPlankExercise ? '' : 'hidden' %>>

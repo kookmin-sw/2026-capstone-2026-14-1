@@ -402,6 +402,34 @@ function createSessionUi({
     }
   }
 
+  /**
+   * 음성 피드백 토글 상태를 표시합니다.
+   * @param {Object} params
+   * @param {boolean} params.enabled - 사용자 설정상 음성 피드백이 켜져 있는지
+   * @param {boolean} params.supported - 현재 브라우저가 TTS를 지원하는지
+   */
+  function updateVoiceFeedbackToggle({ enabled, supported }) {
+    if (refs.voiceFeedbackToggle) {
+      refs.voiceFeedbackToggle.disabled = !supported;
+      refs.voiceFeedbackToggle.textContent = supported
+        ? (enabled ? '켜짐' : '꺼짐')
+        : '미지원';
+      refs.voiceFeedbackToggle.classList?.toggle?.('active', supported && enabled);
+    }
+
+    if (refs.voiceFeedbackStatus) {
+      refs.voiceFeedbackStatus.textContent = supported
+        ? `음성 피드백 ${enabled ? '켜짐' : '꺼짐'}`
+        : '음성 피드백 미지원';
+    }
+
+    if (refs.voiceFeedbackHint) {
+      refs.voiceFeedbackHint.textContent = supported
+        ? '운동 중 주요 피드백을 음성으로 안내합니다.'
+        : '이 브라우저에서는 음성 피드백을 사용할 수 없습니다.';
+    }
+  }
+
   return {
     hideAlert,
     showAlert,
@@ -413,6 +441,7 @@ function createSessionUi({
     updateRoutineStepDisplay,
     updateScoreDisplay,
     updateStatus,
+    updateVoiceFeedbackToggle,
   };
 }
 

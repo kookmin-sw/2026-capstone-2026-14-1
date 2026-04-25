@@ -230,3 +230,37 @@ test('updatePlankRuntimeDisplay updates plank runtime panels', () => {
   assert.equal(refs.plankGoalLabelEl.textContent, '12초 남음');
   assert.equal(refs.plankProgressEl.style.width, '60%');
 });
+
+test('updateVoiceFeedbackToggle reflects enabled and unsupported states', () => {
+  const refs = {
+    voiceFeedbackToggle: createElementStub(),
+    voiceFeedbackStatus: createElementStub(),
+    voiceFeedbackHint: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateVoiceFeedbackToggle({
+    enabled: true,
+    supported: true,
+  });
+
+  assert.equal(refs.voiceFeedbackToggle.textContent, '켜짐');
+  assert.equal(refs.voiceFeedbackToggle.disabled, false);
+  assert.equal(refs.voiceFeedbackStatus.textContent, '음성 피드백 켜짐');
+  assert.equal(refs.voiceFeedbackHint.textContent, '운동 중 주요 피드백을 음성으로 안내합니다.');
+
+  ui.updateVoiceFeedbackToggle({
+    enabled: false,
+    supported: false,
+  });
+
+  assert.equal(refs.voiceFeedbackToggle.textContent, '미지원');
+  assert.equal(refs.voiceFeedbackToggle.disabled, true);
+  assert.equal(refs.voiceFeedbackStatus.textContent, '음성 피드백 미지원');
+  assert.equal(refs.voiceFeedbackHint.textContent, '이 브라우저에서는 음성 피드백을 사용할 수 없습니다.');
+});
