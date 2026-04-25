@@ -78,7 +78,6 @@ pose-engine.js
 이번 설계의 1차 구현에서 제외한다.
 
 - 실시간 LLM 자세 판정
-- 서버 API TTS 직접 도입
 - 음성 파일 캐싱 테이블 도입
 - raw video 또는 raw landmark를 LLM에 전달
 - 모든 세션 이벤트의 DB 스키마 전면 재설계
@@ -176,29 +175,33 @@ provider 인터페이스:
 }
 ```
 
-### 7.3 향후 API TTS provider
+### 7.3 API TTS provider (구현 완료)
 
-API TTS 도입 시에도 `session-controller.js`는 변경하지 않는다.
+`createApiSpeechProvider` (in `public/js/workout/session-voice.js`)는 OpenRouter `/api/v1/audio/speech`를 서버 프록시(`POST /api/tts`)로 호출하여 mp3를 재생한다.
 
 ```js
 {
-  name: 'api-tts',
+  name: 'api-speech',
   isSupported(),
-  async speak({ message, lang, rate, context }) {
-    // 서버에서 음성 URL 또는 blob을 받아 재생
+  speak({ message }) {
+    this.cancel();
+    fetch('/api/tts', { body: JSON.stringify({message, model, voice}) })
+      .then(r => r.blob())
+      .then(blob => { audio.src = URL.createObjectURL(blob); audio.play(); });
+    return { spoken: true };
   },
   cancel()
 }
 ```
 
-API provider는 아래 정책을 별도 설계해야 한다.
+provider 선택은 `session-controller.js`의 `readTtsConfig()`가 localStorage `fitplus_tts_config`를 읽어 결정한다.
+browser / openrouter 선택과 모델/보이스는 `/settings` 페이지에서 설정한다.
 
-- 서버 엔드포인트
-- 인증과 rate limit
-- 음성 파일 캐시
-- 네트워크 실패 fallback
-- 비용 관리
-- 동일 문구 재사용 전략
+설정 정책:
+- 서버 엔드포인트: `POST /api/tts` → OpenRouter `/audio/speech`
+- API 키: `.env`의 `OPENROUTER_API_KEY`
+- 모델 목록: `GET /api/models?output_modalities=speech` (8개 TTS 모델)
+- 네트워크 실패 fallback: 조용히 실패 (session에러 없음)
 
 ## 8. 표준 피드백 이벤트 계약
 
@@ -288,9 +291,12 @@ deliverFeedbackEvent(event);
 
 `deliverFeedbackEvent()`는 아래를 수행한다.
 
-- `ui.showAlert('자세 교정 필요', event.message)`
-- `voice.speak(event.message, event)`
+- `ui.showAlert('자세 교정 필요', event.message)` — 항상
+- `shouldSpeakFeedbackEvent(event)` 일 때만 `voice.speak(event.message, event)`
 - `sessionBuffer.recordEvent(event)`
+
+구현된 발화 정책: `shouldSpeakFeedbackEvent()`는 `LOW_SCORE_HINT`만 true 반환.
+`REP_COMPLETE_FEEDBACK`과 `QUALITY_GATE_WITHHOLD`는 시각 피드백 전용.
 
 ### 9.2 `showRepFeedback()` 변경 방향
 
@@ -508,14 +514,22 @@ sessionBuffer.addEvent('LOW_SCORE_HINT', {
 }
 ```
 
-## 14. 파일별 변경 범위
+## 14. 파일별 변경 범위 (실제 구현)
 
 ### 14.1 신규
 
 - `public/js/workout/session-voice.js`
-  - TTS provider abstraction
-  - browser speech provider
+  - TTS provider abstraction (`createBrowserSpeechProvider`, `createApiSpeechProvider`, `createSessionVoice`)
   - queue/cooldown/dedup policy
+- `controllers/tts.js`
+  - `GET /api/tts/models` → OpenRouter `?output_modalities=speech`
+  - `POST /api/tts` → OpenRouter `/audio/speech` mp3 프록시
+- `routes/tts.js`
+  - `/api/tts/models`, `/api/tts` 라우트
+- `test/tts-controller.test.js`
+- `test/workout/session-voice.test.js`
+- `test/workout/session-controller-voice.test.js`
+- `test/workout/session-event-payload.test.js`
 
 ### 14.2 변경
 
@@ -523,22 +537,28 @@ sessionBuffer.addEvent('LOW_SCORE_HINT', {
   - `session-voice.js` script 추가
   - 음성 피드백 토글 UI 추가
 - `public/js/workout/session-controller.js`
-  - voice factory 로딩
-  - `createFeedbackEvent()`
-  - `deliverFeedbackEvent()`
-  - `checkFeedback()`와 `showRepFeedback()` 연결
-  - 품질 게이트 안내 발화 정책 적용
+  - `readTtsConfig()` — localStorage `fitplus_tts_config`
+  - `createTtsProvider()` — browser / openrouter 선택
+  - `createFeedbackEvent()`, `deliverFeedbackEvent()`, `shouldSpeakFeedbackEvent()`
+  - `checkFeedback()`, `showRepFeedback()`, 품질 게이트 연결
+- `public/js/workout/session-ui.js`
+  - 음성 토글 버튼 핸들러
 - `public/js/workout/session-buffer.js`
-  - 표준 feedback event 저장 helper 추가 또는 `recordEvent()` 사용 경로 확대
-  - 기존 호출부가 넘기는 상세 정보를 잃지 않도록 `addEvent(type, payload)` 하위 호환 확장 적용
+  - `addEvent(type, payload)` 하위 호환 확장
+  - `recordEvent(event)` 표준 이벤트 저장
 - `controllers/workout.js`
-  - `normalizeEvents()`에서 안전한 payload subset 저장
-- `test/workout/session-voice.test.js`
-  - provider 미지원, 중복 억제, 최소 간격, 음소거 테스트
-- `test/workout/session-controller-voice.test.js`
-  - `LOW_SCORE_HINT`와 `REP_COMPLETE_FEEDBACK`이 표준 이벤트로 전달되는지 테스트
+  - `normalizeEvents()` → `buildSafeEventPayload()` allowlist 기반 payload 보존
+- `app.js`
+  - `/api/tts` 라우트 등록
+- `views/settings/index.ejs`
+  - TTS 설정 카드 (provider: browser/openrouter, 모델, 보이스, 테스트 버튼)
+  - localStorage 기반 설정 저장
 - `test/session-buffer.test.js`
   - 구조화 피드백 이벤트 export 보존 테스트
+- `test/workout/session-controller-seam.test.js`
+  - session-controller 정적 라우팅 테스트 확장
+- `test/workout/session-ui.test.js`
+  - 토글 UI 테스트
 
 ## 15. 테스트 전략
 
@@ -596,12 +616,14 @@ sessionBuffer.addEvent('LOW_SCORE_HINT', {
 - deterministic fallback 분석 문구에 반복 피드백 요약 반영
 - 이후 LLM prompt 입력에 feature summary 포함
 
-### 16.4 4단계: API TTS provider 전환
+### 16.4 4단계: API TTS provider 전환 (완료)
 
-- `apiSpeechProvider` 추가
-- 서버 TTS 엔드포인트와 캐시 정책 설계
-- 실패 시 browser provider 또는 무음 fallback 적용
-- 비용과 rate limit 정책 추가
+- `createApiSpeechProvider` 추가 (in `session-voice.js`)
+- `controllers/tts.js` + `routes/tts.js` 서버 엔드포인트
+- OpenRouter `/audio/speech` 프록시 (모델 목록: `?output_modalities=speech`)
+- `/settings` 페이지에서 provider/mode/voice 선택 → localStorage 저장
+- `session-controller.js`가 localStorage 읽어 provider 전환
+- API TTS 실패 시 조용히 실패 (session 중단 없음)
 
 ## 17. 수용 기준
 
@@ -616,15 +638,19 @@ sessionBuffer.addEvent('LOW_SCORE_HINT', {
 - 표준 피드백 이벤트가 `SessionBuffer.export().events`에 남는다.
 - 향후 API TTS provider를 추가해도 `checkFeedback()`와 `showRepFeedback()`의 호출 방식은 유지된다.
 
-## 18. 결정 사항
+## 18. 결정 사항 (실제 구현 기준)
 
-- 1차 TTS는 브라우저 내장 Web Speech API를 사용한다.
-- provider abstraction을 먼저 둬서 API TTS 전환 비용을 낮춘다.
+- 1차 TTS는 브라우저 내장 Web Speech API를 사용한다. (완료)
+- 4단계 API TTS는 OpenRouter `/audio/speech`로 구현. (완료)
+- provider abstraction을 먼저 둬서 API TTS 전환 비용을 낮췄다.
 - 운동 중 피드백은 표준 이벤트로 만들고, 화면 표시와 음성 발화와 기록이 같은 이벤트를 공유한다.
+- 음성 피드백은 `LOW_SCORE_HINT`만 발화. 나머지는 화면 전용.
 - 향후 LLM 분석은 세션 결과, 메트릭 집계, 구조화 피드백 이벤트를 입력으로 사용한다.
 
-## 19. 1차 구현 기본 결정
+## 19. 최종 구현 개요
 
-- 음성 피드백 기본값은 켜짐으로 둔다. 사용자가 끄면 `localStorage`에 저장하고 이후 세션에서 유지한다.
-- 1차 구현에 `session_event.payload` 저장까지 포함한다. 단, 저장 payload는 allowlist 기반의 작은 subset으로 제한한다.
-- API TTS 서비스 선택은 1차 구현 범위 밖이다. 1차에서는 provider 계약만 고정하고, 실제 API provider는 별도 spec에서 서비스와 비용 정책을 결정한다.
+- 음성 피드백 기본값은 켜짐. `localStorage`에 저장하고 이후 세션에서 유지.
+- `session_event.payload` 저장 포함. 단, 저장 payload는 buildSafeEventPayload() allowlist 기반의 subset으로 제한.
+- API TTS는 OpenRouter. 모델, 보이스는 `/settings`에서 선택.
+- 설정 저장은 localStorage (`fitplus_tts_config`). DB 수정 없음.
+- `session-controller.js`는 `shouldSpeakFeedbackEvent()`로 발화 대상을 필터링. (`LOW_SCORE_HINT`만)

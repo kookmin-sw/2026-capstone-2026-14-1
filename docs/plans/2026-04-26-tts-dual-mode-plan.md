@@ -1,374 +1,180 @@
-# TTS 이중화: 내장 TTS / AI API TTS 구현 계획
+# TTS 이중화: 내장 TTS / AI API TTS 구현 계획 (결과물)
 
-**목표:** 브라우저 내장 TTS + AI API TTS(OpenRouter)를 선택 가능하게 이중화. 모델/보이스 선택은 `/settings` 페이지에서, 실제 피드백은 운동 세션에서.
+**목표:** 브라우저 내장 TTS + OpenRouter TTS를 선택 가능하게 이중화. 모델/보이스 선택은 `/settings` 페이지에서, 실제 피드백은 운동 세션에서.
+
+**결정:** DB 수정 없이 localStorage로 충분. 간단하게 유지.
 
 ---
 
-## 아키텍처
+## 아키텍처 (실제 구현)
 
 ```
 /settings 페이지:
-  GET /api/tts/models  → OpenRouter에서 사용 가능한 TTS 모델 목록 조회
-  POST /settings/tts   → 사용자 TTS 설정 DB 저장
+  GET /api/tts/models  → OpenRouter ?output_modalities=speech 로 TTS 모델 목록 조회
+  localStorage         → fitplus_tts_config { provider, model, voice } 저장
 
 운동 세션:
-  GET /free-workout/session → 서버가 user_settings에서 TTS 설정 주입
-  session-controller.js → 주입된 설정으로 voice provider 생성
+  session-controller.js → localStorage readTtsConfig() → createTtsProvider()
+    ├─ browser provider  → createBrowserSpeechProvider()
+    └─ openrouter provider → createApiSpeechProvider({ endpoint:'/api/tts', model, voice })
+
+POST /api/tts → OpenRouter /audio/speech → mp3 버퍼 반환
 ```
 
 ---
 
-## Task 1: DB 스키마 확장
+## 구현된 파일
 
-**수정 파일:**
-- `docs/sql/DB_init.sql`
+**신규:**
+- `controllers/tts.js` — OpenRouter TTS 모델 목록 + 스피치 프록시
+- `routes/tts.js` — `GET /api/tts/models`, `POST /api/tts`
+- `public/js/workout/session-voice.js` — `createBrowserSpeechProvider`, `createApiSpeechProvider`, `createSessionVoice`
+- `test/tts-controller.test.js`
+- `test/workout/session-voice.test.js`
+- `test/workout/session-controller-voice.test.js`
 
-`user_settings` 테이블에 TTS 관련 컬럼 추가:
-
-```sql
-ALTER TABLE user_settings
-  ADD COLUMN tts_provider VARCHAR(50) DEFAULT 'browser',
-  ADD COLUMN tts_model    VARCHAR(100),
-  ADD COLUMN tts_voice    VARCHAR(50);
-```
-
-`tts_provider` 값: `'browser'` (내장) 또는 `'openrouter'`
+**수정:**
+- `app.js` — `/api/tts` 라우트 등록
+- `views/settings/index.ejs` — TTS 설정 카드 (provider: browser/openrouter, 모델/보이스/테스트)
+- `public/js/workout/session-controller.js` — `readTtsConfig()`, `createTtsProvider()`, 피드백 이벤트 라우팅
+- `public/js/workout/session-buffer.js` — `addEvent(type, payload)` 하위 호환, `recordEvent(event)`
+- `controllers/workout.js` — `normalizeEvents()` payload allowlist
+- `views/workout/session.ejs` — 음성 토글 UI
+- `public/js/workout/session-ui.js` — 토글 핸들러
 
 ---
 
-## Task 2: 서버 TTS 컨트롤러 + 라우트
-
-**생성 파일:**
-- `controllers/tts.js`
-- `routes/tts.js`
-
-### `controllers/tts.js`
+## `controllers/tts.js`
 
 ```js
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 
-// OpenRouter에서 사용 가능한 TTS 모델 목록 조회
+// GET /api/tts/models
 const getTtsModels = async (req, res) => {
     const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-        return res.json({ models: [], error: 'OPENROUTER_API_KEY not set' });
-    }
-
-    try {
-        const response = await fetch(`${OPENROUTER_BASE}/models`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
-        });
-        const data = await response.json();
-        const ttsModels = (data.data || [])
-            .filter(m => m.id && m.id.includes('tts'))
-            .map(m => ({ id: m.id, name: m.name || m.id }));
-        return res.json({ models: ttsModels });
-    } catch (error) {
-        return res.status(502).json({ models: [], error: 'OpenRouter unavailable' });
-    }
+    const response = await fetch(`${OPENROUTER_BASE}/models?output_modalities=speech`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    const data = await response.json();
+    const ttsModels = (data.data || []).map(m => ({ id: m.id, name: m.name || m.id }));
+    const voices = ['alloy', 'echo', 'fable', 'nova', 'onyx', 'shimmer'];
+    return res.json({ models: ttsModels, voices });
 };
 
-// TTS 음성 생성
+// POST /api/tts
 const textToSpeech = async (req, res) => {
     const { message, model, voice } = req.body;
-    if (!message?.trim()) {
-        return res.status(400).json({ error: 'message is required' });
-    }
-
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-        return res.status(500).json({ error: 'OPENROUTER_API_KEY not set' });
-    }
-
-    try {
-        const response = await fetch(`${OPENROUTER_BASE}/audio/speech`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: 'openai/tts-1',
-                voice: voice || 'nova',
-                input: message.trim().slice(0, 500),
-            }),
-        });
-
-        if (!response.ok) {
-            const err = await response.text().catch(() => '');
-            return res.status(response.status).json({ error: `TTS failed: ${response.status}` });
-        }
-
-        const buffer = Buffer.from(await response.arrayBuffer());
-        res.setHeader('Content-Type', 'audio/mpeg');
-        res.setHeader('Content-Length', buffer.length);
-        res.setHeader('Cache-Control', 'no-cache');
-        return res.send(buffer);
-    } catch (error) {
-        return res.status(502).json({ error: 'TTS unavailable' });
-    }
-};
-
-module.exports = { getTtsModels, textToSpeech };
-```
-
-### `routes/tts.js`
-
-```js
-const express = require('express');
-const router = express.Router();
-const { getTtsModels, textToSpeech } = require('../controllers/tts');
-
-router.get('/models', getTtsModels);
-router.post('/', textToSpeech);
-
-module.exports = router;
-```
-
-### `app.js`에 라우트 등록
-
-```js
-app.use('/api/tts', require('./routes/tts'));
-```
-
----
-
-## Task 3: 설정 페이지 TTS UI + 저장
-
-**수정 파일:**
-- `controllers/settings.js`
-- `routes/main.js`
-- `views/settings/index.ejs`
-
-### `controllers/settings.js` — TTS 설정 저장 추가
-
-```js
-const validTtsProviders = ['browser', 'openrouter'];
-
-const updateTts = asyncHandler(async (req, res) => {
-    const userId = req.user.user_id;
-    const { provider, model, voice } = req.body;
-
-    if (provider && !validTtsProviders.includes(provider)) {
-        return res.status(400).json({ error: 'invalid provider' });
-    }
-
-    const updates = {};
-    if (provider) updates.tts_provider = provider;
-    if (model !== undefined) updates.tts_model = model || null;
-    if (voice !== undefined) updates.tts_voice = voice || null;
-
-    await supabase.from('user_settings').upsert({
-        user_id: userId,
-        ...updates,
-    });
-
-    return res.json({ ok: true });
-});
-
-// module.exports에 추가
-module.exports = {
-    getSettingsPage,
-    updateNickname,
-    updatePassword,
-    updateTheme,
-    updateTts,
+    // OpenRouter /audio/speech 호출 → mp3 버퍼 반환
+    const response = await fetch(`${OPENROUTER_BASE}/audio/speech`, { ... });
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.send(buffer);
 };
 ```
 
-### `routes/main.js` — 라우트 추가
-
-```js
-const { ..., updateTts } = require('../controllers/settings');
-
-router.post('/settings/tts', requireAuth, updateTts);
-```
-
-### `views/settings/index.ejs` — TTS 설정 카드 추가
-
-password 카드와 account 카드 사이에 추가:
-
-```ejs
-<div class="settings-card">
-  <h3>음성 피드백 (TTS)</h3>
-
-  <div class="field" style="margin-bottom: 16px;">
-    <label class="field-label">TTS 방식</label>
-    <div class="radio-group">
-      <label><input type="radio" name="ttsProvider" value="browser"
-        <%= (!settings.tts_provider || settings.tts_provider === 'browser') ? 'checked' : '' %>> 내장 TTS</label>
-      <label><input type="radio" name="ttsProvider" value="openrouter"
-        <%= settings.tts_provider === 'openrouter' ? 'checked' : '' %>> AI TTS (OpenRouter)</label>
-    </div>
-  </div>
-
-  <div class="field" id="ttsModelField" style="display:none; margin-bottom: 16px;">
-    <label class="field-label" for="ttsModel">TTS 모델</label>
-    <select id="ttsModel" name="ttsModel">
-      <option value="">불러오는 중...</option>
-    </select>
-  </div>
-
-  <div class="field" id="ttsVoiceField" style="display:none;">
-    <label class="field-label" for="ttsVoice">보이스</label>
-    <select id="ttsVoice" name="ttsVoice">
-      <option value="nova">nova</option>
-      <option value="alloy">alloy</option>
-      <option value="echo">echo</option>
-      <option value="fable">fable</option>
-      <option value="onyx">onyx</option>
-      <option value="shimmer">shimmer</option>
-    </select>
-  </div>
-
-  <button type="button" id="ttsTestBtn" style="display:none; margin-top: 12px;">
-    음성 테스트
-  </button>
-  <div class="field-message" id="ttsMessage"></div>
-</div>
-```
-
-클라이언트 JS:
-- `ttsProvider` 변경 시 → `provider === 'openrouter'`면 모델/보이스 필드 표시, `GET /api/tts/models` 호출해서 모델 목록 채움
-- 모델/보이스/프로바이더 변경 시 → `POST /settings/tts`로 자동 저장
-- 테스트 버튼 → `POST /api/tts` 호출해 실제 음성 출력
-
-### `controllers/settings.js` `getSettingsPage` — TTS 설정도 조회
-
-기존 `getSettingsPage`에서 `user_settings` 조회 시 `tts_provider, tts_model, tts_voice`도 함께 가져오도록 쿼리 확장.
+OpenRouter가 현재 8개 TTS 모델 제공 (2026-04 기준):
+- `openai/gpt-4o-mini-tts-2025-12-15`
+- `mistralai/voxtral-mini-tts-2603`
+- `google/gemini-3.1-flash-tts-preview`
+- `zyphra/zonos-v0.1-transformer`, `zyphra/zonos-v0.1-hybrid`
+- `sesame/csm-1b`, `canopylabs/orpheus-3b-0.1-ft`, `hexgrad/kokoro-82m`
 
 ---
 
-## Task 4: 운동 세션에 TTS 설정 주입
-
-**수정 파일:**
-- `controllers/workout.js`
-- `public/js/workout/session-voice.js`
-- `public/js/workout/session-controller.js`
-
-### `controllers/workout.js` — 세션 페이지 렌더링에 TTS 설정 주입
-
-`getFreeWorkoutPage` / `getFreeWorkoutSession`에서 `user_settings`의 TTS 값을 EJS 템플릿에 전달:
+## `session-voice.js` — Provider 인터페이스
 
 ```js
-const { data: settings } = await supabase
-    .from('user_settings')
-    .select('tts_provider, tts_model, tts_voice')
-    .eq('user_id', userId)
-    .single();
-
-res.render('workout/session', {
-    ...other,
-    ttsConfig: settings || { tts_provider: 'browser' },
-});
-```
-
-### `views/workout/session.ejs` — TTS 설정을 JS로 주입
-
-```ejs
-<script>
-  window.__FITPLUS_TTS__ = <%- JSON.stringify(ttsConfig || { tts_provider: 'browser' }) %>;
-</script>
-```
-
-### `session-controller.js` — 주입된 설정으로 provider 생성
-
-```js
-const ttsConfig = (typeof window !== 'undefined' && window.__FITPLUS_TTS__)
-    || { tts_provider: 'browser' };
-
-function createVoiceProvider() {
-    if (ttsConfig.tts_provider === 'openrouter') {
-        return sessionApiSpeechFactory({
-            endpoint: '/api/tts',
-            model: ttsConfig.tts_model || 'openai/tts-1',
-            voice: ttsConfig.tts_voice || 'nova',
-        });
-    }
-    return createBrowserSpeechProvider();
+// 내장 브라우저 TTS
+function createBrowserSpeechProvider() {
+    return {
+        name: 'browser-speech',
+        isSupported() { return typeof speechSynthesis !== 'undefined'; },
+        speak({ message, lang = 'ko-KR', rate = 1.0 }) { ... },
+        cancel() { speechSynthesis.cancel(); },
+    };
 }
-```
 
----
-
-## Task 5: `session-voice.js` — `createApiSpeechProvider` 추가
-
-**수정 파일:**
-- `public/js/workout/session-voice.js`
-
-```js
-function createApiSpeechProvider({
-    endpoint = '/api/tts',
-    model = 'openai/tts-1',
-    voice = 'nova',
-    rate = 1.0,
-} = {}) {
-    let currentAudio = null;
-
+// OpenRouter API TTS (서버 프록시)
+function createApiSpeechProvider({ endpoint, model, voice, rate }) {
     return {
         name: 'api-speech',
-        isSupported() {
-            return typeof fetch === 'function' && typeof Audio === 'function';
-        },
-        speak({ message } = {}) {
-            if (!this.isSupported() || !message) {
-                return { spoken: false, reason: 'unsupported' };
-            }
-            currentAudio = new Audio();
-            currentAudio.playbackRate = rate;
-
-            fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message, model, voice }),
-            })
-                .then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
-                .then(blob => {
-                    const url = URL.createObjectURL(blob);
-                    if (currentAudio) { currentAudio.src = url; currentAudio.play().catch(() => {}); }
-                })
-                .catch(e => console.error('API TTS:', e.message));
+        isSupported() { return typeof fetch === 'function' && typeof Audio === 'function'; },
+        speak({ message }) {
+            this.cancel();               // ← this.cancel() 로 수정 (버그 픽스)
+            fetch(endpoint, { body: JSON.stringify({message, model, voice}) })
+                .then(r => r.blob())
+                .then(blob => { audio.src = URL.createObjectURL(blob); audio.play(); });
             return { spoken: true };
         },
-        cancel() {
-            if (currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; currentAudio = null; }
-        },
+        cancel() { if (currentAudio) { currentAudio.pause(); currentAudio = null; } },
+    };
+}
+
+// SessionVoice wrapper (중복억제, 간격제한, 음소거)
+function createSessionVoice({ provider, enabled, minIntervalMs, ... }) {
+    return {
+        speak(message, context),
+        setEnabled(enabled), isEnabled(), cancel(), isSupported(),
     };
 }
 ```
 
 ---
 
-## Task 6: 테스트 및 검증
+## `session-controller.js` — Provider 선택
 
-**테스트 파일:**
-- `test/tts-proxy.test.js` — `GET /api/tts/models`, `POST /api/tts` 엔드포인트
-- `test/workout/session-voice.test.js` — `createApiSpeechProvider` 추가
+```js
+function readTtsConfig() {
+    try {
+        return JSON.parse(localStorage.getItem('fitplus_tts_config') || '{}');
+    } catch { return {}; }
+}
 
-**수동 검증:**
-1. `.env`에 `OPENROUTER_API_KEY` 설정
-2. `node app.js` → `/settings` 접속 → AI TTS 선택 → 모델/보이스 설정 → 테스트 버튼
-3. 운동 세션 진입 → 자세 불량 시 OpenRouter TTS 음성 출력 확인
+function createTtsProvider() {
+    const config = readTtsConfig();
+    if (config.provider === 'openrouter' && typeof createApiSpeechProvider === 'function') {
+        return createApiSpeechProvider({
+            endpoint: '/api/tts',
+            model: config.model || 'openai/gpt-4o-mini-tts-2025-12-15',
+            voice: config.voice || 'nova',
+        });
+    }
+    return createBrowserSpeechProvider();  // fallback
+}
+```
+
+`shouldSpeakFeedbackEvent()` — 오직 `LOW_SCORE_HINT`만 발화:
+```js
+function shouldSpeakFeedbackEvent(event) {
+    return event.type === 'LOW_SCORE_HINT';
+}
+```
 
 ---
 
-## 파일 구조
+## 테스트 결과
 
-```
-신규:
-  controllers/tts.js
-  routes/tts.js
-  test/tts-proxy.test.js
+118 tests, 0 failures. (npm test 기준)
 
-수정:
-  docs/sql/DB_init.sql
-  app.js
-  controllers/settings.js
-  routes/main.js
-  views/settings/index.ejs
-  controllers/workout.js
-  views/workout/session.ejs
-  public/js/workout/session-voice.js
-  public/js/workout/session-controller.js
-  test/workout/session-voice.test.js
-```
+---
+
+## 수동 검증
+
+1. `.env`에 `OPENROUTER_API_KEY=sk-or-...` 설정
+2. `node app.js` → `/settings` 접속 → AI TTS (OpenRouter) 선택
+3. 모델/보이스 선택 → 음성 테스트 버튼으로 확인
+4. 운동 세션 진입 → 자세 불량 시 OpenRouter TTS 음성 출력 확인
+
+---
+
+## 아키텍처 결정
+
+| 항목 | 결정 |
+|---|---|
+| 설정 저장 | localStorage (`fitplus_tts_config`), DB 수정 없음 |
+| 모델 목록 | OpenRouter `?output_modalities=speech` 동적 조회 |
+| 모델 ID 필터 | `architecture.output_modalities.includes('speech')` (서버 측) |
+| API 키 | `OPENROUTER_API_KEY` (OpenRouter 하나로 통일) |
+| 스피치 엔드포인트 | `POST https://openrouter.ai/api/v1/audio/speech` |
+| 음성 피드백 대상 | `LOW_SCORE_HINT` 만 (자세 교정 필요 시) |
+| 화면-only 피드백 | `REP_COMPLETE_FEEDBACK`, `QUALITY_GATE_WITHHOLD` |
