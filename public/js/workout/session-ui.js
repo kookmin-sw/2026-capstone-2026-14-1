@@ -337,12 +337,19 @@ function createSessionUi({
 
     refs.scoreBreakdownEl.innerHTML = breakdown
       .slice(0, 3)
-      .map((item) => `
-        <div class="score-item">
-          <span>${item.title || item.key}</span>
-          <span>${Math.round(item.score ?? item.normalizedScore ?? 0)}</span>
-        </div>
-      `)
+      .map((item) => {
+        const itemScore = item.score ?? item.normalizedScore ?? 0;
+        const valueText = displayAsGrade
+          ? mapScoreToWorkoutGrade(itemScore).label
+          : String(Math.round(itemScore));
+
+        return `
+          <div class="score-item">
+            <span>${item.title || item.key}</span>
+            <span>${valueText}</span>
+          </div>
+        `;
+      })
       .join('');
   }
 

@@ -391,3 +391,34 @@ test('updateScoreDisplay maps workout grades to good normal and correction label
   ui.updateScoreDisplay({ score: 0, displayAsGrade: true });
   assert.equal(refs.liveScoreEl.textContent, '--');
 });
+
+test('updateScoreDisplay renders breakdown grade labels when displayAsGrade is true', () => {
+  const refs = {
+    liveScoreEl: createElementStub(),
+    scoreBreakdownEl: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateScoreDisplay({
+    score: 74,
+    displayAsGrade: true,
+    breakdown: [
+      { key: 'depth', title: '깊이', score: 91 },
+      { key: 'knee', title: '무릎 정렬', score: 66 },
+      { key: 'torso', title: '상체', score: 31 },
+    ],
+  });
+
+  assert.match(refs.scoreBreakdownEl.innerHTML, /깊이/);
+  assert.match(refs.scoreBreakdownEl.innerHTML, /좋음/);
+  assert.match(refs.scoreBreakdownEl.innerHTML, /보통/);
+  assert.match(refs.scoreBreakdownEl.innerHTML, /교정 필요/);
+  assert.doesNotMatch(refs.scoreBreakdownEl.innerHTML, />91</);
+  assert.doesNotMatch(refs.scoreBreakdownEl.innerHTML, />66</);
+  assert.doesNotMatch(refs.scoreBreakdownEl.innerHTML, />31</);
+});
