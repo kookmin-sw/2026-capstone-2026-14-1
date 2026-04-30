@@ -2057,6 +2057,7 @@ function showModelLoadingOverlay() {
       ui.updateScoreDisplay({
         breakdown,
         color,
+        displayAsGrade: true,
         displayText,
         score: displayScore,
       });
@@ -2065,6 +2066,7 @@ function showModelLoadingOverlay() {
 
     ui.updateScoreDisplay({
       color,
+      displayAsGrade: !scoreResult.gated,
       emptyMessage:
         scoreResult.score === 0
           ? "포즈 감지 중..."

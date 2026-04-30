@@ -146,3 +146,48 @@ test('browser script loading does not throw when helper scripts load first', () 
   assert.equal(typeof context.SessionQualityGate, 'object');
   assert.equal(typeof context.LearnStepEngine, 'object');
 });
+
+test('session-controller workout score display requests grade mode', () => {
+  const source = fs.readFileSync(controllerPath, 'utf8');
+
+  assert.match(
+    source,
+    /ui\.updateScoreDisplay\(\{[\s\S]*displayAsGrade:\s*true[\s\S]*score:\s*displayScore/,
+    'workout updateScoreDisplay should pass displayAsGrade: true with the numeric score still supplied',
+  );
+});
+
+test('session-controller learn score display keeps percentage text instead of workout grades', () => {
+  const source = fs.readFileSync(controllerPath, 'utf8');
+
+  // Extract renderLearnScoreDisplay function body
+  // Handle destructured params: function renderLearnScoreDisplay({ ... } = {}) {
+  const fnSignature = 'function renderLearnScoreDisplay';
+  const fnStart = source.indexOf(fnSignature);
+  assert.notEqual(fnStart, -1, 'renderLearnScoreDisplay should exist');
+
+  // Skip past parameter destructuring to find body brace
+  let i = fnStart + fnSignature.length;
+  let parenDepth = 0;
+  for (; i < source.length; i += 1) {
+    if (source[i] === '(') parenDepth += 1;
+    if (source[i] === ')') parenDepth -= 1;
+    if (parenDepth === 0 && source[i] === '{') break;
+  }
+  const bodyStart = i;
+  let braceDepth = 0;
+  let bodyEnd = bodyStart;
+  for (let j = bodyStart; j < source.length; j += 1) {
+    if (source[j] === '{') braceDepth += 1;
+    if (source[j] === '}') braceDepth -= 1;
+    if (braceDepth === 0) { bodyEnd = j; break; }
+  }
+  const body = source.slice(bodyStart, bodyEnd + 1);
+
+  assert.match(body, /displayText:\s*`\$\{displayScore\}%`/);
+  assert.doesNotMatch(
+    body,
+    /displayAsGrade:\s*true/,
+    'learn mode should keep progress percentage display',
+  );
+});
