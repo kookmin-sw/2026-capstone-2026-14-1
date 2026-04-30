@@ -841,11 +841,11 @@ git commit -m "docs(workout): link score grade display revision"
 
 ## Completion checklist
 
-- [ ] Workout session main score no longer displays numeric values.
-- [ ] Workout session main score displays `좋음 / 보통 / 교정 필요`.
-- [ ] Quality gate withhold displays measurement state, not correction grade.
-- [ ] Workout breakdown no longer exposes numeric score values during exercise.
-- [ ] Learn mode still displays step progress percentage.
-- [ ] SessionBuffer numeric timeline and rep records are unchanged.
-- [ ] History/export data shape is unchanged.
-- [ ] `npm test` passes.
+- [x] Workout session main score no longer displays numeric values.
+- [x] Workout session main score displays `좋음 / 보통 / 교정 필요`.
+- [x] Quality gate withhold displays measurement state, not correction grade.
+- [x] Workout breakdown no longer exposes numeric score values during exercise.
+- [x] Learn mode still displays step progress percentage.
+- [x] SessionBuffer numeric timeline and rep records are unchanged.
+- [x] History/export data shape is unchanged.
+- [x] `npm test` passes. (135 tests, 0 failures — 2026-04-30 verified)

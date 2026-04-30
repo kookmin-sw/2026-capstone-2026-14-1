@@ -1,7 +1,7 @@
 # 운동 중 점수 등급 표시 UX 수정 스펙
 
 **작성일:** 2026-04-30  
-**상태:** Draft  
+**상태:** Implemented  
 **성격:** 2026-04-22 스펙 수정본  
 **수정 대상 원문:** [`docs/specs/2026-04-22-live-score-vs-rep-score-ux-spec.md`](./2026-04-22-live-score-vs-rep-score-ux-spec.md)  
 **관련 문서:**
@@ -255,7 +255,7 @@ function mapScoreToWorkoutGrade(score) {
 
 ## 8. 권장 후속 작업
 
-1. 4월 22일 spec 문서 상단에 이 4월 30일 수정본 링크 추가
+1. ~~4월 22일 spec 문서 상단에 이 4월 30일 수정본 링크 추가~~ ✅ 완료
 2. hard fail/no-rep 상태 배지 설계 별도 문서화
 3. `scoreRep()` 통합/삭제 여부는 History 영향과 운동별 scorer 의존성을 확인한 뒤 별도 계획으로 분리
 4. 등급 전환 스무딩 UX 테스트
