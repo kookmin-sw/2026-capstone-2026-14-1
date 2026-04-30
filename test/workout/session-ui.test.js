@@ -143,7 +143,7 @@ test('syncPlankTargetUi reflects target time in hint and readout', () => {
   });
 
   assert.equal(refs.plankTargetReadoutEl.textContent, '30초');
-  assert.equal(refs.scoreModeLabelEl.textContent, '현재 자세 점수');
+  assert.equal(refs.scoreModeLabelEl.textContent, '현재 자세 상태');
   assert.equal(refs.timerLabelEl.textContent, '플랭크 시간');
 });
 
@@ -446,4 +446,29 @@ test('updateScoreDisplay renders measurement unstable label for gated state', ()
   assert.equal(refs.liveScoreEl.textContent, '측정 불안정');
   assert.match(refs.scoreBreakdownEl.innerHTML, /몸 전체가 화면에 보이도록/);
   assert.doesNotMatch(refs.liveScoreEl.textContent, /교정 필요/);
+});
+
+test('syncPlankTargetUi uses rep state label for non-plank workout', () => {
+  const refs = {
+    scoreModeLabelEl: createElementStub(),
+    timerLabelEl: createElementStub(),
+    startBtn: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.syncPlankTargetUi({
+    isPlank: false,
+    isRoutinePlank: false,
+    showFreeTargetUi: false,
+    targetSec: 0,
+    canStart: true,
+    phase: 'PREPARING',
+  });
+
+  assert.equal(refs.scoreModeLabelEl.textContent, '이번 rep 상태');
 });
