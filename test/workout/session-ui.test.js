@@ -344,3 +344,50 @@ test('updateVoiceFeedbackToggle reflects enabled and unsupported states', () => 
   assert.equal(refs.voiceFeedbackStatus.textContent, '음성 피드백 미지원');
   assert.equal(refs.voiceFeedbackHint.textContent, '이 브라우저에서는 음성 피드백을 사용할 수 없습니다.');
 });
+
+test('updateScoreDisplay renders workout grade labels instead of numeric score', () => {
+  const refs = {
+    liveScoreEl: createElementStub(),
+    scoreBreakdownEl: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateScoreDisplay({
+    score: 86,
+    displayAsGrade: true,
+    breakdown: [],
+  });
+
+  assert.equal(refs.liveScoreEl.textContent, '좋음');
+  assert.doesNotMatch(refs.liveScoreEl.textContent, /86/);
+});
+
+test('updateScoreDisplay maps workout grades to good normal and correction labels', () => {
+  const refs = {
+    liveScoreEl: createElementStub(),
+    scoreBreakdownEl: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateScoreDisplay({ score: 80, displayAsGrade: true });
+  assert.equal(refs.liveScoreEl.textContent, '좋음');
+
+  ui.updateScoreDisplay({ score: 50, displayAsGrade: true });
+  assert.equal(refs.liveScoreEl.textContent, '보통');
+
+  ui.updateScoreDisplay({ score: 49, displayAsGrade: true });
+  assert.equal(refs.liveScoreEl.textContent, '교정 필요');
+
+  ui.updateScoreDisplay({ score: 0, displayAsGrade: true });
+  assert.equal(refs.liveScoreEl.textContent, '--');
+});

@@ -266,12 +266,32 @@ function createSessionUi({
   }
 
   /**
+   * 점수를 운동 중 등급 label로 변환합니다.
+   * @param {number} score - 점수
+   * @returns {{ label: string, tone: string, color: string }}
+   */
+  function mapScoreToWorkoutGrade(score) {
+    const numericScore = Number(score);
+    if (!Number.isFinite(numericScore) || numericScore <= 0) {
+      return { label: '--', tone: 'empty', color: '#94a3b8' };
+    }
+    if (numericScore >= 80) {
+      return { label: '좋음', tone: 'good', color: '#22c55e' };
+    }
+    if (numericScore >= 50) {
+      return { label: '보통', tone: 'normal', color: '#eab308' };
+    }
+    return { label: '교정 필요', tone: 'needs-correction', color: '#ef4444' };
+  }
+
+  /**
    * 점수 UI를 업데이트합니다.
    * 점수 값, 색상, breakdown(메트릭별 점수 최대 3개)을 표시합니다.
    * gated 상태이면 품질 게이트 보류 메시지를 표시합니다.
    * @param {Object} params
    * @param {number} params.score - 점수
    * @param {string} params.displayText - 표시 텍스트 (기본: score 문자열)
+   * @param {boolean} params.displayAsGrade - 점수를 등급 label로 표시할지
    * @param {Array} params.breakdown - 메트릭별 점수 배열 [{ title, key, score, normalizedScore }]
    * @param {boolean} params.gated - 품질 게이트 보류 중인지
    * @param {string} params.message - 게이트 보류 메시지
@@ -281,18 +301,26 @@ function createSessionUi({
   function updateScoreDisplay({
     score,
     displayText = score > 0 ? String(score) : '--',
+    displayAsGrade = false,
     breakdown = [],
     gated = false,
     message = null,
     emptyMessage = '포즈 감지 중...',
     color = '#94a3b8',
   }) {
+    const hasExplicitDisplayText = displayText != null;
+    const grade = displayAsGrade && !(gated && hasExplicitDisplayText)
+      ? mapScoreToWorkoutGrade(score)
+      : null;
+    const resolvedDisplayText = grade ? grade.label : displayText;
+    const resolvedColor = grade ? grade.color : color;
+
     if (refs.liveScoreEl) {
-      refs.liveScoreEl.textContent = displayText;
+      refs.liveScoreEl.textContent = resolvedDisplayText;
       refs.liveScoreEl.style.background = 'none';
       refs.liveScoreEl.style.webkitBackgroundClip = 'unset';
       refs.liveScoreEl.style.webkitTextFillColor = 'unset';
-      refs.liveScoreEl.style.color = color;
+      refs.liveScoreEl.style.color = resolvedColor;
     }
 
     if (!refs.scoreBreakdownEl) return;
