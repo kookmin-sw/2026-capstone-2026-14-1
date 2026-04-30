@@ -1470,6 +1470,7 @@ function showModelLoadingOverlay() {
         score: 0,
         breakdown: [],
         gated: true,
+        displayText: '측정 불안정',
         message: mapGateWithholdReasonToMessage(suppression.reason),
       });
       const message = mapGateWithholdReasonToMessage(suppression.reason);
@@ -2003,9 +2004,10 @@ function showModelLoadingOverlay() {
         ? repCounter.getCurrentRepScore()
         : 0;
     const displayText =
-      !isTimeBased && !hasAnyRep && !isRepInProgress
+      scoreResult.displayText ||
+      (!isTimeBased && !hasAnyRep && !isRepInProgress
         ? "--"
-        : String(displayScore);
+        : String(displayScore));
 
     state.liveScore = displayScore;
     let color = "#94a3b8";

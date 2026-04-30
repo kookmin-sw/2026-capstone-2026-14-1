@@ -422,3 +422,28 @@ test('updateScoreDisplay renders breakdown grade labels when displayAsGrade is t
   assert.doesNotMatch(refs.scoreBreakdownEl.innerHTML, />66</);
   assert.doesNotMatch(refs.scoreBreakdownEl.innerHTML, />31</);
 });
+
+test('updateScoreDisplay renders measurement unstable label for gated state', () => {
+  const refs = {
+    liveScoreEl: createElementStub(),
+    scoreBreakdownEl: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateScoreDisplay({
+    score: 0,
+    displayAsGrade: true,
+    gated: true,
+    displayText: '측정 불안정',
+    message: '몸 전체가 화면에 보이도록 조금 더 뒤로 가 주세요.',
+  });
+
+  assert.equal(refs.liveScoreEl.textContent, '측정 불안정');
+  assert.match(refs.scoreBreakdownEl.innerHTML, /몸 전체가 화면에 보이도록/);
+  assert.doesNotMatch(refs.liveScoreEl.textContent, /교정 필요/);
+});
