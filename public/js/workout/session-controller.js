@@ -2147,22 +2147,31 @@ function showModelLoadingOverlay() {
   }
 
   /**
+   * 점수를 운동 중 등급 label로 변환 (session-ui.js와 동일 기준)
+   */
+  function getWorkoutGradeLabel(score) {
+    const numericScore = Number(score);
+    if (!Number.isFinite(numericScore) || numericScore <= 0) return '--';
+    if (numericScore >= 80) return '좋음';
+    if (numericScore >= 50) return '보통';
+    return '교정 필요';
+  }
+
+  /**
    * rep 완료 시 짧은 피드백 토스트 표시
-   * - repRecord.score에 따라 "좋아요!" / "조금 더!" 등 메시지 분기
+   * - repRecord.score에 따라 등급 label + feedback 메시지 분기
    * - repRecord.feedback이 있으면 우선 사용
    */
   function showRepFeedback(repRecord) {
-    const msg =
-      repRecord.feedback ||
-      (repRecord.score >= 80
-        ? "완벽해요! 👏"
-        : repRecord.score >= 60
-          ? "좋아요! 👍"
-          : "계속 해보세요!");
+    const gradeLabel = getWorkoutGradeLabel(repRecord.score);
+    const msg = repRecord.feedback || gradeLabel;
+    const message = repRecord.feedback
+      ? `${repRecord.repNumber}회 완료 · ${gradeLabel} · ${msg}`
+      : `${repRecord.repNumber}회 완료 · ${gradeLabel}`;
 
     const event = createFeedbackEvent({
       type: "REP_COMPLETE_FEEDBACK",
-      message: `${repRecord.repNumber}회 ${msg}`,
+      message,
       repRecord,
       severity: repRecord.score >= 80 ? "success" : "info",
       source: "rep_complete",

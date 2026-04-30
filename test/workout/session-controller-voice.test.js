@@ -56,3 +56,13 @@ test('handlePoseDetected records quality-gate feedback events before returning',
   assert.match(body, /type:\s*["']QUALITY_GATE_WITHHOLD["']/);
   assert.match(body, /deliverFeedbackEvent\s*\(/);
 });
+
+test('rep completion feedback uses grade labels without numeric score interpolation', () => {
+  assert.match(controllerSource, /function getWorkoutGradeLabel/);
+  assert.match(controllerSource, /회 완료 ·/);
+  assert.doesNotMatch(
+    controllerSource,
+    /message:\s*`\$\{repRecord\.repNumber\}회 \$\{repRecord\.score\}/,
+    'rep completion feedback must not interpolate numeric rep score',
+  );
+});
