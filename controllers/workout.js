@@ -227,6 +227,26 @@ const getRuntimeScoringProfile = (exerciseCode) => {
     };
 };
 
+const getActiveExercisesWithViews = async () => {
+    const { data: exercises, error } = await supabase
+        .from('exercise')
+        .select('exercise_id, code, name, description, default_target_type')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true });
+
+    if (error) throw error;
+
+    const exerciseRows = exercises || [];
+    const viewMap = await getAllowedViewMapByExerciseIds(
+        exerciseRows.map((item) => item.exercise_id)
+    );
+
+    return exerciseRows.map((exercise) =>
+        attachAllowedViewInfo(exercise, viewMap.get(exercise.exercise_id) || [])
+    );
+};
+
 const getRoutineWithSteps = async (routineId, userId) => {
     const { data: routine, error } = await supabase
         .from('routine')
@@ -964,26 +984,65 @@ const assertSessionWritable = async (sessionId, userId) => {
 const getFreeWorkoutPage = async (req, res, next) => {
     try {
         await syncExerciseCatalog();
-
-        const { data: exercises, error } = await supabase
-            .from('exercise')
-            .select('exercise_id, code, name, description, default_target_type')
-            .eq('is_active', true)
-            .order('sort_order', { ascending: true })
-            .order('name', { ascending: true });
-
-        if (error) throw error;
-
-        const exerciseRows = exercises || [];
-        const viewMap = await getAllowedViewMapByExerciseIds(exerciseRows.map((item) => item.exercise_id));
-        const enriched = exerciseRows.map((exercise) =>
-            attachAllowedViewInfo(exercise, viewMap.get(exercise.exercise_id) || [])
-        );
+        const enriched = await getActiveExercisesWithViews();
 
         res.render('workout/free', {
             title: '자유 운동',
             activeTab: 'workout',
             exercises: enriched
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const getLearnPage = async (req, res, next) => {
+    try {
+        await syncExerciseCatalog();
+        const exercises = await getActiveExercisesWithViews();
+
+        res.render('learn/index', {
+            title: '운동 배우기',
+            activeTab: 'learn',
+            exercises,
+            errorMessage: toSafeText(req.query?.error, 200)
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const getLearnWorkoutSession = async (req, res, next) => {
+    try {
+        await syncExerciseCatalog();
+
+        const { exerciseCode } = req.params;
+        const exercise = await getExerciseByCodeWithViews(exerciseCode);
+
+        if (!exercise) {
+            return res.redirect('/learn?error=운동을 찾을 수 없습니다');
+        }
+
+        const requestedView = normalizeSelectedView(req.query?.view);
+        const defaultView = exercise.allowed_views.includes(requestedView)
+            ? requestedView
+            : exercise.default_view;
+        const sessionExercise = {
+            ...exercise,
+            default_view: defaultView
+        };
+
+        res.render('workout/session', {
+            title: `${exercise.name} - 운동 배우기`,
+            activeTab: 'learn',
+            mode: 'LEARN',
+            exercise: sessionExercise,
+            scoringProfile: getRuntimeScoringProfile(exercise.code),
+            routine: null,
+            routineInstance: null,
+            exerciseModuleScript: getExerciseModuleScriptName(exercise.code),
+            exerciseModuleScripts: null,
+            layout: 'layouts/workout'
         });
     } catch (error) {
         next(error);
@@ -2181,7 +2240,7 @@ const getWorkoutResult = async (req, res, next) => {
 
         res.render('workout/result', {
             title: '운동 결과',
-            activeTab: 'workout',
+            activeTab: session.mode === 'LEARN' ? 'learn' : 'workout',
             session: resultSession,
             totalTodayMinutes
         });
@@ -2193,26 +2252,12 @@ const getWorkoutResult = async (req, res, next) => {
 const getExercises = async (req, res, next) => {
     try {
         await syncExerciseCatalog();
+        const exercises = await getActiveExercisesWithViews();
 
-        const { data: exercises, error } = await supabase
-            .from('exercise')
-            .select('exercise_id, code, name, description, default_target_type')
-            .eq('is_active', true)
-            .order('sort_order', { ascending: true })
-            .order('name', { ascending: true });
-
-        if (error) throw error;
-
-        const exerciseRows = exercises || [];
-        const viewMap = await getAllowedViewMapByExerciseIds(exerciseRows.map((item) => item.exercise_id));
-
-        const enriched = exerciseRows.map((exercise) => {
-            const withViews = attachAllowedViewInfo(exercise, viewMap.get(exercise.exercise_id) || []);
-            return {
-                ...withViews,
-                runtime_scoring_profile: getRuntimeScoringProfile(exercise.code)
-            };
-        });
+        const enriched = exercises.map((exercise) => ({
+            ...exercise,
+            runtime_scoring_profile: getRuntimeScoringProfile(exercise.code)
+        }));
 
         res.json(enriched);
     } catch (error) {
@@ -2223,6 +2268,8 @@ const getExercises = async (req, res, next) => {
 module.exports = {
     getFreeWorkoutPage,
     getFreeWorkoutSession,
+    getLearnPage,
+    getLearnWorkoutSession,
     getRoutineWorkoutSession,
     startWorkoutSession,
     endWorkoutSession,

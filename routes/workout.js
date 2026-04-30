@@ -12,6 +12,8 @@ const {
 const {
     getFreeWorkoutPage,
     getFreeWorkoutSession,
+    getLearnPage,
+    getLearnWorkoutSession,
     getRoutineWorkoutSession,
     startWorkoutSession,
     endWorkoutSession,
@@ -48,6 +50,12 @@ router.get('/workout/free', requireAuth, getFreeWorkoutPage);
 
 // 자율 운동 세션
 router.get('/workout/free/:exerciseCode', requireAuth, getFreeWorkoutSession);
+
+// 운동 배우기 목록
+router.get('/learn', requireAuth, getLearnPage);
+
+// 운동 배우기 세션
+router.get('/learn/:exerciseCode', requireAuth, getLearnWorkoutSession);
 
 // 루틴 운동 세션
 router.get('/workout/routine/:routineId', requireAuth, getRoutineWorkoutSession);

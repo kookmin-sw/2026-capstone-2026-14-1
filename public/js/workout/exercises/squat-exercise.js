@@ -163,6 +163,13 @@
       ];
     },
 
+    getLearnSteps(options = {}) {
+      const selectedView = normalizeLearnView(options?.selectedView);
+      return selectedView === 'FRONT'
+        ? createFrontLearnSteps()
+        : createSideLearnSteps(selectedView);
+    },
+
     getRepPattern() {
       return {
         primaryAngle: 'knee_angle',
@@ -967,6 +974,235 @@
     }
 
     return maxScoreSum > 0 ? Math.round((scoreSum / maxScoreSum) * 100) : fallbackScore;
+  }
+
+  function normalizeLearnView(view) {
+    const normalized = (view || '').toString().trim().toUpperCase();
+    return ['FRONT', 'SIDE', 'DIAGONAL'].includes(normalized) ? normalized : 'FRONT';
+  }
+
+  function readMetric(scoringEngine, angles, metricKey) {
+    if (!scoringEngine?.getMetricValue) return null;
+    return scoringEngine.getMetricValue(angles, metricKey);
+  }
+
+  function createCheck(label, passed, progress = null) {
+    return {
+      label,
+      passed: passed === true,
+      progress: Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : (passed ? 1 : 0),
+    };
+  }
+
+  function buildLearnEvaluation(checks, feedback = null, status = null) {
+    const safeChecks = Array.isArray(checks) ? checks.filter(Boolean) : [];
+    const progress = safeChecks.length > 0
+      ? safeChecks.reduce((sum, item) => sum + (item.passed ? 1 : (Number(item.progress) || 0)), 0) / safeChecks.length
+      : 0;
+
+    return {
+      passed: safeChecks.length > 0 && safeChecks.every((item) => item.passed),
+      progress,
+      checks: safeChecks,
+      feedback,
+      status,
+    };
+  }
+
+  function createFrontLearnSteps() {
+    return [
+      {
+        id: 'front_setup',
+        badge: '정면 준비',
+        title: '기본 준비 자세',
+        instruction: '발을 어깨너비로 두고 무릎과 발끝 방향을 맞춰주세요.',
+        hintLines: [
+          '전신이 화면 안에 들어오게 서세요.',
+          '상체를 곧게 세우고 편하게 호흡하세요.',
+        ],
+        holdMs: 800,
+        successMessage: '좋아요. 이제 천천히 내려가 볼게요.',
+        evaluate({ angles, scoringEngine }) {
+          const kneeAngle = readMetric(scoringEngine, angles, 'knee_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+          const kneeValgus = readMetric(scoringEngine, angles, 'knee_valgus');
+
+          return buildLearnEvaluation([
+            createCheck('상체를 안정적으로 세웠어요', Number.isFinite(spineAngle) && spineAngle <= 28),
+            createCheck('무릎을 편하게 편 상태예요', Number.isFinite(kneeAngle) && kneeAngle >= 150),
+            createCheck('무릎이 안쪽으로 무너지지 않아요', Number.isFinite(kneeValgus) && kneeValgus <= 0.09),
+          ], '무릎과 발끝 방향을 나란히 맞춰주세요');
+        },
+      },
+      {
+        id: 'front_descent',
+        badge: '하강 연습',
+        title: '무릎 정렬을 유지하며 내려가기',
+        instruction: '무릎이 안쪽으로 모이지 않게 하면서 천천히 앉아보세요.',
+        hintLines: [
+          '무릎은 발끝 방향과 비슷하게 유지하세요.',
+          '상체가 급하게 숙여지지 않도록 조절하세요.',
+        ],
+        holdMs: 700,
+        successMessage: '좋아요. 이제 더 낮은 자세를 만들어볼게요.',
+        evaluate({ angles, scoringEngine }) {
+          const kneeAngle = readMetric(scoringEngine, angles, 'knee_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+          const kneeValgus = readMetric(scoringEngine, angles, 'knee_valgus');
+
+          return buildLearnEvaluation([
+            createCheck('무릎을 굽히며 내려가고 있어요', Number.isFinite(kneeAngle) && kneeAngle <= 145 && kneeAngle >= 115),
+            createCheck('무릎 정렬을 유지하고 있어요', Number.isFinite(kneeValgus) && kneeValgus <= 0.09),
+            createCheck('상체를 크게 무너뜨리지 않았어요', Number.isFinite(spineAngle) && spineAngle <= 38),
+          ], '무릎이 안쪽으로 말리지 않게 힘을 바깥쪽으로 주세요');
+        },
+      },
+      {
+        id: 'front_bottom',
+        badge: '최저점',
+        title: '충분한 깊이 만들기',
+        instruction: '무릎 정렬을 유지한 채 더 깊이 앉아 최저점을 만들어주세요.',
+        hintLines: [
+          '너무 급하게 내려가지 말고 자세를 유지하세요.',
+          '발 전체로 바닥을 누른다는 느낌을 가져가세요.',
+        ],
+        holdMs: 900,
+        successMessage: '좋아요. 이제 같은 정렬을 유지하며 일어나면 됩니다.',
+        evaluate({ angles, scoringEngine }) {
+          const kneeAngle = readMetric(scoringEngine, angles, 'knee_angle');
+          const kneeValgus = readMetric(scoringEngine, angles, 'knee_valgus');
+          const heelContact = readMetric(scoringEngine, angles, 'heel_contact');
+
+          return buildLearnEvaluation([
+            createCheck('충분히 깊이 앉았어요', Number.isFinite(kneeAngle) && kneeAngle <= 118),
+            createCheck('무릎 정렬을 계속 유지하고 있어요', Number.isFinite(kneeValgus) && kneeValgus <= 0.1),
+            createCheck('발바닥 접지를 유지하고 있어요', heelContact == null || heelContact >= 100),
+          ], '뒤꿈치가 뜨지 않게 바닥을 눌러주세요');
+        },
+      },
+      {
+        id: 'front_finish',
+        badge: '마무리',
+        title: '정렬을 유지한 채 일어서기',
+        instruction: '무릎 정렬을 유지한 채 다시 편하게 일어서 보세요.',
+        hintLines: [
+          '올라올 때 무릎과 엉덩이가 함께 펴지게 해주세요.',
+          '상체를 과하게 흔들지 마세요.',
+        ],
+        holdMs: 800,
+        successMessage: '좋아요. 정면 스쿼트 학습을 완료했습니다.',
+        evaluate({ angles, scoringEngine }) {
+          const kneeAngle = readMetric(scoringEngine, angles, 'knee_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+          const kneeValgus = readMetric(scoringEngine, angles, 'knee_valgus');
+
+          return buildLearnEvaluation([
+            createCheck('다시 안정적으로 일어섰어요', Number.isFinite(kneeAngle) && kneeAngle >= 150),
+            createCheck('무릎 정렬을 끝까지 유지했어요', Number.isFinite(kneeValgus) && kneeValgus <= 0.09),
+            createCheck('상체를 곧게 세웠어요', Number.isFinite(spineAngle) && spineAngle <= 30),
+          ], '일어날 때도 무릎이 안쪽으로 무너지지 않게 해주세요');
+        },
+      },
+    ];
+  }
+
+  function createSideLearnSteps(selectedView) {
+    const viewLabel = selectedView === 'DIAGONAL' ? '측면/대각선 준비' : '측면 준비';
+
+    return [
+      {
+        id: 'side_setup',
+        badge: viewLabel,
+        title: '기본 준비 자세',
+        instruction: '측면에서 전신이 보이게 서고 발 전체로 바닥을 눌러주세요.',
+        hintLines: [
+          '몸 전체가 옆에서 잘 보이도록 서세요.',
+          '상체를 길게 세우고 시선을 편하게 유지하세요.',
+        ],
+        holdMs: 800,
+        successMessage: '좋아요. 이제 엉덩이를 뒤로 보내며 내려가 볼게요.',
+        evaluate({ angles, scoringEngine }) {
+          const kneeAngle = readMetric(scoringEngine, angles, 'knee_angle');
+          const hipAngle = readMetric(scoringEngine, angles, 'hip_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+
+          return buildLearnEvaluation([
+            createCheck('무릎을 편하게 편 상태예요', Number.isFinite(kneeAngle) && kneeAngle >= 152),
+            createCheck('골반이 안정적인 시작 자세예요', Number.isFinite(hipAngle) && hipAngle >= 145),
+            createCheck('상체를 곧게 세웠어요', Number.isFinite(spineAngle) && spineAngle <= 25),
+          ], '전신이 측면에서 잘 보이도록 위치를 맞춰주세요');
+        },
+      },
+      {
+        id: 'side_hinge',
+        badge: '힙 힌지',
+        title: '엉덩이를 뒤로 보내며 내려가기',
+        instruction: '엉덩이를 뒤로 빼면서 천천히 내려가기 시작해보세요.',
+        hintLines: [
+          '상체를 접는 것이 아니라 엉덩이를 뒤로 보내는 느낌을 가져가세요.',
+          '무릎만 먼저 앞으로 나가지 않게 주의하세요.',
+        ],
+        holdMs: 700,
+        successMessage: '좋아요. 이제 더 낮은 자세를 만들면 됩니다.',
+        evaluate({ angles, scoringEngine }) {
+          const kneeAngle = readMetric(scoringEngine, angles, 'knee_angle');
+          const hipAngle = readMetric(scoringEngine, angles, 'hip_angle');
+          const trunkTibia = readMetric(scoringEngine, angles, 'trunk_tibia_angle');
+
+          return buildLearnEvaluation([
+            createCheck('무릎을 굽히며 내려가고 있어요', Number.isFinite(kneeAngle) && kneeAngle <= 145 && kneeAngle >= 115),
+            createCheck('엉덩이를 뒤로 보내고 있어요', Number.isFinite(hipAngle) && hipAngle <= 130),
+            createCheck('상체와 정강이 균형이 크게 무너지지 않았어요', Number.isFinite(trunkTibia) && trunkTibia <= 28),
+          ], '엉덩이를 뒤로 빼며 앉는 느낌을 더 가져가세요');
+        },
+      },
+      {
+        id: 'side_bottom',
+        badge: '최저점',
+        title: '깊이와 접지 유지하기',
+        instruction: '깊이를 만든 상태에서 뒤꿈치를 유지하며 잠시 버텨보세요.',
+        hintLines: [
+          '가능한 범위 안에서 허벅지가 충분히 내려오게 해주세요.',
+          '뒤꿈치가 바닥에서 뜨지 않게 유지하세요.',
+        ],
+        holdMs: 900,
+        successMessage: '좋아요. 이제 끝까지 일어나며 마무리할게요.',
+        evaluate({ angles, scoringEngine }) {
+          const kneeAngle = readMetric(scoringEngine, angles, 'knee_angle');
+          const hipBelowKnee = readMetric(scoringEngine, angles, 'hip_below_knee');
+          const heelContact = readMetric(scoringEngine, angles, 'heel_contact');
+
+          return buildLearnEvaluation([
+            createCheck('충분한 깊이를 만들었어요', Number.isFinite(kneeAngle) && kneeAngle <= 120),
+            createCheck('엉덩이가 무릎 높이까지 내려왔어요', hipBelowKnee == null || hipBelowKnee >= 100),
+            createCheck('뒤꿈치 접지를 유지했어요', heelContact == null || heelContact >= 100),
+          ], '뒤꿈치가 뜨지 않게 바닥을 눌러주세요');
+        },
+      },
+      {
+        id: 'side_finish',
+        badge: '마무리',
+        title: '끝까지 일어나기',
+        instruction: '상체를 안정적으로 유지하며 다시 끝까지 일어서주세요.',
+        hintLines: [
+          '무릎과 엉덩이가 함께 펴지도록 올라오세요.',
+          '상체가 과하게 숙여진 채로 끝나지 않게 해주세요.',
+        ],
+        holdMs: 800,
+        successMessage: '좋아요. 측면 스쿼트 학습을 완료했습니다.',
+        evaluate({ angles, scoringEngine }) {
+          const kneeAngle = readMetric(scoringEngine, angles, 'knee_angle');
+          const hipAngle = readMetric(scoringEngine, angles, 'hip_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+
+          return buildLearnEvaluation([
+            createCheck('다시 안정적으로 일어섰어요', Number.isFinite(kneeAngle) && kneeAngle >= 152),
+            createCheck('골반을 끝까지 펴줬어요', Number.isFinite(hipAngle) && hipAngle >= 145),
+            createCheck('상체를 안정적으로 세웠어요', Number.isFinite(spineAngle) && spineAngle <= 28),
+          ], '마지막까지 상체를 곧게 세우며 일어나세요');
+        },
+      },
+    ];
   }
 
   registry.register('squat', squatExercise);

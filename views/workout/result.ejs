@@ -18,13 +18,19 @@
 
     const resultSummary = stripEmoji(session.summary_feedback, '운동을 완료했습니다.');
     const totalReps = Math.max(0, Number(session.total_reps) || 0);
-    const modeLabel = session.mode === 'ROUTINE' ? '루틴' : '자율';
+    const isLearnMode = session.mode === 'LEARN';
+    const modeLabel = isLearnMode
+      ? '학습'
+      : (session.mode === 'ROUTINE' ? '루틴' : '자율');
+    const totalSteps = Math.max(0, Number(session.total_result_value) || 0);
+    const primaryCountLabel = isLearnMode ? '완료한 단계' : '총 횟수';
+    const primaryCountValue = isLearnMode ? `${totalSteps}단계` : `${totalReps}회`;
   %>
 
   <section class="page-header">
     <div>
-      <h1>운동 완료</h1>
-      <p class="muted"><%= session.exercise.name %> - <%= modeLabel %> 운동</p>
+      <h1><%= isLearnMode ? '학습 완료' : '운동 완료' %></h1>
+      <p class="muted"><%= session.exercise.name %> - <%= modeLabel %> 모드</p>
     </div>
     <div class="actions">
       <a href="/" class="primary">홈으로</a>
@@ -55,11 +61,11 @@
           <strong><%= modeLabel %></strong>
         </div>
         <div class="stat">
-          <span>총 횟수</span>
-          <strong><%= totalReps %>회</strong>
+          <span><%= primaryCountLabel %></span>
+          <strong><%= primaryCountValue %></strong>
         </div>
         <div class="stat">
-          <span>운동 시간</span>
+          <span><%= isLearnMode ? '학습 시간' : '운동 시간' %></span>
           <strong><%= formatDurationValue(session.duration_sec || 0) %></strong>
         </div>
       </div>
@@ -97,19 +103,27 @@
 
   <div class="grid two">
     <div class="card">
-      <h3>다음 운동</h3>
-      <p class="muted">다른 운동으로 계속 운동해보세요.</p>
+      <h3><%= isLearnMode ? '실전으로 이어가기' : '다음 운동' %></h3>
+      <p class="muted">
+        <%= isLearnMode ? '배운 자세를 바로 자율 운동에서 이어서 연습해보세요.' : '다른 운동으로 계속 운동해보세요.' %>
+      </p>
       <div class="card-actions" style="margin-top: auto;">
-        <a href="/workout/free" class="ghost full">자율 운동</a>
-        <a href="/routine" class="primary full">내 루틴</a>
+        <a href="/workout/free/<%= session.exercise.code %>" class="primary full">
+          <%= isLearnMode ? '자율 운동 시작' : '이 운동 계속하기' %>
+        </a>
+        <a href="<%= isLearnMode ? '/workout/free' : '/routine' %>" class="ghost full">
+          <%= isLearnMode ? '운동 목록 보기' : '내 루틴' %>
+        </a>
       </div>
     </div>
 
     <div class="card">
-      <h3>자세 개선하기</h3>
-      <p class="muted">정확한 자세를 배워서 점수를 높여보세요.</p>
+      <h3><%= isLearnMode ? '다시 학습하기' : '자세 개선하기' %></h3>
+      <p class="muted">
+        <%= isLearnMode ? '같은 step 튜토리얼을 다시 진행하며 자세를 더 익혀보세요.' : '정확한 자세를 배워서 점수를 높여보세요.' %>
+      </p>
       <a href="/learn/<%= session.exercise.code %>" class="ghost full">
-        <%= session.exercise.name %> 배우기
+        <%= isLearnMode ? `${session.exercise.name} 다시 배우기` : `${session.exercise.name} 배우기` %>
       </a>
     </div>
   </div>

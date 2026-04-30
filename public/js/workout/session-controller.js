@@ -68,6 +68,20 @@ function loadWorkoutOnboardingGuide() {
 
 const workoutOnboardingGuide = loadWorkoutOnboardingGuide();
 
+function loadLearnStepEngine() {
+  if (typeof module !== 'undefined' && typeof require === 'function') {
+    return require('./learn-step-engine.js');
+  }
+
+  if (typeof window !== 'undefined') {
+    return window.LearnStepEngine || null;
+  }
+
+  return null;
+}
+
+const learnStepEngine = loadLearnStepEngine();
+
 if (!sessionQualityGateHelpers) {
   throw new Error('SessionQualityGate helpers are unavailable.');
 }
@@ -80,6 +94,10 @@ if (typeof routineSessionManagerFactory !== 'function') {
   throw new Error('createRoutineSessionManager factory is unavailable.');
 }
 
+if (!learnStepEngine) {
+  throw new Error('LearnStepEngine helpers are unavailable.');
+}
+
 const {
   mapWithholdReasonToMessage: mapGateWithholdReasonToMessage,
   shouldMirrorSourcePreview: shouldMirrorPreviewSource,
@@ -88,6 +106,11 @@ const {
   buildGateInputsFromPoseData: buildGateInputs,
   shouldSuppressScoring: shouldGateSuppressScoring,
 } = sessionQualityGateHelpers;
+
+const {
+  normalizeLearnStepEvaluation: normalizeLearnStepEvaluationHelper,
+  updateLearnHoldState: updateLearnHoldStateHelper,
+} = learnStepEngine;
 
 /**
  * 운동 세션 페이지 — 포즈/점수/루틴/세션 저장 오케스트레이션
@@ -152,6 +175,13 @@ async function initSession(workoutData) {
     routineSetSyncPending: false,
     pauseRepScoring: false,
     currentWithholdReason: null,
+    learnSteps: [],
+    learnStepIndex: 0,
+    learnHoldMs: 0,
+    learnLastFrameAt: null,
+    learnTransitionUntil: 0,
+    learnCompleted: false,
+    learnLastEvaluation: null,
   };
 
 // ── DOM 요소 캐싱 ──
@@ -168,6 +198,7 @@ async function initSession(workoutData) {
   const repCountEl = document.getElementById("repCount");          // 횟수/시간 카운터
   const repCountLabelEl = document.getElementById("repCountLabel");
   const setCountEl = document.getElementById("setCount");          // 세트 카운터
+  const setCountLabelEl = document.getElementById("setCountLabel");
   const routineProgressEl = document.getElementById("routineProgress");
   const timerValueEl = document.getElementById("timerValue");      // 타이머 값
   const timerLabelEl = document.getElementById("timerLabel");      // 타이머 라벨
@@ -177,7 +208,8 @@ async function initSession(workoutData) {
   const alertTitle = document.getElementById("alertTitle");
   const alertMessage = document.getElementById("alertMessage");
   const startBtn = document.getElementById("startBtn");
-  const originalStartBtnText = startBtn?.textContent?.trim() || "운동 시작";
+  const originalStartBtnText = startBtn?.textContent?.trim()
+    || (workoutData.mode === "LEARN" ? "학습 시작" : "운동 시작");
   const pauseBtn = document.getElementById("pauseBtn");
   const finishBtn = document.getElementById("finishBtn");
   const viewSelectRoot = document.getElementById("viewSelect");    // 뷰(FRONT/SIDE) 선택
@@ -204,6 +236,16 @@ const plankTimerPanelEl = document.getElementById("plankTimerPanel");
   const onboardingPrevBtn = document.getElementById("onboardingPrevBtn");
   const onboardingNextBtn = document.getElementById("onboardingNextBtn");
   const onboardingCloseBtn = document.getElementById("onboardingCloseBtn");
+  const learnCardEl = document.getElementById("learnCard");
+  const learnStepCounterEl = document.getElementById("learnStepCounter");
+  const learnStepTitleEl = document.getElementById("learnStepTitle");
+  const learnStepBadgeEl = document.getElementById("learnStepBadge");
+  const learnStepInstructionEl = document.getElementById("learnStepInstruction");
+  const learnHoldProgressBarEl = document.getElementById("learnHoldProgressBar");
+  const learnHoldProgressTextEl = document.getElementById("learnHoldProgressText");
+  const learnStepHintsEl = document.getElementById("learnStepHints");
+  const learnStepChecksEl = document.getElementById("learnStepChecks");
+  const learnStepStatusEl = document.getElementById("learnStepStatus");
   const voiceFeedbackToggle = document.getElementById("voiceFeedbackToggle");
   const voiceFeedbackStatus = document.getElementById("voiceFeedbackStatus");
   const voiceFeedbackHint = document.getElementById("voiceFeedbackHint");
@@ -232,6 +274,8 @@ const plankTimerPanelEl = document.getElementById("plankTimerPanel");
     plankTimerPanelEl,
     repCountEl,
     repCountLabelEl,
+    setCountEl,
+    setCountLabelEl,
     routineCurrentExerciseEl,
     routineProgressCountEl,
     routineProgressEl,
@@ -241,6 +285,16 @@ const plankTimerPanelEl = document.getElementById("plankTimerPanel");
     routineTargetSummaryEl,
     scoreBreakdownEl,
     scoreModeLabelEl,
+    learnCardEl,
+    learnStepBadgeEl,
+    learnStepChecksEl,
+    learnStepCounterEl,
+    learnStepHintsEl,
+    learnStepInstructionEl,
+    learnStepStatusEl,
+    learnStepTitleEl,
+    learnHoldProgressBarEl,
+    learnHoldProgressTextEl,
     startBtn,
     statusBadge,
     timerLabelEl,
@@ -316,6 +370,7 @@ const ui = sessionUiFactory({
         storage: typeof window !== 'undefined' ? window.localStorage : null,
       })
     : null;
+  const isLearnMode = () => workoutData.mode === "LEARN";
   const isTimeBasedExercise = () => Boolean(repCounter?.pattern?.isTimeBased);
 
   function getFeedbackTimestamp() {
@@ -436,6 +491,7 @@ const ui = sessionUiFactory({
 
   /** 운동 시작 가능 여부 — 플랭크는 목표 시간이 설정되어야 시작 가능 */
   const canStartCurrentExercise = () => {
+    if (isLearnMode()) return true;
     if (!isPlankExerciseCode()) return true;
     if (workoutData.mode === "ROUTINE") return getCurrentTargetSec() > 0;
     return getCurrentTargetSec() >= 10;
@@ -523,6 +579,14 @@ const ui = sessionUiFactory({
 
   /** 메인 카운터 UI 업데이트 — 시간 기반이면 초, 횟수 기반이면 rep 수 표시 */
   function updatePrimaryCounterDisplay() {
+    if (isLearnMode()) {
+      ui.updateLearnCounterDisplay({
+        currentStep: Math.min(state.learnStepIndex + 1, Math.max(1, state.learnSteps.length)),
+        totalSteps: Math.max(1, state.learnSteps.length),
+      });
+      return;
+    }
+
     ui.updatePrimaryCounterDisplay({
       isRoutineTimeTarget: isRoutineTimeTarget(),
       isTimeBased: isTimeBasedExercise(),
@@ -575,7 +639,7 @@ const ui = sessionUiFactory({
     const isPlank = isPlankExerciseCode();
     const isRoutinePlank = isPlank && workoutData.mode === "ROUTINE";
     const showFreeTargetUi =
-      isPlank && workoutData.mode !== "ROUTINE" && state.phase === "PREPARING";
+      isPlank && workoutData.mode === "FREE" && state.phase === "PREPARING";
 
     ui.syncPlankTargetUi({
       canStart: canStartCurrentExercise(),
@@ -760,6 +824,95 @@ const ui = sessionUiFactory({
       .replace(/-/g, "_");
   }
 
+  function resolveExerciseModule(exerciseCode = workoutData.exercise?.code) {
+    return window.WorkoutExerciseRegistry?.get(exerciseCode) || null;
+  }
+
+  function getCurrentLearnStep() {
+    return state.learnSteps[state.learnStepIndex] || null;
+  }
+
+  function refreshLearnSteps({ resetProgress = false } = {}) {
+    if (!isLearnMode()) return;
+
+    exerciseModule = resolveExerciseModule();
+    const nextSteps = exerciseModule?.getLearnSteps?.({
+      selectedView: state.selectedView,
+      exercise: workoutData.exercise,
+    });
+
+    state.learnSteps = Array.isArray(nextSteps) ? nextSteps : [];
+
+    if (resetProgress) {
+      state.learnStepIndex = 0;
+      state.learnHoldMs = 0;
+      state.learnLastFrameAt = null;
+      state.learnTransitionUntil = 0;
+      state.learnCompleted = false;
+      state.learnLastEvaluation = null;
+    } else if (state.learnStepIndex >= state.learnSteps.length) {
+      state.learnStepIndex = Math.max(0, state.learnSteps.length - 1);
+    }
+  }
+
+  function getLearnStatusText(step, evaluation, holdProgressPercent, gateMessage = null) {
+    if (gateMessage) return gateMessage;
+    if (state.learnCompleted) return "모든 step을 완료했습니다. 결과를 저장 중입니다.";
+    if (!step) return "학습 step 정보를 준비 중입니다.";
+    if (evaluation?.passed === true) {
+      return holdProgressPercent >= 100
+        ? (step.successMessage || "좋아요! 다음 step으로 넘어갑니다.")
+        : `좋아요. ${Math.max(0, 100 - Math.round(holdProgressPercent))}%만 더 유지해주세요.`;
+    }
+    return evaluation?.status || evaluation?.feedback || step.instruction || "현재 step 자세를 잡아주세요.";
+  }
+
+  function updateLearnModeDisplay({
+    evaluation = null,
+    holdProgressPercent = 0,
+    gateMessage = null,
+  } = {}) {
+    if (!isLearnMode()) return;
+
+    const totalSteps = Math.max(1, state.learnSteps.length);
+    const safeStepIndex = Math.min(state.learnStepIndex, totalSteps - 1);
+    const step = getCurrentLearnStep();
+
+    if (state.learnCompleted || !step) {
+      ui.updateLearnCard({
+        visible: true,
+        stepIndex: totalSteps - 1,
+        totalSteps,
+        title: `${workoutData.exercise?.name || '운동'} 학습 완료`,
+        badge: '완료',
+        instruction: '모든 step을 통과했습니다. 지금 결과를 저장하고 있습니다.',
+        hints: [
+          '잠시 후 결과 화면으로 이동합니다.',
+          '다음에는 바로 자율 운동으로 이어가 보세요.',
+        ],
+        checks: [],
+        holdProgressPercent: 100,
+        statusText: '학습이 완료되었습니다.',
+      });
+      updatePrimaryCounterDisplay();
+      return;
+    }
+
+    ui.updateLearnCard({
+      visible: true,
+      stepIndex: safeStepIndex,
+      totalSteps,
+      title: step.title || `${workoutData.exercise?.name || '운동'} step`,
+      badge: step.badge || '자세 맞추기',
+      instruction: step.instruction || '현재 step 자세를 준비하세요.',
+      hints: Array.isArray(step.hintLines) ? step.hintLines : [],
+      checks: evaluation?.checks || [],
+      holdProgressPercent,
+      statusText: getLearnStatusText(step, evaluation, holdProgressPercent, gateMessage),
+    });
+    updatePrimaryCounterDisplay();
+  }
+
   /** ScoringEngine/RepCounter를 현재 운동에 바인딩 — 운동 변경 시(루틴 단계 전환) 재호출 */
   function bindEnginesToCurrentExercise() {
     if (!workoutData.exercise) {
@@ -770,14 +923,16 @@ const ui = sessionUiFactory({
       exerciseCode: workoutData.exercise.code,
       selectedView: state.selectedView,
     });
-    exerciseModule =
-      window.WorkoutExerciseRegistry?.get(workoutData.exercise.code) || null;
+    exerciseModule = resolveExerciseModule(workoutData.exercise.code);
 
     repCounter = new RepCounter(workoutData.exercise.code);
     repCounter.repEvaluator = (repRecord) => scoringEngine.scoreRep(repRecord);
     repCounter.onRepComplete = handleRepComplete;
     if (repCounter?.pattern?.isTimeBased && repCounter?.setTargetSec) {
       repCounter.setTargetSec(getCurrentTargetSec());
+    }
+    if (isLearnMode()) {
+      refreshLearnSteps({ resetProgress: state.phase === "PREPARING" });
     }
     return true;
   }
@@ -968,6 +1123,12 @@ const ui = sessionUiFactory({
         btn.getAttribute("data-view") === state.selectedView,
       );
     });
+
+    if (isLearnMode() && state.phase === "PREPARING") {
+      refreshLearnSteps({ resetProgress: true });
+      updateLearnModeDisplay();
+      updatePrimaryCounterDisplay();
+    }
   }
 
   /**
@@ -1151,16 +1312,20 @@ function showModelLoadingOverlay() {
       }
 
       state.sessionId = data.session.session_id;
-      state.selectedView =
-        normalizeViewCode(data.session.selected_view) || state.selectedView;
-      hasUnloadAbortSent = false;
-      pendingSessionPayload = null;
-      if (data.routineInstance) {
-        workoutData.routineInstance = data.routineInstance;
-      }
-      syncPlankTargetUi();
-      updatePrimaryCounterDisplay();
-      updateRoutineStepDisplay();
+        state.selectedView =
+          normalizeViewCode(data.session.selected_view) || state.selectedView;
+        hasUnloadAbortSent = false;
+        pendingSessionPayload = null;
+        if (data.routineInstance) {
+          workoutData.routineInstance = data.routineInstance;
+        }
+        if (isLearnMode()) {
+          refreshLearnSteps({ resetProgress: true });
+          updateLearnModeDisplay();
+        }
+        syncPlankTargetUi();
+        updatePrimaryCounterDisplay();
+        updateRoutineStepDisplay();
       updatePlankRuntimeDisplay(
         repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
       );
@@ -1182,17 +1347,17 @@ function showModelLoadingOverlay() {
       if (setupPanelContainer)
         setupPanelContainer.classList.add("hidden-during-workout");
 
-      await runStartCountdown();
+        await runStartCountdown();
 
-      state.phase = "WORKING";
-      ui.updateStatus("running", "운동 중");
+        state.phase = "WORKING";
+        ui.updateStatus("running", isLearnMode() ? "학습 중" : "운동 중");
 
-      pauseBtn.disabled = false;
-      finishBtn.disabled = false;
-      finishBtn.textContent = "운동 종료";
+        pauseBtn.disabled = false;
+        finishBtn.disabled = false;
+        finishBtn.textContent = isLearnMode() ? "학습 종료" : "운동 종료";
 
-      startTimer();
-      startPoseDetection();
+        startTimer();
+        startPoseDetection();
       await requestWakeLock();
     } catch (error) {
       console.error("[Session] 시작 에러:", error);
@@ -1289,6 +1454,10 @@ function showModelLoadingOverlay() {
     if (suppression.suppress) {
       state.pauseRepScoring = true;
       state.currentWithholdReason = suppression.reason;
+      if (isLearnMode()) {
+        state.learnHoldMs = 0;
+        state.learnLastEvaluation = null;
+      }
       if (isTimeBasedExercise() && repCounter?.handleTimeBreak) {
         repCounter.handleTimeBreak("QUALITY_GATE");
         updatePlankRuntimeDisplay(repCounter.getTimeSummary());
@@ -1315,6 +1484,12 @@ function showModelLoadingOverlay() {
       deliverFeedbackEvent(event, {
         alertTitle: "자세 인식 대기",
       });
+      if (isLearnMode()) {
+        updateLearnModeDisplay({
+          gateMessage: message,
+          holdProgressPercent: 0,
+        });
+      }
       return;
     }
 
@@ -1327,6 +1502,15 @@ function showModelLoadingOverlay() {
 
     const rawScoreResult = scoringEngine.calculate(angles);
     const liveScoreResult = getLiveFeedbackResult(rawScoreResult, angles);
+    if (poseEngine && poseEngine.setVisualFeedback) {
+      poseEngine.setVisualFeedback(liveScoreResult.breakdown);
+    }
+
+    if (isLearnMode()) {
+      handleLearnPoseDetected(poseData, rawScoreResult, liveScoreResult);
+      return;
+    }
+
     const scoreForState = isTimeBasedExercise()
       ? liveScoreResult.score
       : rawScoreResult.score;
@@ -1344,10 +1528,6 @@ function showModelLoadingOverlay() {
       updatePrimaryCounterDisplay();
     }
     syncRepCounterLatestScores(liveScoreResult.score, previousCounts);
-
-    if (poseEngine && poseEngine.setVisualFeedback) {
-      poseEngine.setVisualFeedback(liveScoreResult.breakdown);
-    }
 
     if (liveScoreResult.score > 0) {
       console.log(
@@ -1383,6 +1563,17 @@ function showModelLoadingOverlay() {
     if (state.phase !== "WORKING" || state.isPaused) return;
 
     noPersonCount++;
+    if (isLearnMode()) {
+      state.learnHoldMs = 0;
+      state.learnLastEvaluation = null;
+      updateLearnModeDisplay({
+        gateMessage: "카메라에 전신이 보이도록 위치를 조정해주세요.",
+        holdProgressPercent: 0,
+      });
+      renderLearnScoreDisplay({
+        gateMessage: "카메라에 전신이 보이도록 위치를 조정해주세요.",
+      });
+    }
 
     if (isTimeBasedExercise() && repCounter?.handleTimeBreak) {
       repCounter.handleTimeBreak("NO_PERSON");
@@ -1436,6 +1627,174 @@ function showModelLoadingOverlay() {
     }
 
     return Number.isFinite(rawScore) ? Math.max(0, Math.min(100, rawScore)) : 0;
+  }
+
+  function getLearnDisplayColor(score) {
+    if (score >= 80) return "#22c55e";
+    if (score >= 60) return "#eab308";
+    if (score > 0) return "#ef4444";
+    return "#94a3b8";
+  }
+
+  function buildLearnBreakdown(evaluation) {
+    return (evaluation?.checks || [])
+      .map((item) => ({
+        key: item.id || item.label,
+        title: item.label,
+        score: Math.round((item.passed ? 1 : (Number(item.progress) || 0)) * 100),
+      }))
+      .slice(0, 3);
+  }
+
+  function renderLearnScoreDisplay({
+    evaluation = null,
+    holdProgressPercent = 0,
+    gateMessage = null,
+  } = {}) {
+    if (gateMessage) {
+      ui.updateScoreDisplay({
+        score: 0,
+        displayText: "--",
+        breakdown: [],
+        gated: true,
+        message: gateMessage,
+      });
+      return;
+    }
+
+    const displayScore = evaluation?.passed === true
+      ? Math.round(holdProgressPercent)
+      : Math.round((Number(evaluation?.progress) || 0) * 100);
+    const breakdown = buildLearnBreakdown(evaluation);
+
+    ui.updateScoreDisplay({
+      score: displayScore,
+      displayText: `${displayScore}%`,
+      breakdown,
+      color: getLearnDisplayColor(displayScore),
+      emptyMessage: "현재 step 자세를 준비하세요.",
+    });
+  }
+
+  function recordLearnStepEvent(type, payload = {}) {
+    if (!sessionBuffer) return;
+    sessionBuffer.addEvent(type, {
+      selected_view: state.selectedView,
+      ...payload,
+    });
+  }
+
+  function handleLearnStepComplete(step) {
+    const totalSteps = state.learnSteps.length;
+    const completedStepNumber = Math.min(state.learnStepIndex + 1, totalSteps);
+
+    recordLearnStepEvent("LEARN_STEP_COMPLETE", {
+      step_id: step.id || `step_${completedStepNumber}`,
+      step_index: state.learnStepIndex,
+      step_number: completedStepNumber,
+      step_title: step.title || `${completedStepNumber}단계`,
+      total_steps: totalSteps,
+    });
+
+    if (step.successMessage) {
+      deliverFeedbackEvent({
+        type: "LEARN_STEP_HINT",
+        timestamp: getFeedbackTimestamp(),
+        message: step.successMessage,
+        exercise_code: getCurrentExerciseCode(),
+        selected_view: state.selectedView,
+        severity: "info",
+        source: "learn",
+      }, {
+        alertTitle: "Step 완료",
+      });
+    }
+
+    state.learnStepIndex += 1;
+    state.learnHoldMs = 0;
+    state.learnLastEvaluation = null;
+    state.learnLastFrameAt = performance.now();
+    state.learnTransitionUntil = state.learnLastFrameAt + 600;
+
+    if (state.learnStepIndex >= totalSteps) {
+      state.learnCompleted = true;
+      recordLearnStepEvent("LEARN_COMPLETE", {
+        completed_steps: totalSteps,
+        total_steps: totalSteps,
+      });
+      updateLearnModeDisplay({ holdProgressPercent: 100 });
+      renderLearnScoreDisplay({
+        evaluation: { passed: true, progress: 1, checks: [] },
+        holdProgressPercent: 100,
+      });
+      setTimeout(() => {
+        finishWorkout();
+      }, 600);
+      return;
+    }
+
+    updateLearnModeDisplay();
+    renderLearnScoreDisplay();
+  }
+
+  function handleLearnPoseDetected(poseData, rawScoreResult, liveScoreResult) {
+    const step = getCurrentLearnStep();
+    if (!step) {
+      state.learnCompleted = true;
+      finishWorkout();
+      return;
+    }
+
+    const now = performance.now();
+    const deltaMs = state.learnLastFrameAt == null
+      ? 0
+      : Math.max(0, Math.min(200, now - state.learnLastFrameAt));
+    state.learnLastFrameAt = now;
+
+    if (state.learnTransitionUntil > now) {
+      updateLearnModeDisplay();
+      return;
+    }
+
+    const evaluation = normalizeLearnStepEvaluationHelper(
+      typeof step.evaluate === "function"
+        ? step.evaluate({
+            angles: poseData.angles,
+            poseData,
+            rawScoreResult,
+            scoringResult: liveScoreResult,
+            scoringEngine,
+            exerciseModule,
+            selectedView: state.selectedView,
+            state,
+            now,
+            deltaMs,
+          })
+        : null,
+    );
+
+    state.learnLastEvaluation = evaluation;
+    const holdState = updateLearnHoldStateHelper({
+      currentHoldMs: state.learnHoldMs,
+      deltaMs,
+      holdMs: step.holdMs,
+      passed: evaluation.passed,
+    });
+    state.learnHoldMs = holdState.holdMs;
+
+    const holdProgressPercent = Math.round(holdState.holdProgress * 100);
+    updateLearnModeDisplay({
+      evaluation,
+      holdProgressPercent,
+    });
+    renderLearnScoreDisplay({
+      evaluation,
+      holdProgressPercent,
+    });
+
+    if (holdState.completed) {
+      handleLearnStepComplete(step);
+    }
   }
 
   /**
@@ -2095,7 +2454,7 @@ function showModelLoadingOverlay() {
       releaseWakeLock();
     } else {
       state.phase = "WORKING";
-      ui.updateStatus("running", "운동 중");
+      ui.updateStatus("running", isLearnMode() ? "학습 중" : "운동 중");
       pauseBtn.innerHTML = "일시정지";
       if (poseEngine) poseEngine.start();
       if (sessionBuffer) sessionBuffer.addEvent("RESUME");
@@ -2206,6 +2565,28 @@ function showModelLoadingOverlay() {
     );
   }
 
+  function buildLearnSessionPayload() {
+    const totalSteps = state.learnSteps.length;
+    const completedSteps = Math.min(state.learnStepIndex, totalSteps);
+    const progressScore = totalSteps > 0
+      ? Math.round((completedSteps / totalSteps) * 100)
+      : 0;
+
+    return {
+      selected_view: state.selectedView,
+      result_basis: "REPS",
+      total_result_value: completedSteps,
+      total_result_unit: "COUNT",
+      duration_sec: state.totalTime,
+      total_reps: 0,
+      final_score: progressScore,
+      summary_feedback: generateSummary(false, null),
+      metric_results: [],
+      interim_snapshots: [],
+      events: Array.isArray(sessionBuffer?.events) ? sessionBuffer.events : [],
+    };
+  }
+
   /**
    * 운동 세션 종료 — 핵심 종료 로직
    * 1. phase → FINISHED, 타이머/프레임 루프 정지, Wake Lock 해제
@@ -2240,31 +2621,36 @@ function showModelLoadingOverlay() {
         isTimeBased && repCounter?.getTimeSummary
           ? repCounter.getTimeSummary()
           : null;
-      const sessionData =
-        pendingSessionPayload ||
-        (sessionBuffer
-          ? sessionBuffer.export({
-              isTimeBased,
-              targetSec: getCurrentTargetSec(),
-              bestHoldSec: timeSummary?.bestHoldSec || state.bestHoldSec || 0,
-              bestHoldPostureScore: repCounter?.getBestHoldPostureScore
-                ? repCounter.getBestHoldPostureScore()
-                : 0,
-            })
-          : {
-              selected_view: state.selectedView,
-              result_basis: isTimeBased ? "DURATION" : "REPS",
-              total_result_value: isTimeBased
-                ? timeSummary?.bestHoldSec || state.bestHoldSec || 0
-                : state.currentRep,
-              total_result_unit: isTimeBased ? "SEC" : "COUNT",
-              duration_sec: state.totalTime,
-              total_reps: isTimeBased ? 0 : state.currentRep,
-              target_sec: getCurrentTargetSec() || null,
-              best_hold_sec: timeSummary?.bestHoldSec || state.bestHoldSec || 0,
-              final_score: state.liveScore || 0,
-              summary_feedback: generateSummary(isTimeBased, timeSummary),
-            });
+      let sessionData = pendingSessionPayload;
+      if (!sessionData) {
+        if (isLearnMode()) {
+          sessionData = buildLearnSessionPayload();
+        } else if (sessionBuffer) {
+          sessionData = sessionBuffer.export({
+            isTimeBased,
+            targetSec: getCurrentTargetSec(),
+            bestHoldSec: timeSummary?.bestHoldSec || state.bestHoldSec || 0,
+            bestHoldPostureScore: repCounter?.getBestHoldPostureScore
+              ? repCounter.getBestHoldPostureScore()
+              : 0,
+          });
+        } else {
+          sessionData = {
+            selected_view: state.selectedView,
+            result_basis: isTimeBased ? "DURATION" : "REPS",
+            total_result_value: isTimeBased
+              ? timeSummary?.bestHoldSec || state.bestHoldSec || 0
+              : state.currentRep,
+            total_result_unit: isTimeBased ? "SEC" : "COUNT",
+            duration_sec: state.totalTime,
+            total_reps: isTimeBased ? 0 : state.currentRep,
+            target_sec: getCurrentTargetSec() || null,
+            best_hold_sec: timeSummary?.bestHoldSec || state.bestHoldSec || 0,
+            final_score: state.liveScore || 0,
+            summary_feedback: generateSummary(isTimeBased, timeSummary),
+          };
+        }
+      }
       pendingSessionPayload = sessionData;
 
       const response = await fetch(
@@ -2306,6 +2692,18 @@ function showModelLoadingOverlay() {
     isTimeBased = isTimeBasedExercise(),
     timeSummary = null,
   ) {
+    if (isLearnMode()) {
+      const totalSteps = state.learnSteps.length;
+      const completedSteps = Math.min(state.learnStepIndex, totalSteps);
+      if (completedSteps >= totalSteps && totalSteps > 0) {
+        return `${workoutData.exercise?.name || '운동'} 학습 ${totalSteps}단계를 모두 완료했습니다.`;
+      }
+      if (totalSteps > 0) {
+        return `${workoutData.exercise?.name || '운동'} 학습 ${totalSteps}단계 중 ${completedSteps}단계를 완료했습니다.`;
+      }
+      return "운동 배우기 세션을 마쳤습니다.";
+    }
+
     if (isTimeBased) {
       const bestHoldSec = timeSummary?.bestHoldSec || state.bestHoldSec || 0;
       const targetSec = getCurrentTargetSec();
@@ -2330,8 +2728,13 @@ function showModelLoadingOverlay() {
   /** 종료 확인 모달 표시 */
   function confirmExit() {
     if (state.phase === "PREPARING") {
-      window.location.href =
-        workoutData.mode === "ROUTINE" ? "/routine" : "/workout/free";
+      if (workoutData.mode === "ROUTINE") {
+        window.location.href = "/routine";
+      } else if (isLearnMode()) {
+        window.location.href = "/learn";
+      } else {
+        window.location.href = "/workout/free";
+      }
     } else {
       document.getElementById("exitModal").hidden = false;
     }
@@ -2357,15 +2760,18 @@ function showModelLoadingOverlay() {
     }
 
     hasUnloadAbortSent = true;
+    const learnCompletedSteps = Math.min(state.learnStepIndex, state.learnSteps.length);
     const payload = JSON.stringify({
       reason,
       selected_view: state.selectedView,
       duration_sec: state.totalTime || 0,
-      total_reps: isTimeBasedExercise() ? 0 : state.currentRep || 0,
-      total_result_value: isTimeBasedExercise()
-        ? state.bestHoldSec || 0
-        : state.currentRep || 0,
-      result_basis: isTimeBasedExercise() ? "DURATION" : "REPS",
+      total_reps: isLearnMode() ? 0 : (isTimeBasedExercise() ? 0 : state.currentRep || 0),
+      total_result_value: isLearnMode()
+        ? learnCompletedSteps
+        : isTimeBasedExercise()
+          ? state.bestHoldSec || 0
+          : state.currentRep || 0,
+      result_basis: isTimeBasedExercise() && !isLearnMode() ? "DURATION" : "REPS",
       target_sec: isTimeBasedExercise() ? getCurrentTargetSec() || null : null,
     });
     const url = `/api/workout/session/${state.sessionId}/abort`;
@@ -2464,6 +2870,10 @@ function showModelLoadingOverlay() {
     }
   } else {
     syncPlankTargetUi();
+  }
+  if (isLearnMode()) {
+    refreshLearnSteps({ resetProgress: true });
+    updateLearnModeDisplay();
   }
   updatePrimaryCounterDisplay();
   updateRoutineStepDisplay();

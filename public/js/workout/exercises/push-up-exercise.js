@@ -140,6 +140,10 @@
       ];
     },
 
+    getLearnSteps() {
+      return createLearnSteps();
+    },
+
     getRepPattern() {
       return {
         primaryAngle: 'elbow_angle',
@@ -789,6 +793,133 @@
     }
 
     return maxScoreSum > 0 ? Math.round((scoreSum / maxScoreSum) * 100) : fallbackScore;
+  }
+
+  function readMetric(scoringEngine, angles, metricKey) {
+    if (!scoringEngine?.getMetricValue) return null;
+    return scoringEngine.getMetricValue(angles, metricKey);
+  }
+
+  function createCheck(label, passed, progress = null) {
+    return {
+      label,
+      passed: passed === true,
+      progress: Number.isFinite(progress)
+        ? Math.max(0, Math.min(1, progress))
+        : (passed ? 1 : 0),
+    };
+  }
+
+  function buildLearnEvaluation(checks, feedback = null, status = null) {
+    const safeChecks = Array.isArray(checks) ? checks.filter(Boolean) : [];
+    const progress = safeChecks.length > 0
+      ? safeChecks.reduce((sum, item) => sum + (item.passed ? 1 : (Number(item.progress) || 0)), 0) / safeChecks.length
+      : 0;
+
+    return {
+      passed: safeChecks.length > 0 && safeChecks.every((item) => item.passed),
+      progress,
+      checks: safeChecks,
+      feedback,
+      status,
+    };
+  }
+
+  function createLearnSteps() {
+    return [
+      {
+        id: 'pushup_setup',
+        badge: '준비 자세',
+        title: '하이 플랭크 만들기',
+        instruction: '손으로 바닥을 밀고 머리부터 발끝까지 길게 펴주세요.',
+        hintLines: [
+          '어깨 아래에 손이 오도록 먼저 위치를 맞춰주세요.',
+          '엉덩이가 처지지 않게 배에 힘을 주세요.',
+        ],
+        holdMs: 800,
+        successMessage: '좋아요. 이제 몸통 정렬을 유지하며 내려가 볼게요.',
+        evaluate({ angles, scoringEngine }) {
+          const elbowLockout = readMetric(scoringEngine, angles, 'elbow_lockout');
+          const hipAngle = readMetric(scoringEngine, angles, 'hip_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+
+          return buildLearnEvaluation([
+            createCheck('팔을 편 준비 자세예요', Number.isFinite(elbowLockout) && elbowLockout >= 150),
+            createCheck('몸통이 일직선에 가까워요', Number.isFinite(hipAngle) && hipAngle >= 150),
+            createCheck('상체 각도가 크게 무너지지 않았어요', Number.isFinite(spineAngle) && spineAngle >= 40 && spineAngle <= 120),
+          ], '손으로 바닥을 밀고 몸통을 길게 유지해주세요');
+        },
+      },
+      {
+        id: 'pushup_descent',
+        badge: '하강',
+        title: '몸통을 유지하며 내려가기',
+        instruction: '몸이 한 덩어리처럼 움직이도록 천천히 내려가세요.',
+        hintLines: [
+          '팔꿈치만 접지 말고 몸통 정렬을 함께 유지하세요.',
+          '엉덩이가 먼저 떨어지지 않도록 주의하세요.',
+        ],
+        holdMs: 700,
+        successMessage: '좋아요. 이제 바닥 가까운 최저점을 만들어볼게요.',
+        evaluate({ angles, scoringEngine }) {
+          const elbowAngle = readMetric(scoringEngine, angles, 'elbow_angle');
+          const hipAngle = readMetric(scoringEngine, angles, 'hip_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+
+          return buildLearnEvaluation([
+            createCheck('팔을 굽히며 내려가고 있어요', Number.isFinite(elbowAngle) && elbowAngle <= 145 && elbowAngle >= 100),
+            createCheck('몸통 정렬을 유지하고 있어요', Number.isFinite(hipAngle) && hipAngle >= 145),
+            createCheck('상체가 같이 움직이고 있어요', Number.isFinite(spineAngle) && spineAngle >= 35 && spineAngle <= 125),
+          ], '몸 전체가 같이 내려간다는 느낌으로 천천히 움직여주세요');
+        },
+      },
+      {
+        id: 'pushup_bottom',
+        badge: '최저점',
+        title: '충분한 깊이 만들기',
+        instruction: '가슴을 조금 더 낮춰 충분한 깊이를 만든 뒤 잠깐 버텨주세요.',
+        hintLines: [
+          '가슴이 바닥 가까이 간다는 느낌을 가져가세요.',
+          '엉덩이가 처지지 않게 코어에 힘을 유지하세요.',
+        ],
+        holdMs: 800,
+        successMessage: '좋아요. 같은 정렬을 유지하며 다시 밀어올리면 됩니다.',
+        evaluate({ angles, scoringEngine }) {
+          const elbowDepth = readMetric(scoringEngine, angles, 'elbow_depth');
+          const hipAngle = readMetric(scoringEngine, angles, 'hip_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+
+          return buildLearnEvaluation([
+            createCheck('충분히 깊게 내려왔어요', Number.isFinite(elbowDepth) && elbowDepth <= 105),
+            createCheck('몸통을 일직선으로 유지했어요', Number.isFinite(hipAngle) && hipAngle >= 145),
+            createCheck('상체 각도가 크게 흐트러지지 않았어요', Number.isFinite(spineAngle) && spineAngle >= 35 && spineAngle <= 125),
+          ], '깊이를 만들 때도 엉덩이가 먼저 떨어지지 않게 유지해주세요');
+        },
+      },
+      {
+        id: 'pushup_finish',
+        badge: '마무리',
+        title: '끝까지 밀어 올리기',
+        instruction: '몸통 정렬을 유지한 채 다시 끝까지 밀어 올려주세요.',
+        hintLines: [
+          '올라올 때 팔을 끝까지 펴주세요.',
+          '머리부터 골반까지 같은 속도로 올라오세요.',
+        ],
+        holdMs: 800,
+        successMessage: '좋아요. 푸쉬업 학습을 완료했습니다.',
+        evaluate({ angles, scoringEngine }) {
+          const elbowLockout = readMetric(scoringEngine, angles, 'elbow_lockout');
+          const hipAngle = readMetric(scoringEngine, angles, 'hip_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+
+          return buildLearnEvaluation([
+            createCheck('팔을 끝까지 다시 펴줬어요', Number.isFinite(elbowLockout) && elbowLockout >= 155),
+            createCheck('몸통 정렬을 끝까지 유지했어요', Number.isFinite(hipAngle) && hipAngle >= 150),
+            createCheck('상체가 함께 올라왔어요', Number.isFinite(spineAngle) && spineAngle >= 40 && spineAngle <= 120),
+          ], '올라올 때도 몸통이 먼저 꺾이지 않게 유지해주세요');
+        },
+      },
+    ];
   }
 
   registry.register('push_up', pushUpExercise);

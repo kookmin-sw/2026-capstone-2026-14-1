@@ -14,7 +14,7 @@
  * 플랭크 전용 자세 게이트/시간 기반 점수 보조
  */
 (function registerPlankExerciseModule() {
-  const registry = window.WorkoutExerciseRegistry;
+  const registry = typeof window !== 'undefined' ? window.WorkoutExerciseRegistry : null;
   if (!registry) return;
 
   const plankExercise = {
@@ -109,6 +109,10 @@
           }
         }
       ];
+    },
+
+    getLearnSteps() {
+      return createLearnSteps();
     },
 
     getFrameGate(angles, runtime) {
@@ -213,6 +217,135 @@
 
     if (maxScoreSum <= 0) return 0;
     return Math.max(0, Math.min(100, Math.round((scoreSum / maxScoreSum) * 100)));
+  }
+
+  function readMetric(scoringEngine, angles, metricKey) {
+    if (!scoringEngine?.getMetricValue) return null;
+    return scoringEngine.getMetricValue(angles, metricKey);
+  }
+
+  function createCheck(label, passed, progress = null) {
+    return {
+      label,
+      passed: passed === true,
+      progress: Number.isFinite(progress)
+        ? Math.max(0, Math.min(1, progress))
+        : (passed ? 1 : 0),
+    };
+  }
+
+  function buildLearnEvaluation(checks, feedback = null, status = null) {
+    const safeChecks = Array.isArray(checks) ? checks.filter(Boolean) : [];
+    const progress = safeChecks.length > 0
+      ? safeChecks.reduce((sum, item) => sum + (item.passed ? 1 : (Number(item.progress) || 0)), 0) / safeChecks.length
+      : 0;
+
+    return {
+      passed: safeChecks.length > 0 && safeChecks.every((item) => item.passed),
+      progress,
+      checks: safeChecks,
+      feedback,
+      status,
+    };
+  }
+
+  function createLearnSteps() {
+    return [
+      {
+        id: 'plank_setup',
+        badge: '준비 자세',
+        title: '팔 지지선 맞추기',
+        instruction: '팔꿈치가 어깨 아래에 오도록 두고 측면 자세를 먼저 안정적으로 맞춰주세요.',
+        hintLines: [
+          '카메라에는 몸의 옆면이 잘 보이게 서주세요.',
+          '전완으로 바닥을 밀면서 어깨를 가볍게 띄워주세요.',
+        ],
+        holdMs: 800,
+        successMessage: '좋아요. 이제 몸통을 더 길게 펴볼게요.',
+        evaluate({ angles, scoringEngine }) {
+          const shoulderAngle = readMetric(scoringEngine, angles, 'shoulder_angle');
+          const elbowSupportAngle = readMetric(scoringEngine, angles, 'elbow_support_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+
+          return buildLearnEvaluation([
+            createCheck('어깨와 팔 지지선이 맞고 있어요', Number.isFinite(shoulderAngle) && shoulderAngle >= 50 && shoulderAngle <= 115),
+            createCheck('팔꿈치 지지 각도가 안정적이에요', Number.isFinite(elbowSupportAngle) && elbowSupportAngle >= 58),
+            createCheck('상체를 무너지지 않게 세웠어요', Number.isFinite(spineAngle) && spineAngle >= 55 && spineAngle <= 125),
+          ], '팔꿈치가 어깨 아래에 오도록 조금만 더 위치를 맞춰주세요');
+        },
+      },
+      {
+        id: 'plank_body_line',
+        badge: '몸통 정렬',
+        title: '머리부터 골반까지 일직선 만들기',
+        instruction: '배에 힘을 주고 골반이 처지지 않게 몸통을 길게 펴주세요.',
+        hintLines: [
+          '허리가 꺾이지 않게 배와 엉덩이에 힘을 주세요.',
+          '목을 들기보다 몸 전체를 길게 만든다는 느낌을 가져가세요.',
+        ],
+        holdMs: 900,
+        successMessage: '좋아요. 이제 다리까지 길게 뻗어 완성해볼게요.',
+        evaluate({ angles, scoringEngine }) {
+          const hipAngle = readMetric(scoringEngine, angles, 'hip_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+          const shoulderAngle = readMetric(scoringEngine, angles, 'shoulder_angle');
+
+          return buildLearnEvaluation([
+            createCheck('몸통이 일직선에 가까워요', Number.isFinite(hipAngle) && hipAngle >= 150),
+            createCheck('허리와 등이 크게 꺾이지 않았어요', Number.isFinite(spineAngle) && spineAngle >= 60 && spineAngle <= 115),
+            createCheck('어깨 지지 정렬을 유지하고 있어요', Number.isFinite(shoulderAngle) && shoulderAngle >= 50 && shoulderAngle <= 115),
+          ], '골반이 내려가지 않게 배에 힘을 조금 더 주세요');
+        },
+      },
+      {
+        id: 'plank_leg_extension',
+        badge: '다리 정렬',
+        title: '다리까지 길게 펴기',
+        instruction: '무릎을 굽히지 말고 뒤꿈치를 멀리 보낸다는 느낌으로 다리를 펴주세요.',
+        hintLines: [
+          '발끝으로 바닥을 밀어내며 다리를 길게 유지하세요.',
+          '몸통 정렬이 무너지지 않는 범위에서 다리만 더 뻗어주세요.',
+        ],
+        holdMs: 900,
+        successMessage: '좋아요. 이제 완성 자세를 잠깐 유지해볼게요.',
+        evaluate({ angles, scoringEngine }) {
+          const hipAngle = readMetric(scoringEngine, angles, 'hip_angle');
+          const kneeAngle = readMetric(scoringEngine, angles, 'knee_angle');
+          const elbowSupportAngle = readMetric(scoringEngine, angles, 'elbow_support_angle');
+
+          return buildLearnEvaluation([
+            createCheck('다리를 길게 펴고 있어요', Number.isFinite(kneeAngle) && kneeAngle >= 155),
+            createCheck('몸통 정렬을 유지하고 있어요', Number.isFinite(hipAngle) && hipAngle >= 150),
+            createCheck('팔 지지선이 계속 안정적이에요', Number.isFinite(elbowSupportAngle) && elbowSupportAngle >= 58),
+          ], '무릎을 살짝 더 펴고 발끝을 뒤로 길게 보내주세요');
+        },
+      },
+      {
+        id: 'plank_hold',
+        badge: '유지',
+        title: '완성 자세 유지하기',
+        instruction: '지금 만든 자세를 그대로 유지하며 잠시 버텨보세요.',
+        hintLines: [
+          '골반 높이를 유지한 채 짧게 호흡하세요.',
+          '전완과 발끝으로 바닥을 밀며 몸통을 단단하게 유지하세요.',
+        ],
+        holdMs: 2500,
+        successMessage: '좋아요. 플랭크 학습을 완료했습니다.',
+        evaluate({ angles, scoringEngine }) {
+          const hipAngle = readMetric(scoringEngine, angles, 'hip_angle');
+          const spineAngle = readMetric(scoringEngine, angles, 'spine_angle');
+          const elbowSupportAngle = readMetric(scoringEngine, angles, 'elbow_support_angle');
+          const kneeAngle = readMetric(scoringEngine, angles, 'knee_angle');
+
+          return buildLearnEvaluation([
+            createCheck('몸통 일직선을 유지하고 있어요', Number.isFinite(hipAngle) && hipAngle >= 150),
+            createCheck('허리와 등 높이가 안정적이에요', Number.isFinite(spineAngle) && spineAngle >= 60 && spineAngle <= 115),
+            createCheck('팔 지지선이 흔들리지 않아요', Number.isFinite(elbowSupportAngle) && elbowSupportAngle >= 60),
+            createCheck('다리를 끝까지 펴고 있어요', Number.isFinite(kneeAngle) && kneeAngle >= 155),
+          ], '골반이 내려가지 않게 코어 힘을 유지한 채 조금만 더 버텨주세요');
+        },
+      },
+    ];
   }
 
   registry.register('plank', plankExercise);

@@ -1,5 +1,6 @@
 <%
   const isRoutineMode = mode === 'ROUTINE';
+  const isLearnMode = mode === 'LEARN';
   const currentExercise = exercise;
   const isPlankExercise = String(currentExercise?.code || '').trim().toLowerCase() === 'plank';
   const allowedViews = Array.isArray(currentExercise?.allowed_views) && currentExercise.allowed_views.length > 0
@@ -63,6 +64,7 @@
   <script src="/js/workout/session-voice.js"></script>
   <script src="/js/workout/routine-session-manager.js"></script>
   <script src="/js/workout/onboarding-guide.js"></script>
+  <script src="/js/workout/learn-step-engine.js"></script>
   <script src="/js/workout/session-controller.js"></script>
 
   <div class="workout-container">
@@ -74,6 +76,11 @@
             <%= routine.name %>
           </h2>
           <span class="muted">루틴 운동</span>
+          <% } else if (isLearnMode) { %>
+            <h2>
+              <%= currentExercise.name %>
+            </h2>
+            <span class="muted">운동 배우기</span>
           <% } else { %>
             <h2>
               <%= currentExercise.name %>
@@ -202,7 +209,7 @@
         <!-- 실시간 점수 -->
         <div class="card score-card">
           <div class="score-header">
-            <span class="muted" id="scoreModeLabel"><%= isPlankExercise ? '현재 자세 점수' : '이번 rep 점수' %></span>
+            <span class="muted" id="scoreModeLabel"><%= isLearnMode ? '현재 step 진행률' : (isPlankExercise ? '현재 자세 점수' : '이번 rep 점수') %></span>
             <!-- <span class="muted" id="phaseInfo" style="font-size: 12px;"></span> -->
           </div>
           <!-- <div class="score-header">
@@ -215,16 +222,37 @@
           </div>
         </div>
 
+        <div class="card learn-card" id="learnCard" <%= isLearnMode ? '' : 'hidden' %>>
+          <div class="card-header">
+            <div>
+              <span class="muted" id="learnStepCounter">Step 1 / 1</span>
+              <h3 id="learnStepTitle">운동 배우기 준비</h3>
+            </div>
+            <span class="badge" id="learnStepBadge">자세 맞추기</span>
+          </div>
+          <p class="muted learn-step-instruction" id="learnStepInstruction">카메라를 연결하고 학습을 시작하세요.</p>
+          <div class="progress learn-step-progress">
+            <div class="progress-bar" id="learnHoldProgressBar" style="width: 0%"></div>
+          </div>
+          <div class="detail-simple-item" style="margin-top: 10px;">
+            <span>유지 진행</span>
+            <strong id="learnHoldProgressText">0%</strong>
+          </div>
+          <ul class="learn-step-hints" id="learnStepHints"></ul>
+          <div class="learn-step-checks" id="learnStepChecks"></div>
+          <p class="muted learn-step-status" id="learnStepStatus">현재 step에서 취해야 할 자세가 여기에 표시됩니다.</p>
+        </div>
+
         <!-- 운동 카운터 -->
         <div class="card counter-card">
           <div class="counter-row">
             <div class="counter-item">
               <span class="counter-value" id="repCount">0</span>
-              <span class="counter-label" id="repCountLabel"><%= isPlankExercise ? '시간(초)' : '횟수' %></span>
+              <span class="counter-label" id="repCountLabel"><%= isLearnMode ? '현재 step' : (isPlankExercise ? '시간(초)' : '횟수') %></span>
             </div>
             <div class="counter-item">
               <span class="counter-value" id="setCount">1</span>
-              <span class="counter-label">세트</span>
+              <span class="counter-label" id="setCountLabel"><%= isLearnMode ? '전체 step' : '세트' %></span>
             </div>
           </div>
             <div class="progress-card" id="plankRuntimePanel" style="margin-top: 14px;" <%= isPlankExercise ? '' : 'hidden' %>>
@@ -263,7 +291,7 @@
         <div class="card timer-card">
           <div class="timer-display">
             <span class="timer-value" id="timerValue">00:00</span>
-            <span class="timer-label" id="timerLabel"><%= isPlankExercise ? '플랭크 시간' : '운동 시간' %></span>
+            <span class="timer-label" id="timerLabel"><%= isLearnMode ? '학습 시간' : (isPlankExercise ? '플랭크 시간' : '운동 시간') %></span>
           </div>
             <div class="progress-card" id="plankTimerPanel" style="margin-top: 14px;" <%= isPlankExercise ? '' : 'hidden' %>>
               <span class="muted">플랭크 상태</span>
@@ -294,7 +322,7 @@
         </div>
         <div class="control-row">
           <button class="primary full" id="finishBtn" onclick="finishWorkout()" disabled>
-            운동 종료
+            <%= isLearnMode ? '학습 종료' : '운동 종료' %>
           </button>
         </div>
       </aside>
@@ -368,7 +396,7 @@
         <button class="icon" onclick="closeExitModal()">×</button>
       </div>
       <div class="modal-body">
-        <p>정말로 운동을 종료하시겠습니까?</p>
+        <p><%= isLearnMode ? '정말로 학습을 종료하시겠습니까?' : '정말로 운동을 종료하시겠습니까?' %></p>
         <p class="muted">현재까지의 기록이 저장됩니다.</p>
       </div>
       <div class="modal-actions">

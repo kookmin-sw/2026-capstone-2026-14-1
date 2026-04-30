@@ -8,6 +8,7 @@ const controllerPath = require.resolve('../../public/js/workout/session-controll
 const helperPath = require.resolve('../../public/js/workout/quality-gate-session.js');
 const uiPath = require.resolve('../../public/js/workout/session-ui.js');
 const routineManagerPath = require.resolve('../../public/js/workout/routine-session-manager.js');
+const learnStepEnginePath = require.resolve('../../public/js/workout/learn-step-engine.js');
 
 test('session-controller loads the adjacent quality-gate module without ambient globals', () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'SessionQualityGate');
@@ -16,6 +17,7 @@ test('session-controller loads the adjacent quality-gate module without ambient 
   delete require.cache[helperPath];
   delete require.cache[uiPath];
   delete require.cache[routineManagerPath];
+  delete require.cache[learnStepEnginePath];
 
   Object.defineProperty(globalThis, 'SessionQualityGate', {
     configurable: true,
@@ -30,11 +32,13 @@ test('session-controller loads the adjacent quality-gate module without ambient 
     assert.deepEqual(Object.keys(controller), ['initSession']);
     assert.equal(typeof controller.initSession, 'function');
     assert.equal(typeof require('../../public/js/workout/quality-gate-session.js').mapWithholdReasonToMessage, 'function');
+    assert.equal(typeof require('../../public/js/workout/learn-step-engine.js').normalizeLearnStepEvaluation, 'function');
   } finally {
     delete require.cache[controllerPath];
     delete require.cache[helperPath];
     delete require.cache[uiPath];
     delete require.cache[routineManagerPath];
+    delete require.cache[learnStepEnginePath];
 
     if (originalDescriptor) {
       Object.defineProperty(globalThis, 'SessionQualityGate', originalDescriptor);
@@ -51,6 +55,7 @@ test('session-controller falls back to the adjacent quality-gate module when win
   delete require.cache[helperPath];
   delete require.cache[uiPath];
   delete require.cache[routineManagerPath];
+  delete require.cache[learnStepEnginePath];
 
   const fakeWindow = {};
   Object.defineProperty(fakeWindow, 'SessionQualityGate', {
@@ -73,6 +78,12 @@ test('session-controller falls back to the adjacent quality-gate module when win
       );
     },
   });
+  Object.defineProperty(fakeWindow, 'LearnStepEngine', {
+    configurable: true,
+    get() {
+      throw new Error('window.LearnStepEngine should not be read in CommonJS');
+    },
+  });
 
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
@@ -90,6 +101,7 @@ test('session-controller falls back to the adjacent quality-gate module when win
     delete require.cache[helperPath];
     delete require.cache[uiPath];
     delete require.cache[routineManagerPath];
+    delete require.cache[learnStepEnginePath];
 
     if (originalWindowDescriptor) {
       Object.defineProperty(globalThis, 'window', originalWindowDescriptor);
@@ -117,6 +129,7 @@ test('browser script loading does not throw when helper scripts load first', () 
     'session-voice.js',
     'routine-session-manager.js',
     'onboarding-guide.js',
+    'learn-step-engine.js',
     'session-controller.js',
   ];
 
@@ -131,4 +144,5 @@ test('browser script loading does not throw when helper scripts load first', () 
   assert.equal(typeof context.createApiSpeechProvider, 'function');
   assert.equal(typeof context.createRoutineSessionManager, 'function');
   assert.equal(typeof context.SessionQualityGate, 'object');
+  assert.equal(typeof context.LearnStepEngine, 'object');
 });

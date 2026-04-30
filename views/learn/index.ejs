@@ -1,0 +1,112 @@
+<div class="page active">
+  <%
+    const viewLabels = {
+      FRONT: '정면',
+      SIDE: '측면',
+      DIAGONAL: '대각선'
+    };
+  %>
+
+  <section class="page-header">
+    <div>
+      <h1>운동 배우기</h1>
+      <p class="muted">step별 자세를 따라 하면서 정확한 자세를 익혀보세요</p>
+    </div>
+    <div class="actions">
+      <a href="/" class="ghost">← 홈으로</a>
+    </div>
+  </section>
+
+  <% if (errorMessage) { %>
+    <div class="card learn-error-card">
+      <strong>안내</strong>
+      <p class="muted"><%= errorMessage %></p>
+    </div>
+  <% } %>
+
+  <% if (exercises.length === 0) { %>
+    <div class="card" style="text-align: center; padding: 48px;">
+      <h3>등록된 운동이 없어요</h3>
+      <p class="muted">관리자에게 문의해주세요</p>
+    </div>
+  <% } else { %>
+    <div class="grid three learn-grid">
+      <% exercises.forEach((exercise) => { %>
+        <div class="card exercise-card learn-exercise-card">
+          <div class="learn-exercise-header">
+            <span class="badge">STEP 튜토리얼</span>
+            <span class="muted">
+              지원 자세:
+              <%= (exercise.allowed_views || []).map((view) => viewLabels[view] || view).join(', ') %>
+            </span>
+          </div>
+
+          <h3><%= exercise.name %></h3>
+          <p class="muted"><%= exercise.description || '운동 설명이 없습니다' %></p>
+
+          <ul class="learn-feature-list">
+            <li>각 step마다 취해야 할 자세를 안내합니다.</li>
+            <li>자세를 맞춰야 다음 step으로 넘어갑니다.</li>
+            <li>완료 후 바로 자율 운동으로 이어갈 수 있습니다.</li>
+          </ul>
+
+          <div class="learn-card-actions">
+            <a href="/learn/<%= exercise.code %>" class="primary full">배우기 시작</a>
+            <a href="/workout/free/<%= exercise.code %>" class="ghost full">바로 운동하기</a>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  <% } %>
+</div>
+
+<style>
+  .learn-grid {
+    align-items: stretch;
+  }
+
+  .learn-error-card {
+    margin-bottom: 16px;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    background: rgba(254, 249, 195, 0.52);
+  }
+
+  [data-theme="dark"] .learn-error-card {
+    background: rgba(120, 53, 15, 0.24);
+    border-color: rgba(245, 158, 11, 0.26);
+  }
+
+  .learn-exercise-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    text-align: left;
+  }
+
+  .learn-exercise-header {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .learn-exercise-card h3 {
+    font-size: 1.5rem;
+    margin: 0;
+  }
+
+  .learn-feature-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--muted);
+  }
+
+  .learn-feature-list li + li {
+    margin-top: 6px;
+  }
+
+  .learn-card-actions {
+    display: grid;
+    gap: 10px;
+    margin-top: auto;
+  }
+</style>

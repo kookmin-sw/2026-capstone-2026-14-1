@@ -180,6 +180,39 @@ function createSessionUi({
   }
 
   /**
+   * 학습 모드의 step 카운터를 표시합니다.
+   * @param {Object} params
+   * @param {number} params.currentStep - 현재 step 번호 (1-base)
+   * @param {number} params.totalSteps - 전체 step 수
+   */
+  function updateLearnCounterDisplay({
+    currentStep,
+    totalSteps,
+  }) {
+    if (refs.repCountLabelEl) {
+      refs.repCountLabelEl.textContent = '현재 step';
+    }
+    if (refs.setCountLabelEl) {
+      refs.setCountLabelEl.textContent = '전체 step';
+    }
+    if (refs.repCountEl) {
+      refs.repCountEl.textContent = String(Math.max(0, Math.round(currentStep || 0)));
+    }
+    if (refs.setCountEl) {
+      refs.setCountEl.textContent = String(Math.max(0, Math.round(totalSteps || 0)));
+    }
+    if (refs.scoreModeLabelEl) {
+      refs.scoreModeLabelEl.textContent = '현재 step 진행률';
+    }
+    if (refs.timerLabelEl) {
+      refs.timerLabelEl.textContent = '학습 시간';
+    }
+    if (refs.startBtn) {
+      refs.startBtn.textContent = '학습 시작';
+    }
+  }
+
+  /**
    * 루틴 단계 프로그레스 표시를 업데이트합니다.
    * 현재 단계/전체 단계 수, 진행률 퍼센트, 완료 칩 하이라이트 등을 반영합니다.
    * @param {Object} params
@@ -430,10 +463,83 @@ function createSessionUi({
     }
   }
 
+  /**
+   * 학습 모드 step 카드 UI를 갱신합니다.
+   * @param {Object} params
+   * @param {boolean} params.visible - 카드 표시 여부
+   * @param {number} params.stepIndex - 현재 step 인덱스 (0-base)
+   * @param {number} params.totalSteps - 전체 step 수
+   * @param {string} params.title - step 제목
+   * @param {string} params.badge - 우상단 뱃지 텍스트
+   * @param {string} params.instruction - 대표 안내 문구
+   * @param {Array<string>} params.hints - 보조 안내 목록
+   * @param {Array<Object>} params.checks - 현재 step 체크 항목
+   * @param {number} params.holdProgressPercent - 유지 진행률(%)
+   * @param {string} params.statusText - 하단 상태 문구
+   */
+  function updateLearnCard({
+    visible = false,
+    stepIndex = 0,
+    totalSteps = 0,
+    title = '운동 배우기 준비',
+    badge = '자세 맞추기',
+    instruction = '카메라를 연결하고 학습을 시작하세요.',
+    hints = [],
+    checks = [],
+    holdProgressPercent = 0,
+    statusText = '현재 step에서 취해야 할 자세가 여기에 표시됩니다.',
+  }) {
+    if (refs.learnCardEl) {
+      refs.learnCardEl.hidden = !visible;
+    }
+    if (!visible) return;
+
+    if (refs.learnStepCounterEl) {
+      refs.learnStepCounterEl.textContent = `Step ${Math.max(1, stepIndex + 1)} / ${Math.max(1, totalSteps)}`;
+    }
+    if (refs.learnStepTitleEl) {
+      refs.learnStepTitleEl.textContent = title;
+    }
+    if (refs.learnStepBadgeEl) {
+      refs.learnStepBadgeEl.textContent = badge;
+    }
+    if (refs.learnStepInstructionEl) {
+      refs.learnStepInstructionEl.textContent = instruction;
+    }
+    if (refs.learnHoldProgressBarEl) {
+      refs.learnHoldProgressBarEl.style.width = `${Math.max(0, Math.min(100, Math.round(holdProgressPercent || 0)))}%`;
+    }
+    if (refs.learnHoldProgressTextEl) {
+      refs.learnHoldProgressTextEl.textContent = `${Math.max(0, Math.min(100, Math.round(holdProgressPercent || 0)))}%`;
+    }
+    if (refs.learnStepHintsEl) {
+      refs.learnStepHintsEl.innerHTML = (Array.isArray(hints) ? hints : [])
+        .filter((item) => typeof item === 'string' && item.trim())
+        .map((item) => `<li>${item}</li>`)
+        .join('');
+    }
+    if (refs.learnStepChecksEl) {
+      const rows = Array.isArray(checks) ? checks : [];
+      refs.learnStepChecksEl.innerHTML = rows.length > 0
+        ? rows.map((item) => `
+          <div class="score-item ${item?.passed ? 'is-pass' : 'is-pending'}">
+            <span>${item?.label || '체크 항목'}</span>
+            <span>${item?.passed ? '완료' : `${Math.max(0, Math.min(100, Math.round((Number(item?.progress) || 0) * 100)))}%`}</span>
+          </div>
+        `).join('')
+        : '<div class="score-item"><span class="muted">step 체크 항목을 준비 중입니다.</span></div>';
+    }
+    if (refs.learnStepStatusEl) {
+      refs.learnStepStatusEl.textContent = statusText;
+    }
+  }
+
   return {
     hideAlert,
     showAlert,
     showToast,
+    updateLearnCard,
+    updateLearnCounterDisplay,
     setupRoutineProgressUi,
     syncPlankTargetUi,
     updatePlankRuntimeDisplay,

@@ -147,6 +147,86 @@ test('syncPlankTargetUi reflects target time in hint and readout', () => {
   assert.equal(refs.timerLabelEl.textContent, '플랭크 시간');
 });
 
+test('updateLearnCounterDisplay switches labels for learn mode', () => {
+  const refs = {
+    repCountEl: createElementStub(),
+    repCountLabelEl: createElementStub(),
+    scoreModeLabelEl: createElementStub(),
+    setCountEl: createElementStub(),
+    setCountLabelEl: createElementStub(),
+    startBtn: createElementStub(),
+    timerLabelEl: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateLearnCounterDisplay({
+    currentStep: 2,
+    totalSteps: 4,
+  });
+
+  assert.equal(refs.repCountLabelEl.textContent, '현재 step');
+  assert.equal(refs.repCountEl.textContent, '2');
+  assert.equal(refs.setCountLabelEl.textContent, '전체 step');
+  assert.equal(refs.setCountEl.textContent, '4');
+  assert.equal(refs.scoreModeLabelEl.textContent, '현재 step 진행률');
+  assert.equal(refs.timerLabelEl.textContent, '학습 시간');
+  assert.equal(refs.startBtn.textContent, '학습 시작');
+});
+
+test('updateLearnCard renders learn step details and checklist', () => {
+  const refs = {
+    learnCardEl: createElementStub(),
+    learnStepCounterEl: createElementStub(),
+    learnStepTitleEl: createElementStub(),
+    learnStepBadgeEl: createElementStub(),
+    learnStepInstructionEl: createElementStub(),
+    learnHoldProgressBarEl: createElementStub(),
+    learnHoldProgressTextEl: createElementStub(),
+    learnStepHintsEl: createElementStub(),
+    learnStepChecksEl: createElementStub(),
+    learnStepStatusEl: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateLearnCard({
+    visible: true,
+    stepIndex: 1,
+    totalSteps: 4,
+    title: '최저점 만들기',
+    badge: '하강',
+    instruction: '천천히 깊이를 만들어주세요.',
+    hints: ['무릎과 발끝 방향을 맞춰주세요.'],
+    checks: [
+      { label: '깊이를 만들었어요', passed: true, progress: 1 },
+      { label: '상체가 무너지지 않았어요', passed: false, progress: 0.4 },
+    ],
+    holdProgressPercent: 65,
+    statusText: '좋아요. 조금만 더 유지해주세요.',
+  });
+
+  assert.equal(refs.learnCardEl.hidden, false);
+  assert.equal(refs.learnStepCounterEl.textContent, 'Step 2 / 4');
+  assert.equal(refs.learnStepTitleEl.textContent, '최저점 만들기');
+  assert.equal(refs.learnStepBadgeEl.textContent, '하강');
+  assert.equal(refs.learnStepInstructionEl.textContent, '천천히 깊이를 만들어주세요.');
+  assert.equal(refs.learnHoldProgressBarEl.style.width, '65%');
+  assert.equal(refs.learnHoldProgressTextEl.textContent, '65%');
+  assert.match(refs.learnStepHintsEl.innerHTML, /무릎과 발끝 방향을 맞춰주세요/);
+  assert.match(refs.learnStepChecksEl.innerHTML, /깊이를 만들었어요/);
+  assert.match(refs.learnStepChecksEl.innerHTML, /40%/);
+  assert.equal(refs.learnStepStatusEl.textContent, '좋아요. 조금만 더 유지해주세요.');
+});
+
 test('setupRoutineProgressUi composes the routine progress DOM and updates step chips', () => {
   const card = createElementStub();
   const progressTrack = createElementStub();
