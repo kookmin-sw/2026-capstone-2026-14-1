@@ -1,5 +1,7 @@
 # 실시간 점수와 반복 확정 점수 UX 정리 스펙
 
+> **2026-04-30 수정본:** 운동 중 UI만 등급화하고 내부 점수/History 기능은 유지하는 방향으로 범위를 재정의했다. See [`2026-04-30-workout-score-grade-display-spec.md`](./2026-04-30-workout-score-grade-display-spec.md).
+
 **작성일:** 2026-04-22  
 **갱신일:** 2026-04-23  
 **상태:** Draft  
