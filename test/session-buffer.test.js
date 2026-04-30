@@ -179,3 +179,34 @@ test('recordEvent adds a relative timestamp when feedback event has none', () =>
   assert.equal(exported.events[0].delivery.visual, true);
   assert.equal(exported.events[0].delivery.voice, true);
 });
+
+test('score grade UI change does not alter numeric score timeline or rep records', () => {
+  const SessionBuffer = loadSessionBuffer();
+  const buffer = new SessionBuffer('grade-ui-regression', {
+    exerciseCode: 'squat',
+    selectedView: 'SIDE',
+  });
+
+  buffer.lastScoreTime = Date.now() - 1000;
+  buffer.addScore({
+    score: 87,
+    breakdown: [
+      { key: 'depth', title: '깊이', score: 9, maxScore: 10, rawValue: 92 },
+    ],
+  });
+
+  buffer.addRep({
+    repNumber: 1,
+    score: 73,
+    breakdown: [
+      { key: 'depth', title: '깊이', score: 73, maxScore: 100 },
+    ],
+  });
+
+  const exported = buffer.export();
+
+  assert.equal(buffer.scoreTimeline[0].score, 87);
+  assert.equal(buffer.repRecords[0].score, 73);
+  assert.equal(exported.interim_snapshots[0].score, 87);
+  assert.equal(exported.final_score, 73);
+});

@@ -143,7 +143,7 @@ test('syncPlankTargetUi reflects target time in hint and readout', () => {
   });
 
   assert.equal(refs.plankTargetReadoutEl.textContent, '30초');
-  assert.equal(refs.scoreModeLabelEl.textContent, '현재 자세 점수');
+  assert.equal(refs.scoreModeLabelEl.textContent, '현재 자세 상태');
   assert.equal(refs.timerLabelEl.textContent, '플랭크 시간');
 });
 
@@ -343,4 +343,132 @@ test('updateVoiceFeedbackToggle reflects enabled and unsupported states', () => 
   assert.equal(refs.voiceFeedbackToggle.disabled, true);
   assert.equal(refs.voiceFeedbackStatus.textContent, '음성 피드백 미지원');
   assert.equal(refs.voiceFeedbackHint.textContent, '이 브라우저에서는 음성 피드백을 사용할 수 없습니다.');
+});
+
+test('updateScoreDisplay renders workout grade labels instead of numeric score', () => {
+  const refs = {
+    liveScoreEl: createElementStub(),
+    scoreBreakdownEl: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateScoreDisplay({
+    score: 86,
+    displayAsGrade: true,
+    breakdown: [],
+  });
+
+  assert.equal(refs.liveScoreEl.textContent, '좋음');
+  assert.doesNotMatch(refs.liveScoreEl.textContent, /86/);
+});
+
+test('updateScoreDisplay maps workout grades to good normal and correction labels', () => {
+  const refs = {
+    liveScoreEl: createElementStub(),
+    scoreBreakdownEl: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateScoreDisplay({ score: 80, displayAsGrade: true });
+  assert.equal(refs.liveScoreEl.textContent, '좋음');
+
+  ui.updateScoreDisplay({ score: 50, displayAsGrade: true });
+  assert.equal(refs.liveScoreEl.textContent, '보통');
+
+  ui.updateScoreDisplay({ score: 49, displayAsGrade: true });
+  assert.equal(refs.liveScoreEl.textContent, '교정 필요');
+
+  ui.updateScoreDisplay({ score: 0, displayAsGrade: true });
+  assert.equal(refs.liveScoreEl.textContent, '--');
+});
+
+test('updateScoreDisplay renders breakdown grade labels when displayAsGrade is true', () => {
+  const refs = {
+    liveScoreEl: createElementStub(),
+    scoreBreakdownEl: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateScoreDisplay({
+    score: 74,
+    displayAsGrade: true,
+    breakdown: [
+      { key: 'depth', title: '깊이', score: 91 },
+      { key: 'knee', title: '무릎 정렬', score: 66 },
+      { key: 'torso', title: '상체', score: 31 },
+    ],
+  });
+
+  assert.match(refs.scoreBreakdownEl.innerHTML, /깊이/);
+  assert.match(refs.scoreBreakdownEl.innerHTML, /좋음/);
+  assert.match(refs.scoreBreakdownEl.innerHTML, /보통/);
+  assert.match(refs.scoreBreakdownEl.innerHTML, /교정 필요/);
+  assert.doesNotMatch(refs.scoreBreakdownEl.innerHTML, />91</);
+  assert.doesNotMatch(refs.scoreBreakdownEl.innerHTML, />66</);
+  assert.doesNotMatch(refs.scoreBreakdownEl.innerHTML, />31</);
+});
+
+test('updateScoreDisplay renders measurement unstable label for gated state', () => {
+  const refs = {
+    liveScoreEl: createElementStub(),
+    scoreBreakdownEl: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.updateScoreDisplay({
+    score: 0,
+    displayAsGrade: true,
+    gated: true,
+    displayText: '측정 불안정',
+    message: '몸 전체가 화면에 보이도록 조금 더 뒤로 가 주세요.',
+  });
+
+  assert.equal(refs.liveScoreEl.textContent, '측정 불안정');
+  assert.match(refs.scoreBreakdownEl.innerHTML, /몸 전체가 화면에 보이도록/);
+  assert.doesNotMatch(refs.liveScoreEl.textContent, /교정 필요/);
+});
+
+test('syncPlankTargetUi uses rep state label for non-plank workout', () => {
+  const refs = {
+    scoreModeLabelEl: createElementStub(),
+    timerLabelEl: createElementStub(),
+    startBtn: createElementStub(),
+  };
+
+  const ui = createSessionUi({
+    refs,
+    createElement: () => createElementStub(),
+    formatClock: (value) => `00:${String(value).padStart(2, '0')}`,
+  });
+
+  ui.syncPlankTargetUi({
+    isPlank: false,
+    isRoutinePlank: false,
+    showFreeTargetUi: false,
+    targetSec: 0,
+    canStart: true,
+    phase: 'PREPARING',
+  });
+
+  assert.equal(refs.scoreModeLabelEl.textContent, '이번 rep 상태');
 });
