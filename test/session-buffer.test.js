@@ -115,7 +115,7 @@ test('export includes withhold counts and rep-level scoring states', () => {
   const buffer = new SessionBuffer('session-1');
 
   buffer.recordEvent({
-    type: 'withhold',
+    type: 'QUALITY_GATE_WITHHOLD',
     timestamp: 1000,
     gate_result: 'withhold',
     withhold_reason: 'view_mismatch',
@@ -123,7 +123,6 @@ test('export includes withhold counts and rep-level scoring states', () => {
     estimated_view_confidence: 0.42,
     stable_frame_count: 3,
   });
-
   buffer.recordRepResult({
     rep_index: 1,
     rep_result: 'soft_fail',

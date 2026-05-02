@@ -512,7 +512,9 @@ class SessionBuffer {
     const interimSnapshots = this.generateInterimSnapshots();
 
     // MVP export: withhold 이벤트 집계
-    const withholdEvents = (this.events || []).filter((event) => event.type === 'withhold');
+    const withholdEvents = (this.events || []).filter(
+      (event) => event.type === 'QUALITY_GATE_WITHHOLD',
+    );
     const withholdReasonCounts = withholdEvents.reduce((acc, event) => {
       const reason = event.withhold_reason || 'unknown';
       acc[reason] = (acc[reason] || 0) + 1;

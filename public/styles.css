@@ -1222,8 +1222,4 @@ body {
   .theme-options {
     grid-template-columns: 1fr;
   }
-}-width: 600px) {
-  .theme-options {
-    grid-template-columns: 1fr;
-  }
 }

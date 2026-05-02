@@ -191,3 +191,32 @@ test('session-controller learn score display keeps percentage text instead of wo
     'learn mode should keep progress percentage display',
   );
 });
+
+test('learn step evaluation is guarded so one exercise error does not kill frame handling', () => {
+  const source = fs.readFileSync(controllerPath, 'utf8');
+  const fnSignature = 'function handleLearnPoseDetected';
+  const fnStart = source.indexOf(fnSignature);
+  assert.notEqual(fnStart, -1, 'handleLearnPoseDetected should exist');
+
+  let i = fnStart + fnSignature.length;
+  let parenDepth = 0;
+  for (; i < source.length; i += 1) {
+    if (source[i] === '(') parenDepth += 1;
+    if (source[i] === ')') parenDepth -= 1;
+    if (parenDepth === 0 && source[i] === '{') break;
+  }
+
+  const bodyStart = i;
+  let braceDepth = 0;
+  let bodyEnd = bodyStart;
+  for (let j = bodyStart; j < source.length; j += 1) {
+    if (source[j] === '{') braceDepth += 1;
+    if (source[j] === '}') braceDepth -= 1;
+    if (braceDepth === 0) { bodyEnd = j; break; }
+  }
+
+  const body = source.slice(bodyStart, bodyEnd + 1);
+  assert.match(body, /try\s*\{[\s\S]*step\.evaluate/);
+  assert.match(body, /catch\s*\(error\)/);
+  assert.match(body, /normalizeLearnStepEvaluationHelper\(stepEvaluationResult\)/);
+});

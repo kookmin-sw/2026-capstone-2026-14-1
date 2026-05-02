@@ -1757,22 +1757,27 @@ function showModelLoadingOverlay() {
       return;
     }
 
-    const evaluation = normalizeLearnStepEvaluationHelper(
-      typeof step.evaluate === "function"
-        ? step.evaluate({
-            angles: poseData.angles,
-            poseData,
-            rawScoreResult,
-            scoringResult: liveScoreResult,
-            scoringEngine,
-            exerciseModule,
-            selectedView: state.selectedView,
-            state,
-            now,
-            deltaMs,
-          })
-        : null,
-    );
+    let stepEvaluationResult = null;
+    if (typeof step.evaluate === "function") {
+      try {
+        stepEvaluationResult = step.evaluate({
+          angles: poseData.angles,
+          poseData,
+          rawScoreResult,
+          scoringResult: liveScoreResult,
+          scoringEngine,
+          exerciseModule,
+          selectedView: state.selectedView,
+          state,
+          now,
+          deltaMs,
+        });
+      } catch (error) {
+        console.error("[Session] learn step evaluation failed:", error);
+      }
+    }
+
+    const evaluation = normalizeLearnStepEvaluationHelper(stepEvaluationResult);
 
     state.learnLastEvaluation = evaluation;
     const holdState = updateLearnHoldStateHelper({
