@@ -6,13 +6,17 @@ const {
   createSessionVoice,
 } = require('../../public/js/workout/session-voice.js');
 
-function createProviderStub() {
+function createProviderStub({ speaking = false } = {}) {
   const calls = [];
+  let isSpeakingValue = speaking;
   return {
     calls,
     cancelled: 0,
     isSupported() {
       return true;
+    },
+    isSpeaking() {
+      return isSpeakingValue;
     },
     speak(payload) {
       calls.push(payload);
@@ -20,6 +24,7 @@ function createProviderStub() {
     },
     cancel() {
       this.cancelled += 1;
+      isSpeakingValue = false;
     },
   };
 }
@@ -144,19 +149,15 @@ test('session voice respects minimum interval for non-critical messages', () => 
   assert.equal(provider.calls.length, 1);
 });
 
-test('critical session voice cancels active speech and bypasses minimum interval', () => {
-  const provider = createProviderStub();
-  let now = 1000;
+test('critical session voice cancels active speech and bypasses cooldown', () => {
+  const provider = createProviderStub({ speaking: true });
   const voice = createSessionVoice({
     provider,
     enabled: true,
-    minIntervalMs: 2500,
+    minIntervalMs: 0,
     duplicateWindowMs: 0,
-    now: () => now,
+    now: () => 1000,
   });
-
-  voice.speak('좋아요', { type: 'REP_COMPLETE_FEEDBACK' });
-  now = 1200;
 
   const result = voice.speak('카메라에 전신이 보이도록 해주세요', {
     type: 'NO_PERSON',
@@ -165,7 +166,65 @@ test('critical session voice cancels active speech and bypasses minimum interval
 
   assert.equal(result.spoken, true);
   assert.equal(provider.cancelled, 1);
-  assert.equal(provider.calls.length, 2);
+  assert.equal(provider.calls.length, 1);
+});
+
+test('session voice skips message while provider is speaking (busy)', () => {
+  const provider = createProviderStub({ speaking: true });
+  const voice = createSessionVoice({
+    provider,
+    enabled: true,
+    minIntervalMs: 0,
+    duplicateWindowMs: 0,
+    now: () => 1000,
+  });
+
+  const result = voice.speak('무릎을 바깥쪽으로 밀어주세요', {
+    type: 'LOW_SCORE_HINT',
+    severity: 'warning',
+  });
+
+  assert.equal(result.spoken, false);
+  assert.equal(result.reason, 'busy');
+  assert.equal(provider.calls.length, 0);
+});
+
+test('session voice allows message when provider finishes speaking', () => {
+  const provider = createProviderStub({ speaking: false });
+  const voice = createSessionVoice({
+    provider,
+    enabled: true,
+    minIntervalMs: 0,
+    duplicateWindowMs: 0,
+    now: () => 1000,
+  });
+
+  const result = voice.speak('무릎을 바깥쪽으로 밀어주세요', {
+    type: 'LOW_SCORE_HINT',
+  });
+
+  assert.equal(result.spoken, true);
+  assert.equal(provider.calls.length, 1);
+});
+
+test('session voice cancels active speech for critical message', () => {
+  const provider = createProviderStub({ speaking: true });
+  const voice = createSessionVoice({
+    provider,
+    enabled: true,
+    minIntervalMs: 0,
+    duplicateWindowMs: 0,
+    now: () => 1000,
+  });
+
+  const result = voice.speak('카메라에 전신이 보이도록 해주세요', {
+    type: 'NO_PERSON',
+    severity: 'critical',
+  });
+
+  assert.equal(result.spoken, true);
+  assert.equal(provider.cancelled, 1);
+  assert.equal(provider.calls.length, 1);
 });
 
 test('session voice persists enabled preference when storage is provided', () => {

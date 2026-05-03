@@ -6,10 +6,15 @@ function createBrowserSpeechProvider({
     ? window.SpeechSynthesisUtterance
     : null,
 } = {}) {
+  let speaking = false;
+
   return {
     name: 'browser-speech',
     isSupported() {
       return Boolean(speechSynthesis && SpeechSynthesisUtterance);
+    },
+    isSpeaking() {
+      return speaking || (speechSynthesis?.speaking ?? false);
     },
     speak({ message, lang = 'ko-KR', rate = 1.0 } = {}) {
       if (!this.isSupported() || !message) {
@@ -19,10 +24,14 @@ function createBrowserSpeechProvider({
       const utterance = new SpeechSynthesisUtterance(message);
       utterance.lang = lang;
       utterance.rate = rate;
+      utterance.onstart = () => { speaking = true; };
+      utterance.onend = () => { speaking = false; };
+      utterance.onerror = () => { speaking = false; };
       speechSynthesis.speak(utterance);
       return { spoken: true };
     },
     cancel() {
+      speaking = false;
       if (speechSynthesis?.cancel) {
         speechSynthesis.cancel();
       }
@@ -90,6 +99,12 @@ function createSessionVoice({
     const currentTime = Number(now()) || 0;
     const severity = context?.severity || 'info';
     const isCritical = severity === 'critical';
+    const isSpeaking = provider.isSpeaking?.() ?? false;
+
+    if (isSpeaking && !isCritical) {
+      return { spoken: false, reason: 'busy' };
+    }
+
     const previousMessageAt = lastMessageAt.get(normalizedMessage);
 
     if (
@@ -104,7 +119,7 @@ function createSessionVoice({
       return { spoken: false, reason: 'cooldown' };
     }
 
-    if (isCritical) {
+    if (isCritical && isSpeaking) {
       provider.cancel?.();
     }
 
@@ -180,6 +195,9 @@ function createApiSpeechProvider({
                 });
 
             return { spoken: true };
+        },
+        isSpeaking() {
+            return Boolean(currentAudio && !currentAudio.paused && !currentAudio.ended);
         },
         cancel() {
             if (currentAudio) {
