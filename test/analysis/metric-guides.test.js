@@ -21,3 +21,27 @@ test('getMetricGuideEntry returns fallback entry for unknown metric', () => {
   assert.equal(entry.safety_priority, 0.5);
   assert.deepEqual(entry.coaching_cues, []);
 });
+
+test('push_up guide includes curated emitted metric entries', () => {
+  const guide = loadMetricGuide('push_up');
+
+  for (const metricKey of ['elbow_depth', 'hip_angle']) {
+    assert.ok(guide.metrics[metricKey]);
+    const entry = getMetricGuideEntry(guide, metricKey);
+    assert.notEqual(entry.display_name, metricKey);
+    assert.notEqual(entry.meaning, metricKey);
+    assert.notDeepEqual(entry.coaching_cues, []);
+  }
+});
+
+test('plank guide includes curated emitted metric entries', () => {
+  const guide = loadMetricGuide('plank');
+
+  for (const metricKey of ['hip_angle', 'spine_angle']) {
+    assert.ok(guide.metrics[metricKey]);
+    const entry = getMetricGuideEntry(guide, metricKey);
+    assert.notEqual(entry.display_name, metricKey);
+    assert.notEqual(entry.meaning, metricKey);
+    assert.notDeepEqual(entry.coaching_cues, []);
+  }
+});
