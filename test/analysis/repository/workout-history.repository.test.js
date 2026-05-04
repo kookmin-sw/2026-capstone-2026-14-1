@@ -67,6 +67,7 @@ test('getRecentHistory queries sessions, snapshots, metrics, and events', async 
   assert.equal(result.sessions[0].exercise_key, 'squat');
   assert.equal(result.metrics.length, 1);
   assert.equal(result.metrics[0].metric_key, 'depth');
+  assert.equal(result.metrics[0].session_id, 's1');
   assert.equal(result.events.length, 1);
   assert.equal(result.events[0].type, 'LOW_SCORE_HINT');
   assert.ok(fakeSupabase.calls.includes('workout_session'));

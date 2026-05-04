@@ -33,6 +33,7 @@ function createWorkoutHistoryRepository({ supabase } = {}) {
     if (snapshotError) throw snapshotError;
 
     const snapshotIds = (snapshots || []).map((s) => s.session_snapshot_id).filter(Boolean);
+    const sessionIdBySnapshotId = new Map((snapshots || []).map((s) => [s.session_snapshot_id, s.session_id]));
 
     const [{ data: metrics, error: metricError }, { data: events, error: eventError }] = await Promise.all([
       snapshotIds.length > 0
@@ -49,7 +50,10 @@ function createWorkoutHistoryRepository({ supabase } = {}) {
         exercise_key: session?.exercise?.code,
         exercise_name: session?.exercise?.name,
       })),
-      metrics: metrics || [],
+      metrics: (metrics || []).map((metric) => ({
+        ...metric,
+        session_id: sessionIdBySnapshotId.get(metric.session_snapshot_id),
+      })),
       events: events || [],
     };
   }

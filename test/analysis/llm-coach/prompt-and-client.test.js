@@ -20,6 +20,16 @@ test('buildGrowthReportPrompt substitutes all placeholders', () => {
   assert.match(prompt.userPrompt, /"exercise": "plank"/);
 });
 
+test('buildGrowthReportPrompt does not send internal user id to provider', () => {
+  const prompt = buildGrowthReportPrompt({
+    feature: { user_scope: { user_id: 'internal-user-id', exercise_key: 'squat' }, overall: {} },
+    metricGuide: { exercise: 'squat', metrics: {} },
+  });
+
+  assert.ok(!prompt.userPrompt.includes('internal-user-id'));
+  assert.ok(!prompt.userPrompt.includes('"user_id"'));
+});
+
 test('createLlmClient parses JSON response content', async () => {
   const fakeFetch = async () => ({
     ok: true,

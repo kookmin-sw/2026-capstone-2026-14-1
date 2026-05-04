@@ -15,6 +15,12 @@ test('loadMetricGuide normalizes pushup alias', () => {
   assert.equal(guide.exercise, 'push_up');
 });
 
+test('loadMetricGuide supports all exercise aggregate reports', () => {
+  const guide = loadMetricGuide('all');
+  assert.equal(guide.exercise, 'all');
+  assert.equal(guide.version, 'v1');
+});
+
 test('getMetricGuideEntry returns fallback entry for unknown metric', () => {
   const entry = getMetricGuideEntry(loadMetricGuide('squat'), 'unknown_metric');
   assert.equal(entry.display_name, 'unknown_metric');

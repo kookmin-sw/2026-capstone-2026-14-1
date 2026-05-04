@@ -4,6 +4,7 @@ const guides = {
   squat: require('./squat.v1.json'),
   push_up: require('./push_up.v1.json'),
   plank: require('./plank.v1.json'),
+  all: { exercise: 'all', version: 'v1', metrics: {} },
 };
 
 function loadMetricGuide(exerciseKey) {
