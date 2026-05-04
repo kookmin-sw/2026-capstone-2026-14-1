@@ -337,6 +337,13 @@ const ui = sessionUiFactory({
     startRest,
     finishWorkout,
   });
+  const DEFAULT_API_TTS_MODEL = 'openai/gpt-4o-mini-tts-2025-12-15';
+  const DEFAULT_API_TTS_VOICE = 'nova';
+  const SUPPORTED_API_TTS_MODELS = new Set([DEFAULT_API_TTS_MODEL]);
+  const SUPPORTED_API_TTS_VOICES = new Set([
+    'alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova',
+    'onyx', 'sage', 'shimmer', 'verse', 'marin', 'cedar',
+  ]);
 
   function readTtsConfig() {
     try {
@@ -349,10 +356,16 @@ const ui = sessionUiFactory({
 
   function createTtsProvider(config) {
     if (config.provider === 'openrouter' && typeof createApiSpeechProvider === 'function') {
+      const selectedModel = SUPPORTED_API_TTS_MODELS.has(config.model)
+        ? config.model
+        : DEFAULT_API_TTS_MODEL;
+      const selectedVoice = selectedModel === config.model && SUPPORTED_API_TTS_VOICES.has(config.voice)
+        ? config.voice
+        : DEFAULT_API_TTS_VOICE;
       return createApiSpeechProvider({
         endpoint: '/api/tts',
-        model: config.model || 'openai/gpt-4o-mini-tts-2025-12-15',
-        voice: config.voice || 'nova',
+        model: selectedModel,
+        voice: selectedVoice,
       });
     }
     return createBrowserSpeechProvider();

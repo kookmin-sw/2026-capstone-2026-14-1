@@ -1,26 +1,43 @@
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
+const DEFAULT_TTS_MODEL = 'openai/gpt-4o-mini-tts-2025-12-15';
+
+const TTS_MODELS = [
+    {
+        id: DEFAULT_TTS_MODEL,
+        name: 'OpenAI: GPT-4o Mini TTS',
+        voices: [
+            'alloy',
+            'ash',
+            'ballad',
+            'coral',
+            'echo',
+            'fable',
+            'nova',
+            'onyx',
+            'sage',
+            'shimmer',
+            'verse',
+            'marin',
+            'cedar',
+        ],
+    },
+];
+
+const TTS_MODEL_IDS = new Set(TTS_MODELS.map(model => model.id));
+const TTS_VOICES_BY_MODEL = Object.fromEntries(TTS_MODELS.map(model => [model.id, model.voices]));
+
+function getDefaultVoice(modelId = DEFAULT_TTS_MODEL) {
+    return modelId === DEFAULT_TTS_MODEL ? 'nova' : TTS_VOICES_BY_MODEL[modelId]?.[0] || 'nova';
+}
 
 const getTtsModels = async (req, res) => {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-        return res.json({ models: [], voices: [], error: 'OPENROUTER_API_KEY not set' });
-    }
-
-    try {
-        const response = await fetch(`${OPENROUTER_BASE}/models?output_modalities=speech`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
-        });
-        const data = await response.json();
-        const ttsModels = (data.data || []).map(m => ({
-            id: m.id,
-            name: m.name || m.id,
-        }));
-        const voices = ['alloy', 'echo', 'fable', 'nova', 'onyx', 'shimmer'];
-        return res.json({ models: ttsModels, voices });
-    } catch (error) {
-        console.error('OpenRouter models error:', error.message);
-        return res.status(502).json({ models: [], voices: [], error: 'OpenRouter unavailable' });
-    }
+    return res.json({
+        models: TTS_MODELS.map(({ id, name }) => ({ id, name })),
+        voices: TTS_VOICES_BY_MODEL[DEFAULT_TTS_MODEL],
+        voicesByModel: TTS_VOICES_BY_MODEL,
+        defaultModel: DEFAULT_TTS_MODEL,
+        defaultVoice: getDefaultVoice(DEFAULT_TTS_MODEL),
+    });
 };
 
 const textToSpeech = async (req, res) => {
@@ -36,8 +53,16 @@ const textToSpeech = async (req, res) => {
     }
 
     const trimmedMessage = message.trim().slice(0, 500);
-    const selectedModel = model || 'openai/gpt-4o-mini-tts-2025-12-15';
-    const selectedVoice = voice || 'nova';
+    const selectedModel = model || DEFAULT_TTS_MODEL;
+    if (!TTS_MODEL_IDS.has(selectedModel)) {
+        return res.status(400).json({ error: 'unsupported TTS model' });
+    }
+
+    const modelVoices = TTS_VOICES_BY_MODEL[selectedModel];
+    const selectedVoice = voice || getDefaultVoice(selectedModel);
+    if (!modelVoices.includes(selectedVoice)) {
+        return res.status(400).json({ error: 'unsupported TTS voice' });
+    }
 
     try {
         const response = await fetch(`${OPENROUTER_BASE}/audio/speech`, {
@@ -71,4 +96,9 @@ const textToSpeech = async (req, res) => {
     }
 };
 
-module.exports = { getTtsModels, textToSpeech };
+module.exports = {
+    DEFAULT_TTS_MODEL,
+    TTS_MODELS,
+    getTtsModels,
+    textToSpeech,
+};

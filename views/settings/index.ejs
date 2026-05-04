@@ -192,11 +192,6 @@
           <div class="settings-control">
             <select id="ttsVoice">
               <option value="nova">nova</option>
-              <option value="alloy">alloy</option>
-              <option value="echo">echo</option>
-              <option value="fable">fable</option>
-              <option value="onyx">onyx</option>
-              <option value="shimmer">shimmer</option>
             </select>
           </div>
         </div>
@@ -336,6 +331,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const ttsTestItem = document.getElementById('ttsTestItem');
   const ttsTestBtn = document.getElementById('ttsTestBtn');
   const ttsMessage = document.getElementById('ttsMessage');
+  const DEFAULT_TTS_MODEL = 'openai/gpt-4o-mini-tts-2025-12-15';
+  const DEFAULT_TTS_VOICE = 'nova';
+  const FALLBACK_TTS_MODELS = [
+    { id: DEFAULT_TTS_MODEL, name: 'OpenAI: GPT-4o Mini TTS' },
+  ];
+  const ALLOWED_TTS_MODEL_IDS = new Set(FALLBACK_TTS_MODELS.map(model => model.id));
+  const FALLBACK_TTS_VOICES_BY_MODEL = {
+    [DEFAULT_TTS_MODEL]: [
+      'alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova',
+      'onyx', 'sage', 'shimmer', 'verse', 'marin', 'cedar',
+    ],
+  };
+  let currentTtsVoicesByModel = FALLBACK_TTS_VOICES_BY_MODEL;
 
   function loadTtsConfig() {
     try {
@@ -355,32 +363,63 @@ document.addEventListener('DOMContentLoaded', () => {
     ttsTestItem.style.display = show ? '' : 'none';
   }
 
+  function setSelectOptions(select, options, getValue, getLabel) {
+    select.innerHTML = '';
+    options.forEach((option) => {
+      const optionEl = document.createElement('option');
+      optionEl.value = getValue(option);
+      optionEl.textContent = getLabel(option);
+      select.appendChild(optionEl);
+    });
+  }
+
+  function getTtsVoices(modelId) {
+    return currentTtsVoicesByModel[modelId]
+      || FALLBACK_TTS_VOICES_BY_MODEL[modelId]
+      || FALLBACK_TTS_VOICES_BY_MODEL[DEFAULT_TTS_MODEL];
+  }
+
+  function syncTtsVoiceForModel(preferredVoice) {
+    const voices = getTtsVoices(ttsModel.value);
+    setSelectOptions(ttsVoice, voices, voice => voice, voice => voice);
+    const nextVoice = voices.includes(preferredVoice)
+      ? preferredVoice
+      : (ttsModel.value === DEFAULT_TTS_MODEL ? DEFAULT_TTS_VOICE : voices[0]);
+    ttsVoice.value = nextVoice;
+    return nextVoice;
+  }
+
+  function applyTtsCatalog(data = {}) {
+    const apiModels = Array.isArray(data.models)
+      ? data.models.filter(model => ALLOWED_TTS_MODEL_IDS.has(model.id))
+      : [];
+    const models = apiModels.length > 0
+      ? apiModels
+      : FALLBACK_TTS_MODELS;
+    currentTtsVoicesByModel = data.voicesByModel || FALLBACK_TTS_VOICES_BY_MODEL;
+    setSelectOptions(ttsModel, models, model => model.id, model => model.name);
+
+    const config = loadTtsConfig();
+    const modelIds = models.map(model => model.id);
+    const preferredDefaultModel = modelIds.includes(data.defaultModel) ? data.defaultModel : DEFAULT_TTS_MODEL;
+    const nextModel = modelIds.includes(config.model) ? config.model : preferredDefaultModel;
+    ttsModel.value = nextModel;
+    const nextVoice = syncTtsVoiceForModel(config.voice || data.defaultVoice);
+    saveTtsConfig({ ...config, model: nextModel, voice: nextVoice });
+  }
+
   async function fetchTtsModels() {
     try {
       const res = await fetch('/api/tts/models');
       const data = await res.json();
-      ttsModel.innerHTML = '';
-      if (data.models && data.models.length > 0) {
-        data.models.forEach(m => {
-          ttsModel.innerHTML += `<option value="${m.id}">${m.name}</option>`;
-        });
-      } else {
-        ttsModel.innerHTML = '<option value="openai/gpt-4o-mini-tts-2025-12-15">OpenAI TTS (기본)</option>';
-      }
-      if (data.voices) {
-        ttsVoice.innerHTML = data.voices.map(v => `<option value="${v}">${v}</option>`).join('');
-      }
-      const config = loadTtsConfig();
-      if (config.model) ttsModel.value = config.model;
-      if (config.voice) ttsVoice.value = config.voice;
+      applyTtsCatalog(data);
     } catch {
-      ttsModel.innerHTML = '<option value="openai/gpt-4o-mini-tts-2025-12-15">OpenAI TTS (기본)</option>';
+      applyTtsCatalog();
     }
   }
 
   const config = loadTtsConfig();
   ttsMode.value = config.provider || 'browser';
-  if (config.voice) ttsVoice.value = config.voice;
   showAiFields(config.provider === 'openrouter');
   if (config.provider === 'openrouter') fetchTtsModels();
 
@@ -392,7 +431,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   ttsModel.addEventListener('change', () => {
-    saveTtsConfig({ ...loadTtsConfig(), model: ttsModel.value });
+    const voice = syncTtsVoiceForModel(loadTtsConfig().voice);
+    saveTtsConfig({ ...loadTtsConfig(), model: ttsModel.value, voice });
   });
 
   ttsVoice.addEventListener('change', () => {
@@ -409,8 +449,8 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: '안녕하세요, 음성 테스트입니다.',
-          model: config.model || 'openai/gpt-4o-mini-tts-2025-12-15',
-          voice: config.voice || 'nova',
+          model: config.model || DEFAULT_TTS_MODEL,
+          voice: config.voice || DEFAULT_TTS_VOICE,
         }),
       });
       if (!res.ok) throw new Error(res.status);

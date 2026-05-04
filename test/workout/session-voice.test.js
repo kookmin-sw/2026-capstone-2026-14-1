@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  createApiSpeechProvider,
   createBrowserSpeechProvider,
   createSessionVoice,
 } = require('../../public/js/workout/session-voice.js');
@@ -81,6 +82,40 @@ test('browser speech provider creates a Korean utterance with rate and message',
   assert.equal(spoken[0].text, '무릎을 바깥쪽으로 밀어주세요');
   assert.equal(spoken[0].lang, 'ko-KR');
   assert.equal(spoken[0].rate, 0.95);
+});
+
+test('api speech provider defaults to GPT-4o Mini TTS and OpenAI voice', () => {
+  const originalFetch = global.fetch;
+  const originalAudio = global.Audio;
+  let requestBody;
+
+  global.fetch = async (_endpoint, options) => {
+    requestBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      async blob() {
+        return new Blob([]);
+      },
+    };
+  };
+  global.Audio = function FakeAudio() {
+    this.paused = true;
+    this.ended = false;
+    this.pause = () => {};
+    this.play = () => Promise.resolve();
+  };
+
+  try {
+    const provider = createApiSpeechProvider();
+    const result = provider.speak({ message: '기본 음성 테스트' });
+
+    assert.equal(result.spoken, true);
+    assert.equal(requestBody.model, 'openai/gpt-4o-mini-tts-2025-12-15');
+    assert.equal(requestBody.voice, 'nova');
+  } finally {
+    global.fetch = originalFetch;
+    global.Audio = originalAudio;
+  }
 });
 
 test('session voice does not speak when disabled', () => {
