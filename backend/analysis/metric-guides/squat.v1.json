@@ -1,0 +1,33 @@
+{
+  "exercise": "squat",
+  "version": "v1",
+  "metrics": {
+    "knee_alignment": {
+      "display_name": "무릎 정렬",
+      "meaning": "무릎과 발끝 방향의 일치 정도",
+      "low_score_interpretation": "무릎이 안쪽 또는 바깥쪽으로 흔들릴 수 있음",
+      "coaching_cues": ["무릎과 발끝 방향을 맞추세요", "내려갈 때 무릎이 안으로 모이지 않게 하세요"],
+      "safety_priority": 0.9,
+      "actionability": 0.9,
+      "view_compatibility": { "FRONT": 1.0, "SIDE": 0.4 }
+    },
+    "depth": {
+      "display_name": "스쿼트 깊이",
+      "meaning": "충분히 내려가는 동작의 안정성",
+      "low_score_interpretation": "하강 깊이가 부족할 수 있음",
+      "coaching_cues": ["엉덩이를 뒤로 빼며 천천히 내려가세요", "반복 수보다 하강 동작의 일관성을 우선하세요"],
+      "safety_priority": 0.6,
+      "actionability": 0.8,
+      "view_compatibility": { "FRONT": 0.6, "SIDE": 1.0 }
+    },
+    "spine_angle": {
+      "display_name": "상체 각도",
+      "meaning": "상체 기울기의 안정성",
+      "low_score_interpretation": "상체 각도가 흔들릴 수 있음",
+      "coaching_cues": ["가슴을 세우고 상체 각도를 일정하게 유지하세요"],
+      "safety_priority": 0.7,
+      "actionability": 0.7,
+      "view_compatibility": { "FRONT": 0.5, "SIDE": 1.0 }
+    }
+  }
+}

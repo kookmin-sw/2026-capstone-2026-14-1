@@ -1,0 +1,24 @@
+{
+  "exercise": "plank",
+  "version": "v1",
+  "metrics": {
+    "body_line": {
+      "display_name": "몸통 정렬",
+      "meaning": "어깨부터 발목까지 일직선을 유지하는 정도",
+      "low_score_interpretation": "허리나 엉덩이 위치가 흔들릴 수 있음",
+      "coaching_cues": ["복부에 힘을 주고 몸통을 일직선으로 유지하세요", "엉덩이가 위아래로 흔들리지 않게 하세요"],
+      "safety_priority": 0.9,
+      "actionability": 0.8,
+      "view_compatibility": { "FRONT": 0.5, "SIDE": 1.0 }
+    },
+    "hip_stability": {
+      "display_name": "골반 안정성",
+      "meaning": "플랭크 중 골반 높이를 안정적으로 유지하는 정도",
+      "low_score_interpretation": "골반이 내려가거나 올라갈 수 있음",
+      "coaching_cues": ["골반 높이를 어깨와 같은 선에 맞추세요"],
+      "safety_priority": 0.8,
+      "actionability": 0.7,
+      "view_compatibility": { "FRONT": 0.4, "SIDE": 1.0 }
+    }
+  }
+}

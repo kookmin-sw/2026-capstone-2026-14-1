@@ -1,0 +1,24 @@
+{
+  "exercise": "push_up",
+  "version": "v1",
+  "metrics": {
+    "elbow_angle": {
+      "display_name": "팔꿈치 각도",
+      "meaning": "팔꿈치가 충분히 굽혀지고 펴지는 정도",
+      "low_score_interpretation": "팔꿈치 굽힘 깊이가 부족할 수 있음",
+      "coaching_cues": ["팔꿈치를 천천히 굽혀 몸을 낮추세요", "팔을 끝까지 밀어 올리세요"],
+      "safety_priority": 0.7,
+      "actionability": 0.8,
+      "view_compatibility": { "FRONT": 0.4, "SIDE": 1.0 }
+    },
+    "body_line": {
+      "display_name": "몸통 정렬",
+      "meaning": "머리부터 발까지 일직선을 유지하는 정도",
+      "low_score_interpretation": "허리나 엉덩이 위치가 흔들릴 수 있음",
+      "coaching_cues": ["머리부터 발끝까지 일직선을 유지하세요", "엉덩이가 처지지 않게 복부에 힘을 주세요"],
+      "safety_priority": 0.9,
+      "actionability": 0.8,
+      "view_compatibility": { "FRONT": 0.5, "SIDE": 1.0 }
+    }
+  }
+}
