@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "required": ["summary", "improvements", "weak_points", "next_mission", "data_quality_note", "coach_comment"],
+  "properties": {
+    "summary": { "type": "string" },
+    "improvements": { "type": "array", "maxItems": 2 },
+    "weak_points": { "type": "array", "maxItems": 2 },
+    "next_mission": { "type": "object" },
+    "data_quality_note": { "type": "object" },
+    "coach_comment": { "type": "string" }
+  }
+}
