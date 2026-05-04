@@ -53,9 +53,16 @@ Required environment variables live in `.env`.
 - Prefer existing runtime authority boundaries.
 - Keep exercise-specific rules inside each exercise module.
 - Keep shared gating and generic metric handling in `scoring-engine.js`.
-- Use the `serena` MCP aggressively for codebase exploration before broad manual grepping.
-- Prefer `serena` for symbol lookup, reference tracing, and cross-file impact analysis when changing workout logic, controllers, or data flow.
-- Use direct shell search as a fallback when `serena` is insufficient, but default to `serena` first for structural understanding.
+
+### Serena MCP
+
+Use **Serena** when semantics and structure matter (not for every task — unnecessary calls waste time and tokens):
+
+- **Prefer Serena for:** symbol lookup; find references across files; assessing impact before changing workout logic, controllers, or data flow; refactors that must stay consistent (rename-safe paths, replace/insert at symbol boundaries).
+- **Exploration workflow:** start with `get_symbols_overview`, then narrow with `find_symbol` / reference tools — avoid reading whole files unless needed.
+- **Prefer `rg`, IDE search, or normal file edits for:** literal strings (errors, logs, copy), comments, TODOs, config values, and other pattern-only searches; tiny one-line text tweaks with no cross-file symbol concern.
+- **Fallback:** if symbol tools are unclear (unknown names, string-heavy JS), use shell/`rg` to locate candidates, then use Serena on the relevant paths.
+
 - When changing pose-derived inputs, update both runtime code and tests.
 - Do not assume the git worktree is clean.
 - Do not overwrite unrelated user changes.
