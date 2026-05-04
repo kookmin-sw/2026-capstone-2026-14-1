@@ -1,0 +1,60 @@
+{
+  "exercise": "push_up",
+  "version": "v1",
+  "metrics": {
+    "elbow_depth": {
+      "display_name": "팔꿈치 굽힘 깊이",
+      "meaning": "내려갈 때 팔꿈치가 충분히 굽혀지는 정도",
+      "low_score_interpretation": "팔꿈치 굽힘 깊이가 부족할 수 있음",
+      "coaching_cues": ["팔꿈치를 천천히 굽혀 몸을 낮추세요", "가슴이 바닥에 가까워질 때까지 깊이를 일정하게 유지하세요"],
+      "safety_priority": 0.7,
+      "actionability": 0.8,
+      "view_compatibility": { "FRONT": 0.4, "SIDE": 1.0 }
+    },
+    "elbow_lockout": {
+      "display_name": "팔꿈치 펴기",
+      "meaning": "올라올 때 팔꿈치를 안정적으로 펴는 정도",
+      "low_score_interpretation": "팔을 끝까지 밀어 올리지 못할 수 있음",
+      "coaching_cues": ["올라올 때 팔을 끝까지 밀어 올리세요", "팔꿈치를 잠그듯 급하게 펴지 말고 안정적으로 마무리하세요"],
+      "safety_priority": 0.6,
+      "actionability": 0.8,
+      "view_compatibility": { "FRONT": 0.4, "SIDE": 1.0 }
+    },
+    "hip_angle": {
+      "display_name": "엉덩이 각도",
+      "meaning": "푸시업 중 골반과 몸통 정렬을 유지하는 정도",
+      "low_score_interpretation": "엉덩이가 처지거나 올라갈 수 있음",
+      "coaching_cues": ["엉덩이가 처지지 않게 복부에 힘을 주세요", "머리부터 발끝까지 일직선을 유지하세요"],
+      "safety_priority": 0.9,
+      "actionability": 0.8,
+      "view_compatibility": { "FRONT": 0.5, "SIDE": 1.0 }
+    },
+    "spine_angle": {
+      "display_name": "척추 각도",
+      "meaning": "상체와 허리 라인을 안정적으로 유지하는 정도",
+      "low_score_interpretation": "허리 라인이 흔들리거나 꺾일 수 있음",
+      "coaching_cues": ["가슴과 골반이 함께 움직이도록 유지하세요", "허리가 꺾이지 않게 몸통에 힘을 주세요"],
+      "safety_priority": 0.9,
+      "actionability": 0.8,
+      "view_compatibility": { "FRONT": 0.5, "SIDE": 1.0 }
+    },
+    "spine_stability": {
+      "display_name": "척추 안정성",
+      "meaning": "반복 중 척추 각도가 일관되게 유지되는 정도",
+      "low_score_interpretation": "반복마다 몸통 정렬이 흔들릴 수 있음",
+      "coaching_cues": ["내려가고 올라오는 동안 몸통 각도를 일정하게 유지하세요", "반복 수보다 자세 안정성을 우선하세요"],
+      "safety_priority": 0.8,
+      "actionability": 0.7,
+      "view_compatibility": { "FRONT": 0.5, "SIDE": 1.0 }
+    },
+    "tempo": {
+      "display_name": "동작 속도",
+      "meaning": "푸시업을 일정한 속도로 수행하는 정도",
+      "low_score_interpretation": "동작 속도가 너무 빠르거나 반복마다 달라질 수 있음",
+      "coaching_cues": ["내려갈 때와 올라올 때 속도를 일정하게 유지하세요", "급하게 반복하기보다 안정적인 템포를 유지하세요"],
+      "safety_priority": 0.5,
+      "actionability": 0.7,
+      "view_compatibility": { "FRONT": 0.7, "SIDE": 0.7 }
+    }
+  }
+}
