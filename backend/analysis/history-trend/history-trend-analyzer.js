@@ -21,7 +21,9 @@ function analyzeHistoryTrend({ userId, period = 'recent_5', exerciseKey, exercis
   const improvements = detectImprovements(trends);
   const weakPoints = detectWeakPoints(trends);
   const regressions = detectRegressions(trends);
-  const dataQuality = buildDataQuality({ events, trends });
+  const recentSessionIds = new Set(recentSessions.map((session) => session.session_id));
+  const filteredEvents = events.filter((event) => !event.session_id || recentSessionIds.has(event.session_id));
+  const dataQuality = buildDataQuality({ events: filteredEvents, trends });
 
   return {
     feature_version: 'htf_v1',
@@ -37,8 +39,8 @@ function analyzeHistoryTrend({ userId, period = 'recent_5', exerciseKey, exercis
       previous_avg_score: previousAvgScore,
       score_delta: scoreDelta,
       trend: classifyTrend(scoreDelta),
-      completed_sessions: orderedSessions.filter((session) => String(session.status || '').toLowerCase() === 'done').length,
-      aborted_sessions: orderedSessions.filter((session) => String(session.status || '').toLowerCase() === 'aborted').length,
+      completed_sessions: recentSessions.filter((session) => String(session.status || '').toLowerCase() === 'done').length,
+      aborted_sessions: recentSessions.filter((session) => String(session.status || '').toLowerCase() === 'aborted').length,
     },
     improvements,
     weak_points: weakPoints,
