@@ -7,7 +7,7 @@ function createWorkoutHistoryRepository({ supabase } = {}) {
   async function getRecentHistory({ userId, exercise = 'all', limit = 5 } = {}) {
     let sessionQuery = client
       .from('workout_session')
-      .select('session_id,user_id,exercise_id,selected_view,started_at,ended_at,duration_sec,total_reps,final_score,status,summary_feedback,exercise:exercise_id(code,name)')
+      .select('session_id,user_id,exercise_id,selected_view,started_at,ended_at,final_score,status,summary_feedback,exercise:exercise_id(code,name)')
       .eq('user_id', userId)
       .order('ended_at', { ascending: false })
       .limit(limit * 2);
