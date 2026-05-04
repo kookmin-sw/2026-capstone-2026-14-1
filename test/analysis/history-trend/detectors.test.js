@@ -29,3 +29,11 @@ test('detectRegressions selects meaningful negative delta', () => {
   assert.equal(result[0].metric_key, 'spine_angle');
   assert.match(result[0].evidence, /11점 하락/);
 });
+
+test('detectRegressions rounds absolute drop amounts', () => {
+  const result = detectRegressions([
+    { metric_key: 'tempo', metric_name: '템포', previous_avg: 70, recent_avg: 61.5, delta: -8.5, confidence: 0.7 },
+  ]);
+
+  assert.match(result[0].evidence, /9점 하락/);
+});

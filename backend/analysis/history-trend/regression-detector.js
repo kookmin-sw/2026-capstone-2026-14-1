@@ -10,7 +10,7 @@ function detectRegressions(trends = []) {
       recent_avg: trend.recent_avg,
       delta: trend.delta,
       confidence: trend.confidence,
-      evidence: `${trend.metric_name} 평균 점수가 ${Math.abs(Math.round(trend.delta))}점 하락`,
+      evidence: `${trend.metric_name} 평균 점수가 ${Math.round(Math.abs(trend.delta))}점 하락`,
     }));
 }
 
