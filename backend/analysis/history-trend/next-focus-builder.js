@@ -2,10 +2,11 @@ function buildNextFocusCandidates({ weakPoints = [], regressions = [], metricGui
   const candidates = new Map();
 
   for (const weakPoint of weakPoints) {
+    const recentAverage = Number(weakPoint.recent_avg ?? 65);
     candidates.set(weakPoint.metric_key, {
       metric_key: weakPoint.metric_key,
       metric_name: weakPoint.metric_name,
-      weakness_score: Math.max(0, (65 - Number(weakPoint.recent_avg || 65)) / 65),
+      weakness_score: Math.max(0, (65 - (Number.isFinite(recentAverage) ? recentAverage : 65)) / 65),
       regression_score: 0,
       occurrence_count: Number(weakPoint.occurrence_count || 0),
       confidence: Number(weakPoint.confidence || 0),

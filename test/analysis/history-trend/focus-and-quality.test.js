@@ -39,3 +39,23 @@ test('buildNextFocusCandidates prioritizes weak metric with guide cues', () => {
   assert.equal(candidates[0].priority, 1);
   assert.deepEqual(candidates[0].recommended_cues, ['무릎과 발끝 방향을 맞추세요']);
 });
+
+test('buildNextFocusCandidates treats zero recent average as maximal weakness', () => {
+  const candidates = buildNextFocusCandidates({
+    weakPoints: [
+      { metric_key: 'critical_depth', metric_name: '깊이', recent_avg: 0, confidence: 0.7, occurrence_count: 4 },
+      { metric_key: 'minor_alignment', metric_name: '정렬', recent_avg: 60, confidence: 0.7, occurrence_count: 4 },
+    ],
+    regressions: [],
+    metricGuide: {
+      metrics: {
+        critical_depth: { safety_priority: 0.5, actionability: 0.5 },
+        minor_alignment: { safety_priority: 0.5, actionability: 0.5 },
+      },
+    },
+  });
+
+  assert.equal(candidates[0].metric_key, 'critical_depth');
+  assert.equal(candidates[0].priority, 1);
+  assert.equal(candidates[1].metric_key, 'minor_alignment');
+});
