@@ -6,6 +6,8 @@ const { getQuestPage, completeQuest, claimQuestReward, assignDailyQuests, assign
 const { getHistoryPage, getSessionDetail, getRoutineHistoryDetail, getHistoryStats, deleteSession } = require('../controllers/history');
 const { getHomePage } = require('../controllers/home');
 const { getSettingsPage, updateNickname, updatePassword, updateTheme } = require('../controllers/settings');
+const { createAiGrowthReportController } = require('../backend/analysis/controller/ai-growth-report.controller');
+const aiGrowthReportController = createAiGrowthReportController();
 const router = express.Router();
 
 // admin 계정은 일반 페이지로 들어가지 않게 막기
@@ -64,5 +66,9 @@ router.get('/settings', requireAuth, getSettingsPage);
 router.post('/settings/nickname', requireAuth, updateNickname);
 router.post('/settings/password', requireAuth, updatePassword);
 router.post('/settings/theme', requireAuth, updateTheme);
+
+// AI 성장 리포트 API (로그인 필요)
+router.get('/api/users/me/coach-report', requireAuth, aiGrowthReportController.getCoachReport);
+router.post('/api/users/me/coach-report/rebuild', requireAuth, aiGrowthReportController.rebuildCoachReport);
 
 module.exports = router;
