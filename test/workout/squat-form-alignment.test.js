@@ -284,6 +284,94 @@ test('squat rep scoring still caps clearly shallow reps to 55', () => {
   assert.equal(scored.score, 55);
 });
 
+test('squat robust summary computes phase series statistics without serializing internal buffers', () => {
+  const squatModule = window.WorkoutExerciseRegistry.get('squat');
+  const repCounter = new window.RepCounter('squat');
+  squatModule.startRepTracking(repCounter, 0);
+
+  const frames = [
+    { phase: window.REP_PHASES.DESCENT, knee: 124, spine: 14, tibia: 6, valgus: 0.02, heel: true, hipY: 0.62, kneeY: 0.70, torsoLength: 0.42 },
+    { phase: window.REP_PHASES.BOTTOM, knee: 102, spine: 18, tibia: 8, valgus: 0.04, heel: true, hipY: 0.71, kneeY: 0.70, torsoLength: 0.42 },
+    { phase: window.REP_PHASES.BOTTOM, knee: 96, spine: 28, tibia: 10, valgus: 0.12, heel: false, hipY: 0.735, kneeY: 0.70, torsoLength: 0.42 },
+    { phase: window.REP_PHASES.ASCENT, knee: 118, spine: 22, tibia: 7, valgus: 0.13, heel: false, hipY: 0.66, kneeY: 0.70, torsoLength: 0.42 },
+    { phase: window.REP_PHASES.ASCENT, knee: 154, spine: 16, tibia: 6, valgus: 0.03, heel: true, hipY: 0.56, kneeY: 0.70, torsoLength: 0.42 },
+    { phase: window.REP_PHASES.LOCKOUT, knee: 168, spine: 8, tibia: 4, valgus: 0.02, heel: true, hipY: 0.50, kneeY: 0.70, torsoLength: 0.42 },
+  ];
+
+  frames.forEach((frame, index) => {
+    repCounter.currentState = frame.phase === window.REP_PHASES.LOCKOUT
+      ? window.REP_STATES.NEUTRAL
+      : window.REP_STATES.ACTIVE;
+    repCounter.bottomReached = repCounter.bottomReached || frame.phase === window.REP_PHASES.BOTTOM;
+    repCounter.ascentStarted = repCounter.ascentStarted || frame.phase === window.REP_PHASES.ASCENT;
+    squatModule.updateRepTracking(repCounter, {
+      leftKnee: frame.knee,
+      rightKnee: frame.knee + 2,
+      leftHip: 110,
+      rightHip: 112,
+      spine: frame.spine,
+      tibia: frame.tibia,
+      kneeValgus: frame.valgus,
+      heelContact: frame.heel,
+      hipBelowKnee: frame.hipY > frame.kneeY,
+      hipY: frame.hipY,
+      kneeY: frame.kneeY,
+      torsoLength: frame.torsoLength,
+      view: 'SIDE',
+      quality: { score: 0.9, level: 'HIGH' },
+    }, index * 100, frame.knee, 90);
+  });
+
+  const finalized = squatModule.finalizeRepSummary(repCounter);
+  const bottomRobust = finalized.phases.BOTTOM.robust;
+  const overallRobust = finalized.overall.robust;
+
+  assert.equal(Object.hasOwn(finalized.overall, '_series'), false);
+  assert.equal(Object.hasOwn(finalized.phases.BOTTOM, '_series'), false);
+  assert.equal(bottomRobust.bottomKneeMedian, 99);
+  assert.equal(bottomRobust.bottomKneeLow10Avg, 96);
+  assert.equal(bottomRobust.hipBelowKnee, 0);
+  assert.equal(bottomRobust.hipNearKnee, 1);
+  assert.equal(overallRobust.trunkLeanP90, 22);
+  assert.equal(overallRobust.trunkTibiaAbsP90, 15);
+  assert.equal(overallRobust.signedTrunkTibiaP90, 15);
+  assert.equal(overallRobust.valgusP90, 0.12);
+  assert.equal(overallRobust.valgusBadRatio, 0.333);
+  assert.equal(overallRobust.heelContactAvg, 0.7);
+  assert.equal(overallRobust.heelContactBreakFrames, 2);
+  assert.equal(finalized.overall.robustConfidence.depth, 0.9);
+  assert.equal(finalized.overall.robustConfidence.heel_contact, 0.9);
+});
+
+test('squat robust phase series is sample limited', () => {
+  const squatModule = window.WorkoutExerciseRegistry.get('squat');
+  const repCounter = new window.RepCounter('squat');
+  squatModule.startRepTracking(repCounter, 0);
+
+  for (let i = 0; i < 140; i += 1) {
+    repCounter.currentState = window.REP_STATES.ACTIVE;
+    repCounter.bottomReached = true;
+    squatModule.updateRepTracking(repCounter, {
+      leftKnee: 140 - i,
+      rightKnee: 140 - i,
+      leftHip: 110,
+      rightHip: 110,
+      spine: 12,
+      tibia: 6,
+      kneeValgus: 0.02,
+      heelContact: true,
+      hipBelowKnee: true,
+      view: 'SIDE',
+      quality: { score: 0.92, level: 'HIGH' },
+    }, i * 16, 140 - i, 90);
+  }
+
+  assert.ok(repCounter.currentRepSummary.phases.BOTTOM._series.kneeAngle.length <= 90);
+  const finalized = squatModule.finalizeRepSummary(repCounter);
+  assert.equal(Object.hasOwn(finalized.phases.BOTTOM, '_series'), false);
+  assert.ok(Number.isFinite(finalized.phases.BOTTOM.robust.bottomKneeMedian));
+});
+
 test('squat front-view rep scoring excludes knee alignment from weighted breakdown', () => {
   const squatModule = window.WorkoutExerciseRegistry.get('squat');
   const scoringEngine = {

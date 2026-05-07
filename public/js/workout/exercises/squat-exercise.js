@@ -24,6 +24,44 @@
     LOCKOUT: 'LOCKOUT'
   };
   const SCORING_PHASES = [REP_PHASES.DESCENT, REP_PHASES.BOTTOM, REP_PHASES.ASCENT];
+  const MAX_SERIES_SAMPLES = 300;
+  const MAX_PHASE_SAMPLES = {
+    DESCENT: 120,
+    BOTTOM: 90,
+    ASCENT: 120,
+    LOCKOUT: 90,
+    NEUTRAL: 90,
+    overall: MAX_SERIES_SAMPLES
+  };
+  const SQUAT_SCORING_CONFIG = {
+    FRONT: {
+      metrics: [
+        { key: 'knee_valgus', weight: 0.40, scorer: 'kneeValgus' },
+        { key: 'depth', weight: 0.25, scorer: 'kneeDepth' },
+        { key: 'knee_symmetry', weight: 0.20, scorer: 'symmetry' },
+        { key: 'trunk_stability', weight: 0.15, scorer: 'trunkLean' }
+      ]
+    },
+    SIDE: {
+      metrics: [
+        { key: 'depth', weight: 0.36, scorer: 'kneeDepth' },
+        { key: 'trunk_tibia_angle', weight: 0.22, scorer: 'angleDiff' },
+        { key: 'hip_angle', weight: 0.18, scorer: 'hipDepth' },
+        { key: 'trunk_stability', weight: 0.16, scorer: 'trunkLean' },
+        { key: 'heel_contact', weight: 0.08, scorer: 'heelContact' }
+      ]
+    }
+  };
+  const CURVES = {
+    kneeDepth: [[90, 100], [100, 85], [115, 50], [130, 15], [150, 0]],
+    kneeValgus: [[0.03, 100], [0.06, 70], [0.10, 30], [0.15, 5], [0.20, 0]],
+    trunkLean: [[25, 100], [40, 75], [55, 40], [70, 10], [85, 0]],
+    hipDepth: [[110, 100], [120, 80], [140, 40], [155, 10], [170, 0]],
+    symmetry: [[10, 100], [18, 70], [28, 25], [40, 0]],
+    angleDiff: [[10, 100], [20, 70], [35, 30], [50, 5], [65, 0]],
+    alignment: [[0.03, 100], [0.05, 75], [0.08, 30], [0.12, 5], [0.16, 0]],
+    heelContact: [[0.90, 100], [0.80, 75], [0.65, 45], [0.50, 15], [0, 0]]
+  };
 
   const squatExercise = {
     code: 'squat',
@@ -255,6 +293,8 @@
       const requestedView = repRecord?.selectedView || null;
       const dominantView = summary.dominantView || 'UNKNOWN';
       const confidence = summary.confidence || { score: 0, level: 'LOW', factor: 0.7 };
+      const viewConfidence =
+        typeof confidence.score === 'number' && Number.isFinite(confidence.score) ? confidence.score : 0;
 
       if (requestedView === 'DIAGONAL' || dominantView === 'DIAGONAL') {
         return buildHoldRepResult(repRecord, summary, {
@@ -267,25 +307,97 @@
         });
       }
 
+      if (requestedView === 'SIDE' && dominantView !== 'SIDE') {
+        return buildHoldRepResult(repRecord, summary, {
+          status: 'HOLD_CAMERA',
+          reason: 'view_mismatch',
+          feedback: '측면이 잘 보이도록 카메라 위치를 조정해주세요.',
+          view: dominantView !== 'UNKNOWN' ? dominantView : 'FRONT',
+          confidence,
+          rawMetrics: {
+            confidence: confidence.level,
+            requestedView,
+            dominantView
+          }
+        });
+      }
+
       const view = requestedView
         ? requestedView
         : dominantView;
 
-      const bottomKnee = scoringEngine.pickMetric(summary, ['BOTTOM', 'DESCENT', 'ASCENT'], 'kneeAngle', 'min');
-      const bottomHip = scoringEngine.pickMetric(summary, ['BOTTOM', 'DESCENT'], 'hipAngle', 'min');
-      const maxSpine = scoringEngine.pickMetric(summary, ['DESCENT', 'BOTTOM', 'ASCENT'], 'spineAngle', 'max');
-      const kneeSymmetry = scoringEngine.pickMetric(summary, ['BOTTOM', 'ASCENT', 'DESCENT'], 'kneeSymmetry', 'avg');
-      const kneeAlignment = view === 'FRONT'
+      const robustSources = getRobustScoringSources(summary);
+      const fallbackBottomKnee = scoringEngine.pickMetric(summary, ['BOTTOM', 'DESCENT', 'ASCENT'], 'kneeAngle', 'min');
+      const fallbackBottomHip = scoringEngine.pickMetric(summary, ['BOTTOM', 'DESCENT'], 'hipAngle', 'min');
+      const fallbackMaxSpine = scoringEngine.pickMetric(summary, ['DESCENT', 'BOTTOM', 'ASCENT'], 'spineAngle', 'max');
+      const fallbackKneeSymmetry = scoringEngine.pickMetric(summary, ['BOTTOM', 'ASCENT', 'DESCENT'], 'kneeSymmetry', 'avg');
+      const fallbackKneeAlignment = view === 'FRONT'
         ? scoringEngine.pickPhaseMetric(summary, ['BOTTOM', 'ASCENT'], 'kneeAlignment', 'avg')
         : scoringEngine.pickMetric(summary, ['BOTTOM', 'ASCENT', 'DESCENT'], 'kneeAlignment', 'avg');
       const lockoutKnee = scoringEngine.pickMetric(summary, ['LOCKOUT', 'ASCENT'], 'kneeAngle', 'max');
       const lockoutHip = scoringEngine.pickMetric(summary, ['LOCKOUT', 'ASCENT'], 'hipAngle', 'max');
 
-      const maxTrunkTibia = scoringEngine.pickMetric(summary, ['DESCENT', 'BOTTOM', 'ASCENT'], 'trunkTibiaAngle', 'max');
-      const avgHeelContact = scoringEngine.pickMetric(summary, ['DESCENT', 'BOTTOM', 'ASCENT'], 'heelContact', 'avg');
-      const bottomHipBelowKnee = scoringEngine.pickMetric(summary, ['BOTTOM'], 'hipBelowKnee', 'min');
-      const avgKneeValgus = scoringEngine.pickMetric(summary, ['BOTTOM', 'ASCENT', 'DESCENT'], 'kneeValgus', 'avg');
+      const fallbackMaxTrunkTibia = scoringEngine.pickMetric(summary, ['DESCENT', 'BOTTOM', 'ASCENT'], 'trunkTibiaAngle', 'max');
+      const fallbackAvgHeelContact = scoringEngine.pickMetric(summary, ['DESCENT', 'BOTTOM', 'ASCENT'], 'heelContact', 'avg');
+      const fallbackBottomHipBelowKnee = scoringEngine.pickMetric(summary, ['BOTTOM'], 'hipBelowKnee', 'min');
+      const fallbackAvgKneeValgus = scoringEngine.pickMetric(summary, ['BOTTOM', 'ASCENT', 'DESCENT'], 'kneeValgus', 'avg');
 
+      const phases = summary.phases || {};
+      const bottomRobust = phases.BOTTOM?.robust;
+      const kneeN = bottomRobust?.sampleCounts?.kneeAngle ?? 0;
+      const hasEnoughBottomSamples = kneeN >= 5;
+      const bottomKnee = hasEnoughBottomSamples
+        ? firstFinite(bottomRobust?.bottomKneeLow10Avg, bottomRobust?.bottomKneeMedian, fallbackBottomKnee)
+        : firstFinite(bottomRobust?.bottomKneeMedian, fallbackBottomKnee);
+
+      const bottomHip = firstFinite(
+        bottomRobust?.bottomHipLow10Avg,
+        bottomRobust?.bottomHipMedian,
+        scoringEngine.pickMetric(summary, ['BOTTOM'], 'hipAngle', 'min'),
+        scoringEngine.pickMetric(summary, ['DESCENT'], 'hipAngle', 'min'),
+        fallbackBottomHip
+      );
+
+      const maxSpine = firstFinite(
+        maxFiniteAcrossPhases(
+          summary,
+          (r) => r?.trunkLeanP90
+        ),
+        robustSources.overall?.trunkLeanP90,
+        fallbackMaxSpine
+      );
+      const kneeSymmetry = fallbackKneeSymmetry;
+      const kneeAlignment = fallbackKneeAlignment;
+      const maxTrunkTibia = firstFinite(
+        maxFiniteAcrossPhases(
+          summary,
+          (r) => r?.trunkTibiaAbsP90
+        ),
+        robustSources.overall?.trunkTibiaAbsP90,
+        fallbackMaxTrunkTibia
+      );
+
+      const bottomHeel = phases.BOTTOM?.robust?.heelContactAvg;
+      const ascentHeel = phases.ASCENT?.robust?.heelContactAvg;
+      const avgHeelContact = view === 'SIDE'
+        ? firstFinite(
+          minFinite(bottomHeel, ascentHeel),
+          robustSources.scoring?.heelContactAvg,
+          robustSources.overall?.heelContactAvg,
+          fallbackAvgHeelContact
+        )
+        : firstFinite(robustSources.scoring?.heelContactAvg, robustSources.overall?.heelContactAvg, fallbackAvgHeelContact);
+
+      const heelContactBreakFrames = maxFinite(
+        phases.DESCENT?.robust?.heelContactBreakFrames,
+        phases.BOTTOM?.robust?.heelContactBreakFrames,
+        phases.ASCENT?.robust?.heelContactBreakFrames
+      );
+      const bottomHipBelowKnee = firstFinite(robustSources.bottom?.hipBelowKnee, fallbackBottomHipBelowKnee);
+      const bottomHipNearKnee = robustSources.bottom?.hipNearKnee ?? null;
+      const avgKneeValgus = firstFinite(robustSources.scoring?.valgusAvg, robustSources.overall?.valgusAvg, fallbackAvgKneeValgus);
+
+      const depthClass = classifyDepth(bottomKnee, bottomHipBelowKnee, bottomHipNearKnee);
       const rawMetrics = buildRawMetrics({
         bottomKnee,
         bottomHip,
@@ -294,7 +406,10 @@
         kneeAlignment,
         maxTrunkTibia,
         avgHeelContact,
+        heelContactBreakFrames,
         bottomHipBelowKnee,
+        bottomHipNearKnee,
+        depthClass,
         avgKneeValgus,
         lockoutKnee,
         lockoutHip,
@@ -312,11 +427,19 @@
         });
       }
 
-      const depthReachedByAngle = Number.isFinite(bottomKnee) && bottomKnee <= 130;
-      const depthReachedByHip = bottomHipBelowKnee === 1;
+      if (view === 'SIDE' && viewConfidence < 0.7) {
+        return buildHoldRepResult(repRecord, summary, {
+          status: 'HOLD_CAMERA',
+          reason: 'side_low_confidence',
+          feedback: '측면이 안정적으로 인식되도록 조명과 거리를 맞춰주세요.',
+          view: 'SIDE',
+          confidence,
+          rawMetrics
+        });
+      }
 
       const hardFails = [];
-      if (!depthReachedByAngle && !depthReachedByHip) {
+      if (depthClass === 'depth_fail') {
         hardFails.push('depth_not_reached');
       }
       if (!isLockoutComplete(summary, lockoutKnee, lockoutHip)) {
@@ -333,6 +456,8 @@
         maxTrunkTibia,
         avgHeelContact,
         bottomHipBelowKnee,
+        bottomHipNearKnee,
+        depthClass,
         avgKneeValgus,
         kneeSymmetry,
         kneeAlignment
@@ -341,12 +466,14 @@
       let weightedScore = 0;
       let totalWeight = 0;
 
+      const scoringWeightSum = metricPlan.reduce((sum, item) => sum + item.weight, 0) || 1;
       for (const item of metricPlan) {
         const normalizedScore = item.scorer(scoringEngine);
         if (!Number.isFinite(normalizedScore)) continue;
 
         const metric = scoringEngine.getProfileMetricConfig(item.key, item.title);
-        const dynamicMaxScore = Math.round(item.weight * 100);
+        const normalizedWeight = item.weight / scoringWeightSum;
+        const dynamicMaxScore = Math.round(normalizedWeight * 100);
         const score = Math.round((normalizedScore / 100) * dynamicMaxScore);
         breakdown.push({
           metric_id: metric.metric_id,
@@ -356,20 +483,18 @@
           score,
           normalizedScore: Math.round(normalizedScore * 100) / 100,
           maxScore: dynamicMaxScore,
-          weight: item.weight,
+          weight: normalizedWeight,
+          configuredWeight: item.weight,
           feedback: normalizedScore < 70 ? item.feedback : null
         });
 
-        weightedScore += normalizedScore * item.weight;
-        totalWeight += item.weight;
+        weightedScore += normalizedScore * normalizedWeight;
+        totalWeight += normalizedWeight;
       }
 
       const baseScore = totalWeight > 0 ? (weightedScore / totalWeight) : (repRecord.score || 0);
       let finalScore = baseScore * (confidence.factor || 0.7);
 
-      if (hardFails.includes('depth_not_reached')) {
-        finalScore = Math.min(finalScore, 55);
-      }
       finalScore = applyDepthCap(finalScore, bottomKnee, bottomHipBelowKnee);
       if (hardFails.includes('lockout_incomplete')) {
         finalScore = Math.min(finalScore, 65);
@@ -380,9 +505,15 @@
 
       finalScore = Math.max(0, Math.min(100, Math.round(finalScore)));
 
-      const softFails = breakdown
+      let softFails = breakdown
         .filter((item) => item.maxScore > 0 && (item.score / item.maxScore) < 0.7)
         .map((item) => item.key);
+
+      if (view === 'SIDE' && Number.isFinite(heelContactBreakFrames) && heelContactBreakFrames >= 3) {
+        if (!softFails.includes('heel_contact')) {
+          softFails = [...softFails, 'heel_contact'];
+        }
+      }
 
       const feedback = pickFeedback({
         hardFails,
@@ -393,7 +524,8 @@
         maxSpine,
         maxTrunkTibia,
         avgHeelContact,
-        avgKneeValgus
+        avgKneeValgus,
+        heelContactBreakFrames
       });
 
       console.log('[ScoringEngine][Squat] Rep evaluation:', {
@@ -412,6 +544,7 @@
         lockoutHip,
         hardFails,
         softFails,
+        depthClass,
         feedback
       });
 
@@ -562,17 +695,17 @@
           UNKNOWN: 0
         }
       },
-      overall: createPhaseSummary(repCounter),
+      overall: createPhaseSummary(repCounter, 'overall'),
       phases: {
-        DESCENT: createPhaseSummary(repCounter),
-        BOTTOM: createPhaseSummary(repCounter),
-        ASCENT: createPhaseSummary(repCounter),
-        LOCKOUT: createPhaseSummary(repCounter)
+        DESCENT: createPhaseSummary(repCounter, REP_PHASES.DESCENT),
+        BOTTOM: createPhaseSummary(repCounter, REP_PHASES.BOTTOM),
+        ASCENT: createPhaseSummary(repCounter, REP_PHASES.ASCENT),
+        LOCKOUT: createPhaseSummary(repCounter, REP_PHASES.LOCKOUT)
       }
     };
   }
 
-  function createPhaseSummary(repCounter) {
+  function createPhaseSummary(repCounter, phase = null) {
     return {
       samples: 0,
       durationMs: 0,
@@ -599,6 +732,35 @@
         heelContact: repCounter.createMetricStats(),
         hipBelowKnee: repCounter.createMetricStats(),
         kneeValgus: repCounter.createMetricStats()
+      },
+      _series: createPhaseSeries(phase)
+    };
+  }
+
+  function createPhaseSeries(phase = null) {
+    return {
+      maxSamples: MAX_PHASE_SAMPLES[phase] || MAX_SERIES_SAMPLES,
+      kneeAngle: [],
+      hipAngle: [],
+      spineAngle: [],
+      trunkTibiaAngle: [],
+      signedTrunkTibia: [],
+      kneeValgus: [],
+      heelContact: [],
+      hipY: [],
+      kneeY: [],
+      torsoLength: [],
+      kneeSymmetry: [],
+      kneeAlignment: [],
+      confidence: {
+        depth: [],
+        hip_angle: [],
+        trunk_stability: [],
+        trunk_tibia_angle: [],
+        knee_valgus: [],
+        knee_symmetry: [],
+        heel_contact: [],
+        knee_alignment: []
       }
     };
   }
@@ -615,12 +777,18 @@
       : null;
     const qualityScore = Number.isFinite(angles.quality?.score) ? angles.quality.score : null;
 
-    const tibiaAngle = repCounter.getAngleValue(angles, 'tibia_angle');
+    const tibiaAngle = Number.isFinite(angles.tibiaAngle)
+      ? angles.tibiaAngle
+      : (Number.isFinite(angles.tibia)
+         ? angles.tibia
+         : repCounter.getAngleValue(angles, 'tibia_angle'));
+    const spineAngle = repCounter.getAngleValue(angles, 'spine_angle');
+    const trunkTibiaSigned = Number.isFinite(spineAngle) && Number.isFinite(tibiaAngle)
+      ? spineAngle - tibiaAngle
+      : null;
     const trunkTibiaAngle = angles.trunkTibiaAngle != null
       ? angles.trunkTibiaAngle
-      : (Number.isFinite(angles.spine) && Number.isFinite(angles.tibia)
-         ? Math.abs(angles.spine - angles.tibia)
-         : null);
+      : (Number.isFinite(trunkTibiaSigned) ? Math.abs(trunkTibiaSigned) : null);
 
       const heelContact = angles.heelContact != null
         ? (angles.heelContact ? 1 : 0)
@@ -640,10 +808,12 @@
          ? (Math.abs(angles.kneeAlignment.left) + Math.abs(angles.kneeAlignment.right)) / 2
          : null);
 
+    const hipAngle = repCounter.getAngleValue(angles, 'hip_angle');
+
     return {
       kneeAngle: primaryAngle,
-      hipAngle: repCounter.getAngleValue(angles, 'hip_angle'),
-      spineAngle: repCounter.getAngleValue(angles, 'spine_angle'),
+      hipAngle,
+      spineAngle,
       kneeSymmetry,
       kneeAlignment,
       qualityScore,
@@ -651,9 +821,23 @@
       qualityLevel: angles.quality?.level || 'UNKNOWN',
       tibiaAngle,
       trunkTibiaAngle,
+      signedTrunkTibia: Number.isFinite(trunkTibiaSigned) ? trunkTibiaSigned : null,
       heelContact,
       hipBelowKnee,
-      kneeValgus
+      kneeValgus,
+      hipY: Number.isFinite(angles.hipY) ? angles.hipY : null,
+      kneeY: Number.isFinite(angles.kneeY) ? angles.kneeY : null,
+      torsoLength: Number.isFinite(angles.torsoLength) ? angles.torsoLength : null,
+      metricConfidence: getSnapshotMetricConfidence(angles, {
+        kneeAngle: primaryAngle,
+        hipAngle,
+        spineAngle,
+        trunkTibiaAngle,
+        kneeValgus,
+        kneeSymmetry,
+        heelContact,
+        kneeAlignment
+      })
     };
   }
 
@@ -704,6 +888,35 @@
     repCounter.updateMetricStats(target.metrics.heelContact, snapshot.heelContact);
     repCounter.updateMetricStats(target.metrics.hipBelowKnee, snapshot.hipBelowKnee);
     repCounter.updateMetricStats(target.metrics.kneeValgus, snapshot.kneeValgus);
+    recordPhaseSeries(target._series, snapshot);
+  }
+
+  function recordPhaseSeries(series, snapshot) {
+    if (!series || !snapshot) return;
+    const maxSamples = Number.isFinite(series.maxSamples) ? series.maxSamples : MAX_SERIES_SAMPLES;
+    pushFiniteLimited(series.kneeAngle, snapshot.kneeAngle, maxSamples);
+    pushFiniteLimited(series.hipAngle, snapshot.hipAngle, maxSamples);
+    pushFiniteLimited(series.spineAngle, snapshot.spineAngle, maxSamples);
+    pushFiniteLimited(series.trunkTibiaAngle, snapshot.trunkTibiaAngle, maxSamples);
+    pushFiniteLimited(series.signedTrunkTibia, snapshot.signedTrunkTibia, maxSamples);
+    pushFiniteLimited(series.kneeValgus, snapshot.kneeValgus, maxSamples);
+    pushFiniteLimited(series.heelContact, snapshot.heelContact, maxSamples);
+    pushFiniteLimited(series.hipY, snapshot.hipY, maxSamples);
+    pushFiniteLimited(series.kneeY, snapshot.kneeY, maxSamples);
+    pushFiniteLimited(series.torsoLength, snapshot.torsoLength, maxSamples);
+    pushFiniteLimited(series.kneeSymmetry, snapshot.kneeSymmetry, maxSamples);
+    pushFiniteLimited(series.kneeAlignment, snapshot.kneeAlignment, maxSamples);
+
+    const confidence = snapshot.metricConfidence || {};
+    for (const key of Object.keys(series.confidence || {})) {
+      pushFiniteLimited(series.confidence[key], confidence[key], maxSamples);
+    }
+  }
+
+  function pushFiniteLimited(arr, value, maxSamples = MAX_SERIES_SAMPLES) {
+    if (!Array.isArray(arr) || !Number.isFinite(value)) return;
+    arr.push(value);
+    while (arr.length > maxSamples) arr.shift();
   }
 
   function getScoringPhaseConfidence(summary) {
@@ -728,6 +941,9 @@
   }
 
   function finalizePhaseSummary(repCounter, summary) {
+    const robust = buildRobustSummary(summary._series, summary.metrics);
+    const robustConfidence = buildRobustConfidence(summary._series);
+
     return {
       samples: summary.samples,
       durationMs: Math.round(summary.durationMs),
@@ -735,63 +951,242 @@
       qualityLevels: summary.qualityLevels,
       metrics: Object.fromEntries(
         Object.entries(summary.metrics).map(([key, stats]) => [key, repCounter.finalizeMetricStats(stats)])
+      ),
+      robust,
+      robustConfidence
+    };
+  }
+
+  function buildRobustSummary(series, metrics = {}) {
+    const kneeAngles = series?.kneeAngle || [];
+    const hipAngles = series?.hipAngle || [];
+    const hipYValues = series?.hipY || [];
+    const kneeYValues = series?.kneeY || [];
+    const torsoLengths = series?.torsoLength || [];
+    const hipY = median(hipYValues);
+    const kneeY = median(kneeYValues);
+    const torsoLength = median(torsoLengths);
+    const fallbackHipBelowKnee = metrics?.hipBelowKnee?.max === 1 || metrics?.hipBelowKnee?.min === 1 ? 1 : null;
+
+    return {
+      bottomKneeMedian: median(kneeAngles),
+      bottomKneeLow10Avg: lowPercentileAverage(kneeAngles, 0.10),
+      bottomHipMedian: median(hipAngles),
+      bottomHipLow10Avg: lowPercentileAverage(hipAngles, 0.10),
+      sampleCounts: {
+        kneeAngle: finiteValues(kneeAngles).length,
+        hipAngle: finiteValues(hipAngles).length
+      },
+      hipBelowKnee: Number.isFinite(hipY) && Number.isFinite(kneeY)
+        ? (hipY > kneeY ? 1 : 0)
+        : fallbackHipBelowKnee,
+      hipNearKnee: computeHipNearKnee(hipY, kneeY, torsoLength),
+      trunkLeanP90: percentile(series?.spineAngle || [], 0.9),
+      trunkTibiaAbsP90: percentile(series?.trunkTibiaAngle || [], 0.9),
+      signedTrunkTibiaP90: percentile(series?.signedTrunkTibia || [], 0.9),
+      valgusAvg: average(series?.kneeValgus || []),
+      valgusP90: percentile(series?.kneeValgus || [], 0.9),
+      valgusBadRatio: badFrameRatio(series?.kneeValgus || [], (value) => value > 0.10),
+      heelContactAvg: average(series?.heelContact || []),
+      heelContactBreakFrames: maxConsecutive(series?.heelContact || [], (value) => value === 0)
+    };
+  }
+
+  function buildRobustConfidence(series) {
+    const confidence = series?.confidence || {};
+    return {
+      depth: confidenceValue(confidence.depth, series?.kneeAngle),
+      hip_angle: confidenceValue(confidence.hip_angle, series?.hipAngle),
+      trunk_stability: confidenceValue(confidence.trunk_stability, series?.spineAngle),
+      trunk_tibia_angle: confidenceValue(confidence.trunk_tibia_angle, series?.trunkTibiaAngle),
+      knee_valgus: confidenceValue(confidence.knee_valgus, series?.kneeValgus),
+      knee_symmetry: confidenceValue(confidence.knee_symmetry, series?.kneeSymmetry),
+      heel_contact: confidenceValue(confidence.heel_contact, series?.heelContact),
+      knee_alignment: confidenceValue(confidence.knee_alignment, series?.kneeAlignment)
+    };
+  }
+
+  function getSnapshotMetricConfidence(angles, values) {
+    const qualityScore = Number.isFinite(angles?.quality?.score) ? angles.quality.score : null;
+    const sampleConfidence = (value) => Number.isFinite(value) ? 1 : 0;
+    const withQuality = (value) => {
+      const sample = sampleConfidence(value);
+      return Number.isFinite(qualityScore) ? Math.min(sample, qualityScore) : sample;
+    };
+
+    return {
+      depth: withQuality(values.kneeAngle),
+      hip_angle: withQuality(values.hipAngle),
+      trunk_stability: withQuality(values.spineAngle),
+      trunk_tibia_angle: withQuality(values.trunkTibiaAngle),
+      knee_valgus: withQuality(values.kneeValgus),
+      knee_symmetry: withQuality(values.kneeSymmetry),
+      heel_contact: withQuality(values.heelContact),
+      knee_alignment: withQuality(values.kneeAlignment)
+    };
+  }
+
+  function percentile(values, p) {
+    const arr = finiteValues(values).sort((a, b) => a - b);
+    if (!arr.length) return null;
+    const idx = Math.floor((arr.length - 1) * p);
+    return roundMetric(arr[idx], 3);
+  }
+
+  function median(values) {
+    const arr = finiteValues(values).sort((a, b) => a - b);
+    if (!arr.length) return null;
+    const mid = Math.floor(arr.length / 2);
+    if (arr.length % 2 === 1) return roundMetric(arr[mid]);
+    return roundMetric((arr[mid - 1] + arr[mid]) / 2);
+  }
+
+  function lowPercentileAverage(values, percentileCutoff) {
+    const arr = finiteValues(values).sort((a, b) => a - b);
+    if (!arr.length) return null;
+    const count = Math.max(1, Math.ceil(arr.length * percentileCutoff));
+    return roundMetric(arr.slice(0, count).reduce((sum, value) => sum + value, 0) / count);
+  }
+
+  function average(values) {
+    const arr = finiteValues(values);
+    if (!arr.length) return null;
+    return roundMetric(arr.reduce((sum, value) => sum + value, 0) / arr.length);
+  }
+
+  function badFrameRatio(values, predicate) {
+    const arr = finiteValues(values);
+    if (!arr.length) return null;
+    return roundMetric(arr.filter(predicate).length / arr.length, 3);
+  }
+
+  function maxConsecutive(values, predicate) {
+    let maxRun = 0;
+    let currentRun = 0;
+    for (const value of values || []) {
+      if (!Number.isFinite(value)) continue;
+      if (predicate(value)) {
+        currentRun++;
+        maxRun = Math.max(maxRun, currentRun);
+      } else {
+        currentRun = 0;
+      }
+    }
+    return maxRun;
+  }
+
+  function confidenceValue(confidenceValues, sampleValues) {
+    const explicit = average(confidenceValues || []);
+    const samples = sampleValues || [];
+    const validSamples = finiteValues(samples).length;
+    const sampleRatio = samples.length > 0 ? validSamples / samples.length : null;
+    if (Number.isFinite(explicit) && Number.isFinite(sampleRatio)) {
+      return roundMetric(Math.min(explicit, sampleRatio), 3);
+    }
+    if (Number.isFinite(explicit)) return roundMetric(explicit, 3);
+    if (Number.isFinite(sampleRatio)) return roundMetric(sampleRatio, 3);
+    return null;
+  }
+
+  function finiteValues(values) {
+    return (values || []).filter(Number.isFinite);
+  }
+
+  function roundMetric(value, digits = 1) {
+    if (!Number.isFinite(value)) return null;
+    const factor = 10 ** digits;
+    return Math.round(value * factor) / factor;
+  }
+
+  function computeHipNearKnee(hipY, kneeY, torsoLength) {
+    if (!Number.isFinite(hipY) || !Number.isFinite(kneeY) || !Number.isFinite(torsoLength)) return null;
+    const tolerance = torsoLength * 0.08;
+    return Math.abs(hipY - kneeY) <= tolerance ? 1 : 0;
+  }
+
+  function getRobustScoringSources(summary) {
+    const phases = summary?.phases || {};
+    return {
+      bottom: phases.BOTTOM?.robust || null,
+      overall: summary?.overall?.robust || null,
+      scoring: mergeRobustSummaries(
+        phases.DESCENT?.robust,
+        phases.BOTTOM?.robust,
+        phases.ASCENT?.robust,
+        summary?.overall?.robust
       )
     };
   }
 
+  function mergeRobustSummaries(...summaries) {
+    const keys = [
+      'trunkLeanP90',
+      'trunkTibiaAbsP90',
+      'signedTrunkTibiaP90',
+      'valgusAvg',
+      'valgusP90',
+      'valgusBadRatio',
+      'heelContactAvg',
+      'heelContactBreakFrames'
+    ];
+    const merged = {};
+    for (const key of keys) {
+      for (const summary of summaries) {
+        const value = summary?.[key];
+        if (Number.isFinite(value)) {
+          merged[key] = value;
+          break;
+        }
+      }
+    }
+    return merged;
+  }
+
   function getMetricPlan(view, values) {
-    const common = {
+    const metricDefinitions = {
       depth: {
-        key: 'depth',
         title: '스쿼트 깊이',
         scorer: () => scoreDepth(values.bottomKnee),
         rawValue: () => values.bottomKnee,
         feedback: '조금 더 깊이 앉아주세요'
       },
-      hip: {
-        key: 'hip_angle',
+      hip_angle: {
         title: '힙 힌지',
         scorer: () => scoreHip(values.bottomHip),
         rawValue: () => values.bottomHip,
         feedback: '엉덩이를 뒤로 보내며 앉아주세요'
       },
-      spine: {
-        key: 'spine_angle',
+      trunk_stability: {
         title: '상체 안정성',
         scorer: () => scoreSpine(values.maxSpine),
         rawValue: () => values.maxSpine,
         feedback: '가슴을 들고 상체를 더 안정적으로 유지해주세요'
       },
-      symmetry: {
-        key: 'knee_symmetry',
+      knee_symmetry: {
         title: '좌우 무릎 대칭',
         scorer: () => scoreSymmetry(values.kneeSymmetry),
         rawValue: () => values.kneeSymmetry,
         feedback: '양쪽 무릎 높이와 각도를 비슷하게 맞춰주세요'
       },
-      alignment: {
-        key: 'knee_alignment',
+      knee_alignment: {
         title: '무릎 정렬',
         scorer: () => scoreAlignment(values.kneeAlignment),
         rawValue: () => values.kneeAlignment,
         feedback: '무릎이 발끝 방향을 유지하도록 해주세요'
       },
-      trunkTibia: {
-        key: 'trunk_tibia_angle',
+      trunk_tibia_angle: {
         title: '상체-다리 평행도',
         scorer: () => scoreTrunkTibia(values.maxTrunkTibia),
         rawValue: () => values.maxTrunkTibia,
         feedback: '상체와 다리가 평행하도록 자세를 유지해주세요'
       },
-      heelContact: {
-        key: 'heel_contact',
+      heel_contact: {
         title: '뒤꿈치 접지',
         scorer: () => scoreHeelContact(values.avgHeelContact),
         rawValue: () => values.avgHeelContact,
         feedback: '뒤꿈치가 떨어지지 않도록 유지해주세요'
       },
-      kneeValgus: {
-        key: 'knee_valgus',
+      knee_valgus: {
         title: '무릎 안쪽 무너짐',
         scorer: () => scoreKneeValgus(values.avgKneeValgus),
         rawValue: () => values.avgKneeValgus,
@@ -799,104 +1194,68 @@
       }
     };
 
-    const plans = {
-      SIDE: [
-        { ...common.depth, weight: 0.30 },
-        { ...common.hip, weight: 0.22 },
-        { ...common.spine, weight: 0.18 },
-        { ...common.trunkTibia, weight: 0.18 },
-        { ...common.heelContact, weight: 0.08 },
-        { ...common.alignment, weight: 0.04 }
-      ],
-      FRONT: [
-        { ...common.symmetry, weight: 0.30 },
-        { ...common.kneeValgus, weight: 0.30 },
-        { ...common.depth, weight: 0.25 },
-        { ...common.spine, weight: 0.15 }
-      ],
-      UNKNOWN: [
-        { ...common.depth, weight: 0.25 },
-        { ...common.alignment, weight: 0.20 },
-        { ...common.symmetry, weight: 0.15 },
-        { ...common.spine, weight: 0.12 },
-        { ...common.hip, weight: 0.10 },
-        { ...common.trunkTibia, weight: 0.10 },
-        { ...common.kneeValgus, weight: 0.08 }
-      ]
-    };
-
-    return plans[['SIDE', 'FRONT'].includes(view) ? view : 'UNKNOWN'];
+    const config = SQUAT_SCORING_CONFIG[['SIDE', 'FRONT'].includes(view) ? view : 'FRONT'];
+    return config.metrics
+      .map((metric) => {
+        const definition = metricDefinitions[metric.key];
+        if (!definition) return null;
+        return {
+          ...definition,
+          key: metric.key,
+          scorerName: metric.scorer,
+          weight: metric.weight
+        };
+      })
+      .filter(Boolean);
   }
 
   function scoreDepth(value) {
-    if (!Number.isFinite(value)) return null;
-    if (value <= 90) return 100;
-    if (value <= 100) return interpolate(value, 90, 100, 100, 85);
-    if (value <= 115) return interpolate(value, 100, 115, 85, 50);
-    if (value <= 130) return interpolate(value, 115, 130, 50, 15);
-    return 0;
+    return scoreCurve(value, CURVES.kneeDepth);
   }
 
   function scoreHip(value) {
-    if (!Number.isFinite(value)) return null;
-    if (value <= 110) return 100;
-    if (value <= 120) return interpolate(value, 110, 120, 100, 80);
-    if (value <= 140) return interpolate(value, 120, 140, 80, 40);
-    if (value <= 155) return interpolate(value, 140, 155, 40, 10);
-    return 0;
+    return scoreCurve(value, CURVES.hipDepth);
   }
 
   function scoreSpine(value) {
-    if (!Number.isFinite(value)) return null;
-    if (value <= 15) return 100;
-    if (value <= 30) return interpolate(value, 15, 30, 100, 70);
-    if (value <= 45) return interpolate(value, 30, 45, 70, 35);
-    if (value <= 60) return interpolate(value, 45, 60, 35, 5);
-    return 0;
+    return scoreCurve(value, CURVES.trunkLean);
   }
 
   function scoreSymmetry(value) {
-    if (!Number.isFinite(value)) return null;
-    if (value <= 10) return 100;
-    if (value <= 18) return interpolate(value, 10, 18, 100, 70);
-    if (value <= 28) return interpolate(value, 18, 28, 70, 25);
-    return 0;
+    return scoreCurve(value, CURVES.symmetry);
   }
 
   function scoreAlignment(value) {
-    if (!Number.isFinite(value)) return null;
-    if (value <= 0.03) return 100;
-    if (value <= 0.05) return interpolate(value, 0.03, 0.05, 100, 75);
-    if (value <= 0.08) return interpolate(value, 0.05, 0.08, 75, 30);
-    if (value <= 0.12) return interpolate(value, 0.08, 0.12, 30, 5);
-    return 0;
+    return scoreCurve(value, CURVES.alignment);
   }
 
   function scoreTrunkTibia(value) {
-    if (!Number.isFinite(value)) return null;
-    if (value <= 10) return 100;
-    if (value <= 20) return interpolate(value, 10, 20, 100, 70);
-    if (value <= 35) return interpolate(value, 20, 35, 70, 30);
-    if (value <= 50) return interpolate(value, 35, 50, 30, 5);
-    return 0;
+    return scoreCurve(value, CURVES.angleDiff);
   }
 
   function scoreHeelContact(value) {
-    if (!Number.isFinite(value)) return null;
-    if (value >= 0.90) return 100;
-    if (value >= 0.80) return interpolate(value, 0.80, 0.90, 75, 100);
-    if (value >= 0.65) return interpolate(value, 0.65, 0.80, 45, 75);
-    if (value >= 0.50) return interpolate(value, 0.50, 0.65, 15, 45);
-    return 0;
+    return scoreCurve(value, CURVES.heelContact);
   }
 
   function scoreKneeValgus(value) {
-    if (!Number.isFinite(value)) return null;
-    if (value <= 0.03) return 100;
-    if (value <= 0.06) return interpolate(value, 0.03, 0.06, 100, 70);
-    if (value <= 0.10) return interpolate(value, 0.06, 0.10, 70, 30);
-    if (value <= 0.15) return interpolate(value, 0.10, 0.15, 30, 5);
-    return 0;
+    return scoreCurve(value, CURVES.kneeValgus);
+  }
+
+  function scoreCurve(value, curve) {
+    if (!Number.isFinite(value) || !Array.isArray(curve) || curve.length === 0) return null;
+    const points = curve.slice().sort((a, b) => a[0] - b[0]);
+    if (value <= points[0][0]) return points[0][1];
+    const lastPoint = points[points.length - 1];
+    if (value >= lastPoint[0]) return lastPoint[1];
+
+    for (let i = 1; i < points.length; i += 1) {
+      const [prevValue, prevScore] = points[i - 1];
+      const [nextValue, nextScore] = points[i];
+      if (value <= nextValue) {
+        return interpolate(value, prevValue, nextValue, prevScore, nextScore);
+      }
+    }
+    return lastPoint[1];
   }
 
   function interpolate(value, inMin, inMax, outMin, outMax) {
@@ -913,6 +1272,13 @@
       return Math.min(score, interpolate(bottomKnee, 100, 130, 85, 55));
     }
     return Math.min(score, 55);
+  }
+
+  function classifyDepth(bottomKnee, hipBelowKnee, hipNearKnee) {
+    if (isDepthGood(bottomKnee, hipBelowKnee)) return 'depth_good';
+    if (Number.isFinite(bottomKnee) && bottomKnee <= 130) return 'depth_partial';
+    if (hipNearKnee === 1) return 'depth_partial';
+    return 'depth_fail';
   }
 
   function isDepthGood(bottomKnee, hipBelowKnee) {
@@ -940,7 +1306,10 @@
     kneeAlignment,
     maxTrunkTibia,
     avgHeelContact,
+    heelContactBreakFrames,
     bottomHipBelowKnee,
+    bottomHipNearKnee,
+    depthClass,
     avgKneeValgus,
     lockoutKnee,
     lockoutHip,
@@ -954,7 +1323,10 @@
       kneeAlignment,
       maxTrunkTibia,
       avgHeelContact,
+      heelContactBreakFrames: Number.isFinite(heelContactBreakFrames) ? heelContactBreakFrames : null,
       bottomHipBelowKnee,
+      bottomHipNearKnee,
+      depthClass,
       avgKneeValgus,
       lockoutKnee,
       lockoutHip,
@@ -1013,6 +1385,27 @@
     return values.find(Number.isFinite);
   }
 
+  function maxFinite(...values) {
+    const nums = values.filter(Number.isFinite);
+    return nums.length ? Math.max(...nums) : null;
+  }
+
+  function minFinite(a, b) {
+    if (!Number.isFinite(a)) return Number.isFinite(b) ? b : null;
+    if (!Number.isFinite(b)) return a;
+    return Math.min(a, b);
+  }
+
+  function maxFiniteAcrossPhases(summary, pickFromRobust) {
+    const phases = summary?.phases || {};
+    return maxFinite(
+      pickFromRobust(phases.DESCENT?.robust),
+      pickFromRobust(phases.BOTTOM?.robust),
+      pickFromRobust(phases.ASCENT?.robust),
+      pickFromRobust(summary?.overall?.robust)
+    );
+  }
+
   function buildHoldRepResult(repRecord, summary, { status, reason, feedback, view, confidence, rawMetrics }) {
     return {
       ...repRecord,
@@ -1063,7 +1456,34 @@
     return Math.min(...candidates);
   }
 
-  function pickFeedback({ hardFails, breakdown, view, confidence, bottomHip, maxSpine, maxTrunkTibia, avgHeelContact, avgKneeValgus }) {
+  function sideFeedbackFromNormalizedScores(breakdown) {
+    const byKey = Object.fromEntries(breakdown.map((b) => [b.key, b.normalizedScore]));
+    const checks = [
+      ['trunk_tibia_angle', '상체와 다리가 평행하도록 자세를 유지해주세요'],
+      ['hip_angle', '엉덩이를 뒤로 보내며 앉아주세요'],
+      ['heel_contact', '뒤꿈치가 떨어지지 않도록 유지해주세요'],
+      ['trunk_stability', '가슴을 들고 상체를 더 안정적으로 유지해주세요'],
+      ['depth', '조금 더 깊이 앉아주세요']
+    ];
+    for (const [key, msg] of checks) {
+      const s = byKey[key];
+      if (Number.isFinite(s) && s < 70) return msg;
+    }
+    return null;
+  }
+
+  function pickFeedback({
+    hardFails,
+    breakdown,
+    view,
+    confidence,
+    bottomHip,
+    maxSpine,
+    maxTrunkTibia,
+    avgHeelContact,
+    avgKneeValgus,
+    heelContactBreakFrames
+  }) {
     if (hardFails.includes('low_confidence') || confidence.level === 'LOW') {
       return '카메라에 전신이 잘 보이도록 위치를 다시 맞춰주세요';
     }
@@ -1072,6 +1492,15 @@
     }
     if (hardFails.includes('lockout_incomplete')) {
       return '올라올 때 무릎과 엉덩이를 끝까지 펴주세요';
+    }
+
+    if (view === 'SIDE' && Number.isFinite(heelContactBreakFrames) && heelContactBreakFrames >= 3) {
+      return '뒤꿈치가 떨어지지 않도록 유지해주세요';
+    }
+
+    if (view === 'SIDE') {
+      const metricMsg = sideFeedbackFromNormalizedScores(breakdown);
+      if (metricMsg) return metricMsg;
     }
 
     const worstMetric = breakdown

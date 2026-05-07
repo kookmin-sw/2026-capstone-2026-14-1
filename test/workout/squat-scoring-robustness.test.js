@@ -253,7 +253,10 @@ test('SQ-10 low light returns hold confidence or stays under the confidence cap'
 
   assertRepResultContract(result);
   if (result.score === null) {
-    assert.equal(result.status, 'HOLD_CONFIDENCE');
+    assert.ok(
+      ['HOLD_CONFIDENCE', 'HOLD_CAMERA'].includes(result.status),
+      'low side capture confidence should yield a held rep without numeric score'
+    );
   } else {
     assert.ok(result.score <= 60);
   }
@@ -322,5 +325,88 @@ test('lockout baseline falls back to the fixed knee threshold when baseline is m
   assertRepResultContract(failResult);
   assert.equal(passResult.hardFails.includes('lockout_incomplete'), false);
   assert.ok(failResult.hardFails.includes('lockout_incomplete'));
+});
+
+test('Phase 2 depth cap is continuous around the 130 degree boundary', () => {
+  const at130 = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 130, max: 170 },
+      hipAngle: { min: 105, max: 165 },
+      spineAngle: { max: 10 },
+      trunkTibiaAngle: { max: 7 },
+      heelContact: { avg: 0.96 },
+      hipBelowKnee: { min: 0 },
+    }),
+  });
+  const at131 = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 131, max: 170 },
+      hipAngle: { min: 105, max: 165 },
+      spineAngle: { max: 10 },
+      trunkTibiaAngle: { max: 7 },
+      heelContact: { avg: 0.96 },
+      hipBelowKnee: { min: 0 },
+    }),
+  });
+
+  assertRepResultContract(at130);
+  assertRepResultContract(at131);
+  assert.ok(at130.score <= 55);
+  assert.ok(at131.score <= 55);
+  assert.ok(Math.abs(at130.score - at131.score) <= 3);
+});
+
+test('Phase 2 front and side scoring weights follow the config contract', () => {
+  const front = scoreSquatRep({
+    view: 'FRONT',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 95, max: 170 },
+      kneeValgus: { avg: 0.02 },
+      kneeSymmetry: { avg: 3 },
+      spineAngle: { max: 12 },
+    }),
+  });
+  const side = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 95, max: 170 },
+      hipAngle: { min: 108, max: 165 },
+      trunkTibiaAngle: { max: 9 },
+      spineAngle: { max: 12 },
+      heelContact: { avg: 0.92 },
+      kneeAlignment: { avg: 0.02 },
+    }),
+  });
+
+  assert.equal(front.breakdown.find((item) => item.key === 'knee_valgus').configuredWeight, 0.40);
+  assert.equal(front.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.25);
+  assert.equal(front.breakdown.find((item) => item.key === 'knee_symmetry').configuredWeight, 0.20);
+  assert.equal(front.breakdown.find((item) => item.key === 'trunk_stability').configuredWeight, 0.15);
+  assert.equal(side.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.36);
+  assert.equal(side.breakdown.find((item) => item.key === 'trunk_tibia_angle').configuredWeight, 0.22);
+  assert.equal(side.breakdown.find((item) => item.key === 'hip_angle').configuredWeight, 0.18);
+  assert.equal(side.breakdown.find((item) => item.key === 'trunk_stability').configuredWeight, 0.16);
+  assert.equal(side.breakdown.find((item) => item.key === 'heel_contact').configuredWeight, 0.08);
+  assert.equal(side.breakdown.some((item) => item.key === 'knee_alignment'), false);
+  const sideWeightSum = side.breakdown.reduce((s, item) => s + item.configuredWeight, 0);
+  assert.ok(Math.abs(sideWeightSum - 1) < 1e-6, 'SIDE metric weights must sum to 1');
+});
+
+test('Phase 2 trunk stability uses the relaxed trunk lean curve', () => {
+  const result = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 95, max: 170 },
+      hipAngle: { min: 108, max: 165 },
+      spineAngle: { max: 24 },
+      trunkTibiaAngle: { max: 9 },
+    }),
+  });
+
+  const trunk = result.breakdown.find((item) => item.key === 'trunk_stability');
+  assert.ok(trunk, 'trunk_stability metric should be present');
+  assert.equal(trunk.normalizedScore, 100);
 });
 

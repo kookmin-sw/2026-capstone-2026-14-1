@@ -708,6 +708,8 @@ const QUALITY_GATE_THRESHOLDS = {
   detectionConfidence: 0.50,
   trackingConfidence: 0.50,
   estimatedViewConfidence: 0.70,
+  /** 측면: 가려진 반대편 체인으로 view 판정이 흔들릴 수 있어 FRONT보다 완화 */
+  estimatedViewConfidenceSide: 0.60,
   keyJointVisibilityAverage: 0.65,
   minKeyJointVisibility: 0.40,
   stableFrameCount: 8,
@@ -729,6 +731,12 @@ const GATE_ONLY_REASONS = [
   'low_confidence',
   'joints_missing',
 ];
+
+function estimatedViewConfidenceThreshold(estimatedView) {
+  return estimatedView === 'SIDE'
+    ? QUALITY_GATE_THRESHOLDS.estimatedViewConfidenceSide
+    : QUALITY_GATE_THRESHOLDS.estimatedViewConfidence;
+}
 
 /**
  * Evaluate whether the current frame input quality is sufficient for scoring.
@@ -762,12 +770,14 @@ function evaluateQualityGate(inputs, context) {
   const selectedView = context?.selectedView || null;
   if (selectedView && selectedView !== 'DIAGONAL') {
     const matchesSelectedView = inputs.estimatedView === selectedView;
-    if (!matchesSelectedView || inputs.estimatedViewConfidence < QUALITY_GATE_THRESHOLDS.estimatedViewConfidence) {
+    const viewConfMin = estimatedViewConfidenceThreshold(inputs.estimatedView);
+    if (!matchesSelectedView || inputs.estimatedViewConfidence < viewConfMin) {
       return { result: 'withhold', reason: 'view_mismatch' };
     }
   } else if ((context?.allowedViews || []).length > 0) {
     const viewAllowed = context.allowedViews.includes(inputs.estimatedView);
-    if (!viewAllowed || inputs.estimatedViewConfidence < QUALITY_GATE_THRESHOLDS.estimatedViewConfidence) {
+    const viewConfMin = estimatedViewConfidenceThreshold(inputs.estimatedView);
+    if (!viewAllowed || inputs.estimatedViewConfidence < viewConfMin) {
       return { result: 'withhold', reason: 'view_mismatch' };
     }
   }
