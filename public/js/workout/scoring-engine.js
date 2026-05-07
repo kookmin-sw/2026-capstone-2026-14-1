@@ -707,7 +707,7 @@ class ScoringEngine {
 const QUALITY_GATE_THRESHOLDS = {
   detectionConfidence: 0.50,
   trackingConfidence: 0.50,
-  estimatedViewConfidence: 0.60,
+  estimatedViewConfidence: 0.70,
   keyJointVisibilityAverage: 0.65,
   minKeyJointVisibility: 0.40,
   stableFrameCount: 8,
@@ -753,6 +753,10 @@ function evaluateQualityGate(inputs, context) {
   if (inputs.minKeyJointVisibility < QUALITY_GATE_THRESHOLDS.minKeyJointVisibility ||
       inputs.keyJointVisibilityAverage < QUALITY_GATE_THRESHOLDS.keyJointVisibilityAverage) {
     return { result: 'withhold', reason: 'joints_missing' };
+  }
+
+  if (inputs.estimatedView === 'DIAGONAL') {
+    return { result: 'withhold', reason: 'view_mismatch' };
   }
 
   const selectedView = context?.selectedView || null;

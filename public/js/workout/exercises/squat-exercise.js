@@ -253,10 +253,23 @@
       if (!summary) return repRecord;
 
       const requestedView = repRecord?.selectedView || null;
-      const view = requestedView && requestedView !== 'DIAGONAL'
-        ? requestedView
-        : (summary.dominantView || 'UNKNOWN');
+      const dominantView = summary.dominantView || 'UNKNOWN';
       const confidence = summary.confidence || { score: 0, level: 'LOW', factor: 0.7 };
+
+      if (requestedView === 'DIAGONAL' || dominantView === 'DIAGONAL') {
+        return buildHoldRepResult(repRecord, summary, {
+          status: 'HOLD_CAMERA',
+          reason: 'camera_angle_diagonal',
+          feedback: '정면 또는 측면에서 촬영해주세요.',
+          view: 'DIAGONAL',
+          confidence,
+          rawMetrics: { confidence: confidence.level }
+        });
+      }
+
+      const view = requestedView
+        ? requestedView
+        : dominantView;
 
       const bottomKnee = scoringEngine.pickMetric(summary, ['BOTTOM', 'DESCENT', 'ASCENT'], 'kneeAngle', 'min');
       const bottomHip = scoringEngine.pickMetric(summary, ['BOTTOM', 'DESCENT'], 'hipAngle', 'min');
@@ -266,11 +279,38 @@
         ? scoringEngine.pickPhaseMetric(summary, ['BOTTOM', 'ASCENT'], 'kneeAlignment', 'avg')
         : scoringEngine.pickMetric(summary, ['BOTTOM', 'ASCENT', 'DESCENT'], 'kneeAlignment', 'avg');
       const lockoutKnee = scoringEngine.pickMetric(summary, ['LOCKOUT', 'ASCENT'], 'kneeAngle', 'max');
+      const lockoutHip = scoringEngine.pickMetric(summary, ['LOCKOUT', 'ASCENT'], 'hipAngle', 'max');
 
       const maxTrunkTibia = scoringEngine.pickMetric(summary, ['DESCENT', 'BOTTOM', 'ASCENT'], 'trunkTibiaAngle', 'max');
       const avgHeelContact = scoringEngine.pickMetric(summary, ['DESCENT', 'BOTTOM', 'ASCENT'], 'heelContact', 'avg');
       const bottomHipBelowKnee = scoringEngine.pickMetric(summary, ['BOTTOM'], 'hipBelowKnee', 'min');
       const avgKneeValgus = scoringEngine.pickMetric(summary, ['BOTTOM', 'ASCENT', 'DESCENT'], 'kneeValgus', 'avg');
+
+      const rawMetrics = buildRawMetrics({
+        bottomKnee,
+        bottomHip,
+        maxSpine,
+        kneeSymmetry,
+        kneeAlignment,
+        maxTrunkTibia,
+        avgHeelContact,
+        bottomHipBelowKnee,
+        avgKneeValgus,
+        lockoutKnee,
+        lockoutHip,
+        confidence
+      });
+      const lowerBodyVisibility = getLowerBodyVisibility(summary);
+      if (confidence.level === 'LOW' && Number.isFinite(lowerBodyVisibility) && lowerBodyVisibility < 0.4) {
+        return buildHoldRepResult(repRecord, summary, {
+          status: 'HOLD_VISIBILITY',
+          reason: 'body_not_visible',
+          feedback: '카메라에 하체가 보이도록 거리를 조정해주세요.',
+          view,
+          confidence,
+          rawMetrics
+        });
+      }
 
       const depthReachedByAngle = Number.isFinite(bottomKnee) && bottomKnee <= 130;
       const depthReachedByHip = bottomHipBelowKnee === 1;
@@ -279,7 +319,7 @@
       if (!depthReachedByAngle && !depthReachedByHip) {
         hardFails.push('depth_not_reached');
       }
-      if (!summary.flags?.lockoutReached || (lockoutKnee != null && lockoutKnee < 150)) {
+      if (!isLockoutComplete(summary, lockoutKnee, lockoutHip)) {
         hardFails.push('lockout_incomplete');
       }
       if (confidence.level === 'LOW') {
@@ -330,6 +370,7 @@
       if (hardFails.includes('depth_not_reached')) {
         finalScore = Math.min(finalScore, 55);
       }
+      finalScore = applyDepthCap(finalScore, bottomKnee, bottomHipBelowKnee);
       if (hardFails.includes('lockout_incomplete')) {
         finalScore = Math.min(finalScore, 65);
       }
@@ -368,26 +409,43 @@
         kneeSymmetry,
         kneeAlignment,
         lockoutKnee,
+        lockoutHip,
         hardFails,
         softFails,
         feedback
       });
 
+      const status = resolveRepStatus(hardFails, confidence, finalScore);
+      const primaryFeedback = feedback;
+      const metricScores = Object.fromEntries(
+        breakdown.map((item) => [item.key, item.normalizedScore])
+      );
+
       return {
         ...repRecord,
         score: finalScore,
+        status,
         breakdown,
         feedback,
+        primaryFeedback,
         hardFails,
         softFails,
+        issues: softFails,
+        metricScores,
+        rawMetrics,
         view,
         confidence,
         summary: {
           ...summary,
           finalScore,
+          status,
           feedback,
+          primaryFeedback,
           hardFails,
           softFails,
+          issues: softFails,
+          metricScores,
+          rawMetrics,
           dominantView: view,
           confidence
         }
@@ -845,6 +903,164 @@
     if (inMax === inMin) return outMax;
     const ratio = (value - inMin) / (inMax - inMin);
     return outMin + ((outMax - outMin) * ratio);
+  }
+
+  function applyDepthCap(score, bottomKnee, hipBelowKnee) {
+    if (!Number.isFinite(score)) return score;
+    if (!Number.isFinite(bottomKnee)) return Math.min(score, 60);
+    if (isDepthGood(bottomKnee, hipBelowKnee)) return score;
+    if (bottomKnee <= 130) {
+      return Math.min(score, interpolate(bottomKnee, 100, 130, 85, 55));
+    }
+    return Math.min(score, 55);
+  }
+
+  function isDepthGood(bottomKnee, hipBelowKnee) {
+    return Number.isFinite(bottomKnee) && (
+      bottomKnee <= 100 ||
+      (bottomKnee <= 110 && hipBelowKnee === 1)
+    );
+  }
+
+  function resolveRepStatus(hardFails, confidence, finalScore) {
+    if (hardFails.includes('depth_not_reached') || hardFails.includes('lockout_incomplete')) {
+      return 'PARTIAL_REP';
+    }
+    if (confidence?.level === 'LOW' && finalScore <= 60) {
+      return 'PARTIAL_REP';
+    }
+    return 'VALID_REP';
+  }
+
+  function buildRawMetrics({
+    bottomKnee,
+    bottomHip,
+    maxSpine,
+    kneeSymmetry,
+    kneeAlignment,
+    maxTrunkTibia,
+    avgHeelContact,
+    bottomHipBelowKnee,
+    avgKneeValgus,
+    lockoutKnee,
+    lockoutHip,
+    confidence
+  }) {
+    return {
+      bottomKnee,
+      bottomHip,
+      maxSpine,
+      kneeSymmetry,
+      kneeAlignment,
+      maxTrunkTibia,
+      avgHeelContact,
+      bottomHipBelowKnee,
+      avgKneeValgus,
+      lockoutKnee,
+      lockoutHip,
+      confidence: confidence?.level || null
+    };
+  }
+
+  function isLockoutComplete(summary, lockoutKnee, lockoutHip) {
+    if (!summary?.flags?.lockoutReached) return false;
+
+    const baseline = getStandingLockoutBaseline(summary);
+    if (baseline) {
+      const kneeOk = Number.isFinite(lockoutKnee) && lockoutKnee >= baseline.knee - 15;
+      const hipOk = Number.isFinite(lockoutHip) && lockoutHip >= baseline.hip - 20;
+      return kneeOk && hipOk;
+    }
+
+    if (!Number.isFinite(lockoutKnee)) return true;
+    return lockoutKnee >= 150;
+  }
+
+  function getStandingLockoutBaseline(summary) {
+    const sources = [
+      summary?.lockoutBaseline,
+      summary?.standingBaseline,
+      summary?.baseline?.lockout,
+      summary?.baseline?.standing,
+      summary?.baseline
+    ];
+
+    for (const source of sources) {
+      if (!source || typeof source !== 'object') continue;
+
+      const knee = firstFinite(
+        source.standingKneeBaseline,
+        source.kneeBaseline,
+        source.kneeAngle,
+        source.knee
+      );
+      const hip = firstFinite(
+        source.standingHipBaseline,
+        source.hipBaseline,
+        source.hipAngle,
+        source.hip
+      );
+
+      if (Number.isFinite(knee) && Number.isFinite(hip)) {
+        return { knee, hip };
+      }
+    }
+
+    return null;
+  }
+
+  function firstFinite(...values) {
+    return values.find(Number.isFinite);
+  }
+
+  function buildHoldRepResult(repRecord, summary, { status, reason, feedback, view, confidence, rawMetrics }) {
+    return {
+      ...repRecord,
+      score: null,
+      status,
+      reason,
+      breakdown: [],
+      feedback,
+      primaryFeedback: feedback,
+      hardFails: [],
+      softFails: [],
+      issues: [reason],
+      metricScores: {},
+      rawMetrics: rawMetrics || {},
+      view,
+      confidence,
+      summary: {
+        ...summary,
+        finalScore: null,
+        status,
+        reason,
+        feedback,
+        primaryFeedback: feedback,
+        hardFails: [],
+        softFails: [],
+        issues: [reason],
+        metricScores: {},
+        rawMetrics: rawMetrics || {},
+        dominantView: view,
+        confidence
+      }
+    };
+  }
+
+  function getLowerBodyVisibility(summary) {
+    const visibility = summary?.visibility || summary?.landmarkVisibility || summary?.landmarkConfidence;
+    if (!visibility || typeof visibility !== 'object') return null;
+
+    const candidates = [
+      visibility.lowerBody,
+      visibility.lower_body,
+      visibility.legs,
+      visibility.knees,
+      visibility.ankles
+    ].filter(Number.isFinite);
+
+    if (!candidates.length) return null;
+    return Math.min(...candidates);
   }
 
   function pickFeedback({ hardFails, breakdown, view, confidence, bottomHip, maxSpine, maxTrunkTibia, avgHeelContact, avgKneeValgus }) {

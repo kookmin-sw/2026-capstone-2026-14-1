@@ -28,6 +28,16 @@
 
 SQ-08~10은 gate 단위 동작(`evaluateQualityGate`)이 아닌 `scoreRep` 전체 반환값을 검증한다.
 
+## lockout baseline 계약 테스트
+
+Phase 4 구현 전에 baseline 기반 lockout 판정과 fallback 동작을 테스트로 고정한다.
+
+| 케이스 | 검증 파일 | 검증 대상 |
+|---|---|---|
+| baseline 충분 + 정상 lockout | robustness.test.js | `status: 'VALID_REP'`, `hardFails`에 `lockout_incomplete` 없음 |
+| baseline 충분 + knee/hip 미복귀 | robustness.test.js | `status: 'PARTIAL_REP'`, `hardFails`에 `lockout_incomplete` 포함 |
+| baseline 부족 | robustness.test.js | 기존 고정 기준(`lockoutKnee >= 150`, 가능하면 `lockoutHip`) fallback 사용 |
+
 ## 검증 명령
 
 ```bash
@@ -38,5 +48,6 @@ npm test
 ## 완료 기준
 
 - SQ-01~10에 대응하는 단위 테스트가 존재하고 구현 후 통과한다.
+- baseline 충분/부족 lockout 테스트 3개가 존재하고 구현 후 통과한다.
 - 각 테스트는 `scoreRep` 반환 객체의 필수 필드(`score`, `status`, `primaryFeedback`, `hardFails`, `rawMetrics`)를 검증한다.
 - 게이트가 대각 추정 시 `withhold`를 반환한다.

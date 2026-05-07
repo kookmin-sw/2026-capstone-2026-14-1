@@ -76,7 +76,23 @@ function applyDepthCap(score, bottomKnee, hipBelowKnee) {
 }
 ```
 
-`depth_partial`/`depth_fail` 규칙: `bottomKnee <= 130 || hipNearKnee === 1`이면 partial, 그 이상은 fail.
+### `depth_partial` / `depth_fail` 판정
+
+`hipNearKnee`는 Phase 1의 `computeHipNearKnee(hipY, kneeY, torsoLength)` 결과를 사용한다.
+
+```js
+function classifyDepth(bottomKnee, hipBelowKnee, hipNearKnee) {
+  if (bottomKnee <= 100 || (bottomKnee <= 110 && hipBelowKnee === 1)) {
+    return 'depth_good';
+  }
+  if (bottomKnee <= 130 || hipNearKnee === 1) {
+    return 'depth_partial';
+  }
+  return 'depth_fail';
+}
+```
+
+`hipNearKnee`가 `null`이면 보조 판정 없이 `bottomKnee` 기준만 사용한다. `hipNearKnee`는 좋은 깊이 통과 조건에는 쓰지 않고, partial/fail 경계에서만 보조한다.
 
 ### trunk lean 커브 완화 (스펙 §4.2)
 
