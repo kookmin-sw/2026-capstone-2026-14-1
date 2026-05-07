@@ -246,9 +246,11 @@ class PoseEngine {
     let rightHip = angleFlexion(LANDMARKS.RIGHT_SHOULDER, LANDMARKS.RIGHT_HIP, LANDMARKS.RIGHT_KNEE);
 
     let tibia = this.getTibiaAngle(landmarks, canUseWorld ? worldLandmarks : null);
+    let selectedSideChain = null;
 
     if (view === 'SIDE' && Array.isArray(landmarks) && landmarks.length >= 33) {
       const limb = this.selectVisibleSideChain(landmarks);
+      selectedSideChain = limb;
       const tibiaOne = this.getTibiaAngleForLimb(landmarks, canUseWorld ? worldLandmarks : null, limb);
       if (Number.isFinite(tibiaOne)) {
         tibia = tibiaOne;
@@ -295,11 +297,12 @@ class PoseEngine {
       kneeValgus: this.getKneeValgus(landmarks),
 
       // 스쿼트 보조 signal
-      heelContact: this.getHeelContact(landmarks),
+      heelContact: this.getHeelContact(landmarks, { view, visibleSide: selectedSideChain }),
       hipBelowKnee: this.getHipBelowKnee(landmarks),
 
       // 디버깅/품질 확인용
       view,
+      visibleSide: selectedSideChain,
       angleSource: !canUseWorld ? 'IMAGE_2D' : (prefer2DForFlexion ? 'SMART_IMAGE_2D' : 'SMART_WORLD_3D'),
       quality
     };
@@ -775,14 +778,19 @@ class PoseEngine {
    * 뒤꿈치 접지 여부 추정
    * - heel landmark가 foot index보다 눈에 띄게 위로 들리면 접지 이탈로 본다.
    */
-  getHeelContact(landmarks) {
+  getHeelContact(landmarks, options = {}) {
+    const side = ['left', 'right'].includes((options.visibleSide || '').toString().toLowerCase())
+      ? options.visibleSide.toString().toLowerCase()
+      : null;
+    const isSideView = options.view === 'SIDE';
+    const contactTolerance = isSideView ? 0.035 : 0.02;
     const footPairs = [
-      [LANDMARKS.LEFT_HEEL, LANDMARKS.LEFT_FOOT_INDEX],
-      [LANDMARKS.RIGHT_HEEL, LANDMARKS.RIGHT_FOOT_INDEX]
+      { side: 'left', heelIdx: LANDMARKS.LEFT_HEEL, toeIdx: LANDMARKS.LEFT_FOOT_INDEX },
+      { side: 'right', heelIdx: LANDMARKS.RIGHT_HEEL, toeIdx: LANDMARKS.RIGHT_FOOT_INDEX }
     ];
     const observed = [];
 
-    footPairs.forEach(([heelIdx, toeIdx]) => {
+    const observeFoot = ({ heelIdx, toeIdx }) => {
       const heel = landmarks[heelIdx];
       const toe = landmarks[toeIdx];
       if (
@@ -791,14 +799,25 @@ class PoseEngine {
         (Number.isFinite(heel.visibility) && heel.visibility < 0.5) ||
         (Number.isFinite(toe.visibility) && toe.visibility < 0.5)
       ) {
-        return;
+        return null;
       }
 
-      observed.push(heel.y >= toe.y - 0.02);
+      return heel.y >= toe.y - contactTolerance;
+    };
+
+    if (isSideView && side) {
+      const selectedPair = footPairs.find((pair) => pair.side === side);
+      const selectedContact = selectedPair ? observeFoot(selectedPair) : null;
+      if (selectedContact != null) return selectedContact;
+    }
+
+    footPairs.forEach((pair) => {
+      const contact = observeFoot(pair);
+      if (contact != null) observed.push(contact);
     });
 
     if (!observed.length) return null;
-    return observed.every(Boolean);
+    return isSideView ? observed.some(Boolean) : observed.every(Boolean);
   }
 
   /**

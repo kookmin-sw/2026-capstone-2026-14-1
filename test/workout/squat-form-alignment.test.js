@@ -15,6 +15,7 @@ if (!window.WorkoutExerciseRegistry) {
 
 require('../../public/js/workout/exercises/squat-exercise.js');
 require('../../public/js/workout/rep-counter.js');
+const { ScoringEngine } = require('../../public/js/workout/scoring-engine.js');
 
 const { PoseEngine, LANDMARKS } = require('../../public/js/workout/pose-engine.js');
 
@@ -72,6 +73,19 @@ test('PoseEngine.getHeelContact detects raised heel', () => {
   });
 
   assert.equal(engine.getHeelContact(landmarks), false);
+});
+
+test('PoseEngine.getHeelContact uses visible side in side view', () => {
+  const engine = new PoseEngine();
+  const landmarks = createLandmarks({
+    [LANDMARKS.LEFT_HEEL]: { y: 0.95, visibility: 0.99 },
+    [LANDMARKS.LEFT_FOOT_INDEX]: { y: 0.94, visibility: 0.99 },
+    [LANDMARKS.RIGHT_HEEL]: { y: 0.82, visibility: 0.99 },
+    [LANDMARKS.RIGHT_FOOT_INDEX]: { y: 0.94, visibility: 0.99 },
+  });
+
+  assert.equal(engine.getHeelContact(landmarks), false);
+  assert.equal(engine.getHeelContact(landmarks, { view: 'SIDE', visibleSide: 'left' }), true);
 });
 
 test('squat module removes lumbar metric from active default profile', () => {
@@ -191,6 +205,58 @@ test('squat rep scoring uses averaged heel contact instead of single-frame min',
 
   assert.ok(heelBreakdown, 'heel_contact must be part of side-view scoring');
   assert.ok(heelBreakdown.normalizedScore >= 75, 'averaged heel contact should not collapse to zero');
+  assert.notEqual(scored.feedback, '뒤꿈치가 떨어지지 않도록 유지해주세요');
+});
+
+test('squat side heel scoring weights bottom contact over a noisy ascent phase', () => {
+  const squatModule = window.WorkoutExerciseRegistry.get('squat');
+  const scoringEngine = {
+    pickMetric(summary, phases, metricKey, statKey) {
+      return summary.metricStats?.[metricKey]?.[statKey] ?? null;
+    },
+    pickPhaseMetric(summary, phases, metricKey, statKey) {
+      return summary.metricStats?.[metricKey]?.[statKey] ?? null;
+    },
+    getProfileMetricConfig(metricKey, fallbackTitle) {
+      return {
+        metric_id: metricKey,
+        title: fallbackTitle,
+      };
+    },
+  };
+
+  const repRecord = {
+    repNumber: 1,
+    selectedView: 'SIDE',
+    score: 86,
+    summary: {
+      dominantView: 'SIDE',
+      confidence: { score: 0.92, level: 'HIGH', factor: 1 },
+      flags: { bottomReached: true, lockoutReached: true },
+      metricStats: {
+        kneeAngle: { min: 94, max: 170 },
+        hipAngle: { min: 100 },
+        spineAngle: { max: 12 },
+        kneeSymmetry: { avg: 2 },
+        kneeAlignment: { avg: 0.02 },
+        trunkTibiaAngle: { max: 8 },
+        heelContact: { avg: 0.68 },
+        hipBelowKnee: { min: 1 },
+        kneeValgus: { avg: 0.02 },
+      },
+      phases: {
+        BOTTOM: { robust: { heelContactAvg: 1 } },
+        ASCENT: { robust: { heelContactAvg: 0.55 } },
+      },
+    },
+  };
+
+  const scored = squatModule.scoreRep(scoringEngine, repRecord);
+  const heelBreakdown = scored.breakdown.find((item) => item.key === 'heel_contact');
+
+  assert.ok(heelBreakdown, 'heel_contact must be part of side-view scoring');
+  assert.equal(heelBreakdown.rawValue, 0.865);
+  assert.equal(heelBreakdown.normalizedScore, 100);
   assert.notEqual(scored.feedback, '뒤꿈치가 떨어지지 않도록 유지해주세요');
 });
 
@@ -370,6 +436,89 @@ test('squat robust phase series is sample limited', () => {
   const finalized = squatModule.finalizeRepSummary(repCounter);
   assert.equal(Object.hasOwn(finalized.phases.BOTTOM, '_series'), false);
   assert.ok(Number.isFinite(finalized.phases.BOTTOM.robust.bottomKneeMedian));
+});
+
+test('squat side live feedback keeps hip cue only at bottom phase', () => {
+  const squatModule = window.WorkoutExerciseRegistry.get('squat');
+  const scoreResult = {
+    score: 58,
+    breakdown: [
+      { key: 'hip_angle', title: '힙 힌지', score: 0, maxScore: 20, feedback: '엉덩이를 뒤로 보내며 앉아주세요' },
+      { key: 'trunk_tibia_angle', title: '상체-다리 평행도', score: 12, maxScore: 15, feedback: null },
+    ],
+  };
+
+  const descent = squatModule.filterLiveFeedback(scoreResult, {
+    repCounter: {
+      currentPhase: window.REP_PHASES.DESCENT,
+      currentState: window.REP_STATES.ACTIVE,
+    },
+    angles: { view: 'SIDE' },
+  });
+  const bottom = squatModule.filterLiveFeedback(scoreResult, {
+    repCounter: {
+      currentPhase: window.REP_PHASES.BOTTOM,
+      currentState: window.REP_STATES.ACTIVE,
+    },
+    angles: { view: 'SIDE' },
+  });
+
+  assert.equal(descent.breakdown.some((item) => item.key === 'hip_angle'), false);
+  assert.equal(bottom.breakdown.some((item) => item.key === 'hip_angle'), true);
+});
+
+test('squat live hip scoring uses final hip curve so deep bottom angles stay green', () => {
+  const squatModule = window.WorkoutExerciseRegistry.get('squat');
+  const hipMetric = squatModule.getDefaultProfileMetrics()
+    .find((item) => item.metric.key === 'hip_angle');
+  const scoringEngine = new ScoringEngine({ scoring_profile_metric: [hipMetric] }, {
+    exerciseCode: 'squat',
+    selectedView: 'SIDE',
+  });
+
+  const scoreResult = scoringEngine.calculate({
+    view: 'SIDE',
+    leftHip: 52,
+    rightHip: null,
+  });
+  const hip = scoreResult.breakdown.find((item) => item.key === 'hip_angle');
+
+  assert.ok(hip, 'hip_angle must be scored live');
+  assert.equal(hip.normalizedScore, 100);
+  assert.equal(hip.feedback, null);
+});
+
+test('squat side live hip scoring ignores occluded-side low hip angle when visible side is known', () => {
+  const squatModule = window.WorkoutExerciseRegistry.get('squat');
+  const hipMetric = squatModule.getDefaultProfileMetrics()
+    .find((item) => item.metric.key === 'hip_angle');
+  const scoringEngine = new ScoringEngine({ scoring_profile_metric: [hipMetric] }, {
+    exerciseCode: 'squat',
+    selectedView: 'SIDE',
+  });
+
+  const scoreResult = scoringEngine.calculate({
+    view: 'SIDE',
+    visibleSide: 'left',
+    leftHip: 118,
+    rightHip: 45,
+  });
+  const hip = scoreResult.breakdown.find((item) => item.key === 'hip_angle');
+
+  assert.ok(hip, 'hip_angle must be scored live');
+  assert.equal(hip.actualValue, 118);
+  assert.ok(hip.normalizedScore >= 80);
+});
+
+test('RepCounter uses visible side hip angle for side-view squat phase decisions', () => {
+  const repCounter = new window.RepCounter('squat');
+
+  assert.equal(repCounter.getAngleValue({
+    view: 'SIDE',
+    visibleSide: 'left',
+    leftHip: 112,
+    rightHip: 45,
+  }, 'hip_angle'), 112);
 });
 
 test('squat front-view rep scoring excludes knee alignment from weighted breakdown', () => {

@@ -60,7 +60,7 @@
     symmetry: [[10, 100], [18, 70], [28, 25], [40, 0]],
     angleDiff: [[10, 100], [20, 70], [35, 30], [50, 5], [65, 0]],
     alignment: [[0.03, 100], [0.05, 75], [0.08, 30], [0.12, 5], [0.16, 0]],
-    heelContact: [[0.90, 100], [0.80, 75], [0.65, 45], [0.50, 15], [0, 0]]
+    heelContact: [[0.85, 100], [0.70, 75], [0.55, 45], [0.40, 15], [0, 0]]
   };
 
   const squatExercise = {
@@ -89,12 +89,9 @@
           weight: 0.2,
           max_score: 20,
           rule: {
-            ideal_min: 70,
-            ideal_max: 110,
-            acceptable_min: 55,
-            acceptable_max: 130,
-            feedback_low: '엉덩이를 더 뒤로 복사하며 앉아주세요',
-            feedback_high: '상체를 너무 숙였습니다. 가슴을 세워주세요'
+            type: 'curve',
+            curve: CURVES.hipDepth,
+            feedback_high: '엉덩이를 뒤로 보내며 앉아주세요'
           },
           metric: {
             metric_id: 'squat_hip_angle',
@@ -379,9 +376,13 @@
 
       const bottomHeel = phases.BOTTOM?.robust?.heelContactAvg;
       const ascentHeel = phases.ASCENT?.robust?.heelContactAvg;
+      const sideHeelContact = weightedAverageFinite([
+        [bottomHeel, 0.7],
+        [ascentHeel, 0.3]
+      ]);
       const avgHeelContact = view === 'SIDE'
         ? firstFinite(
-          minFinite(bottomHeel, ascentHeel),
+          sideHeelContact,
           robustSources.scoring?.heelContactAvg,
           robustSources.overall?.heelContactAvg,
           fallbackAvgHeelContact
@@ -1104,6 +1105,18 @@
     return Math.abs(hipY - kneeY) <= tolerance ? 1 : 0;
   }
 
+  function weightedAverageFinite(weightedValues) {
+    let weightedSum = 0;
+    let weightSum = 0;
+    (weightedValues || []).forEach(([value, weight]) => {
+      if (Number.isFinite(value) && Number.isFinite(weight) && weight > 0) {
+        weightedSum += value * weight;
+        weightSum += weight;
+      }
+    });
+    return weightSum > 0 ? weightedSum / weightSum : null;
+  }
+
   function getRobustScoringSources(summary) {
     const phases = summary?.phases || {};
     return {
@@ -1572,11 +1585,12 @@
       return phase === REP_PHASES.BOTTOM || phase === REP_PHASES.ASCENT;
     }
 
-    // 힙 힌지는 앉는 동작에서만 중요 (서 있을 때는 각도가 180도이므로 평가 시 무조건 감점됨)
+    // 힙 힌지는 최저점에서만 live 평가한다.
+    // DESCENT 초반/중간의 자연스러운 큰 각도 변화나 깊은 BOTTOM의 작은 각도가
+    // 최종 rep hip scorer와 충돌해 빨강/초록으로 깜빡이는 것을 막는다.
     if (category === 'hip') {
-      return phase === REP_PHASES.DESCENT || phase === REP_PHASES.BOTTOM;
+      return phase === REP_PHASES.BOTTOM;
     }
-
     // 깊이(다리 각도) 평가는 완전히 내려갔을 때(BOTTOM)만 적용
     if (category === 'depth') {
       return phase === REP_PHASES.BOTTOM;
