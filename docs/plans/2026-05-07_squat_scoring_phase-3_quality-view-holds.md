@@ -87,3 +87,4 @@ hardFails.push('low_confidence_cap');
 - `squat-scoring-robustness.test.js`의 SQ-08(DIAGONAL), SQ-09(하체 잘림), SQ-10(낮은 조명)이 각각 `HOLD_CAMERA`, `HOLD_VISIBILITY`, `HOLD_CONFIDENCE`를 반환한다.
 - 필수 metric confidence 부족 시 재정규화 없이 `HOLD_CONFIDENCE`가 반환된다.
 - metric 계산은 가능하지만 전체 confidence만 LOW인 경우 `HOLD_CONFIDENCE`가 아니라 confidence cap을 적용한다.
+  
