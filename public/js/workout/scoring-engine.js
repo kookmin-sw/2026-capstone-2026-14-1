@@ -135,43 +135,56 @@ class ScoringEngine {
       return (l + r) / 2;
     };
 
+    const sideView = this.selectedView === 'SIDE' || angles.view === 'SIDE';
+    const preferredSide = ['left', 'right'].includes((angles.visibleSide || angles.sideChain || angles.side || '').toString().toLowerCase())
+      ? (angles.visibleSide || angles.sideChain || angles.side).toString().toLowerCase()
+      : null;
+    const pickSideAwareAngle = (left, right, options = {}) => {
+      const l = Number.isFinite(left) ? left : null;
+      const r = Number.isFinite(right) ? right : null;
+      if (preferredSide === 'left' && l != null) return l;
+      if (preferredSide === 'right' && r != null) return r;
+      if (!sideView) return options.defaultPicker ? options.defaultPicker(l, r) : combineAngles(l, r, options);
+      return combineAngles(l, r, { maxDiff: options.maxDiff ?? 35, preferHighOnMismatch: true });
+    };
+
     // metric.key와 angles 프로퍼티 매핑
     const keyMapping = {
       // 무릎 관련
-      'knee_angle': () => {
-        const left = angles.leftKnee;
-        const right = angles.rightKnee;
-        if (left == null && right == null) return null;
-        if (left == null) return right;
-        if (right == null) return left;
-        return (left + right) / 2;
-      },
+      'knee_angle': () => pickSideAwareAngle(angles.leftKnee, angles.rightKnee, {
+        defaultPicker: (left, right) => {
+          if (left == null && right == null) return null;
+          if (left == null) return right;
+          if (right == null) return left;
+          return (left + right) / 2;
+        }
+      }),
       'left_knee_angle': () => angles.leftKnee,
       'right_knee_angle': () => angles.rightKnee,
-      'knee_depth': () => {
-        const left = angles.leftKnee;
-        const right = angles.rightKnee;
-        if (left == null || right == null) return left || right || null;
-        return (left + right) / 2;
-      },
+      'knee_depth': () => pickSideAwareAngle(angles.leftKnee, angles.rightKnee, {
+        defaultPicker: (left, right) => {
+          if (left == null || right == null) return left || right || null;
+          return (left + right) / 2;
+        }
+      }),
 
       // 엉덩이/힙 관련
-      'hip_angle': () => {
-        const left = angles.leftHip;
-        const right = angles.rightHip;
-        if (left == null && right == null) return null;
-        if (left == null) return right;
-        if (right == null) return left;
-        return Math.min(left, right);
-      },
+      'hip_angle': () => pickSideAwareAngle(angles.leftHip, angles.rightHip, {
+        defaultPicker: (left, right) => {
+          if (left == null && right == null) return null;
+          if (left == null) return right;
+          if (right == null) return left;
+          return Math.min(left, right);
+        }
+      }),
       'left_hip_angle': () => angles.leftHip,
       'right_hip_angle': () => angles.rightHip,
-      'hip_hinge': () => {
-        const left = angles.leftHip;
-        const right = angles.rightHip;
-        if (left == null || right == null) return left || right || null;
-        return (left + right) / 2;
-      },
+      'hip_hinge': () => pickSideAwareAngle(angles.leftHip, angles.rightHip, {
+        defaultPicker: (left, right) => {
+          if (left == null || right == null) return left || right || null;
+          return (left + right) / 2;
+        }
+      }),
 
       // 팔꿈치 관련
       'elbow_angle': () => {
@@ -325,6 +338,10 @@ class ScoringEngine {
     // DB 규칙 타입에 따른 분기
     const ruleType = rule.type;
 
+    if (ruleType === 'curve') {
+      return this.evaluateCurve(value, rule, maxScore);
+    }
+
     // 대칭 타입 (좌우 차이)
     if (ruleType === 'symmetry') {
       return this.evaluateSymmetry(value, rule, maxScore);
@@ -364,6 +381,42 @@ class ScoringEngine {
         // 기본: ideal 범위 평가 시도
         return this.evaluateIdealRange(value, rule, maxScore);
     }
+  }
+
+  evaluateCurve(value, rule, maxScore) {
+    const curve = Array.isArray(rule.curve) ? rule.curve : [];
+    const points = curve
+      .filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+      .slice()
+      .sort((a, b) => a[0] - b[0]);
+
+    if (!Number.isFinite(value) || points.length === 0) {
+      return Math.round(maxScore * 0.7);
+    }
+
+    let normalized;
+    if (value <= points[0][0]) {
+      normalized = points[0][1];
+    } else {
+      const lastPoint = points[points.length - 1];
+      if (value >= lastPoint[0]) {
+        normalized = lastPoint[1];
+      } else {
+        normalized = lastPoint[1];
+        for (let i = 1; i < points.length; i += 1) {
+          const [x1, y1] = points[i - 1];
+          const [x2, y2] = points[i];
+          if (value <= x2) {
+            const t = (value - x1) / (x2 - x1 || 1);
+            normalized = y1 + (y2 - y1) * t;
+            break;
+          }
+        }
+      }
+    }
+
+    const clamped = Math.max(0, Math.min(100, normalized));
+    return Math.round((clamped / 100) * maxScore);
   }
 
   /**
@@ -707,7 +760,9 @@ class ScoringEngine {
 const QUALITY_GATE_THRESHOLDS = {
   detectionConfidence: 0.50,
   trackingConfidence: 0.50,
-  estimatedViewConfidence: 0.60,
+  estimatedViewConfidence: 0.70,
+  /** 측면: 가려진 반대편 체인으로 view 판정이 흔들릴 수 있어 FRONT보다 완화 */
+  estimatedViewConfidenceSide: 0.60,
   keyJointVisibilityAverage: 0.65,
   minKeyJointVisibility: 0.40,
   stableFrameCount: 8,
@@ -729,6 +784,12 @@ const GATE_ONLY_REASONS = [
   'low_confidence',
   'joints_missing',
 ];
+
+function estimatedViewConfidenceThreshold(estimatedView) {
+  return estimatedView === 'SIDE'
+    ? QUALITY_GATE_THRESHOLDS.estimatedViewConfidenceSide
+    : QUALITY_GATE_THRESHOLDS.estimatedViewConfidence;
+}
 
 /**
  * Evaluate whether the current frame input quality is sufficient for scoring.
@@ -755,15 +816,21 @@ function evaluateQualityGate(inputs, context) {
     return { result: 'withhold', reason: 'joints_missing' };
   }
 
+  if (inputs.estimatedView === 'DIAGONAL') {
+    return { result: 'withhold', reason: 'view_mismatch' };
+  }
+
   const selectedView = context?.selectedView || null;
   if (selectedView && selectedView !== 'DIAGONAL') {
     const matchesSelectedView = inputs.estimatedView === selectedView;
-    if (!matchesSelectedView || inputs.estimatedViewConfidence < QUALITY_GATE_THRESHOLDS.estimatedViewConfidence) {
+    const viewConfMin = estimatedViewConfidenceThreshold(inputs.estimatedView);
+    if (!matchesSelectedView || inputs.estimatedViewConfidence < viewConfMin) {
       return { result: 'withhold', reason: 'view_mismatch' };
     }
   } else if ((context?.allowedViews || []).length > 0) {
     const viewAllowed = context.allowedViews.includes(inputs.estimatedView);
-    if (!viewAllowed || inputs.estimatedViewConfidence < QUALITY_GATE_THRESHOLDS.estimatedViewConfidence) {
+    const viewConfMin = estimatedViewConfidenceThreshold(inputs.estimatedView);
+    if (!viewAllowed || inputs.estimatedViewConfidence < viewConfMin) {
       return { result: 'withhold', reason: 'view_mismatch' };
     }
   }

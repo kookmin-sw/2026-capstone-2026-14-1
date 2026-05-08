@@ -729,10 +729,23 @@ class RepCounter {
       return (l + r) / 2;
     };
 
+    const sideView = angles?.view === 'SIDE';
+    const preferredSide = ['left', 'right'].includes((angles?.visibleSide || angles?.sideChain || angles?.side || '').toString().toLowerCase())
+      ? (angles.visibleSide || angles.sideChain || angles.side).toString().toLowerCase()
+      : null;
+    const sideAwareFlexion = (left, right, fallback) => {
+      const l = Number.isFinite(left) ? left : null;
+      const r = Number.isFinite(right) ? right : null;
+      if (preferredSide === 'left' && l != null) return l;
+      if (preferredSide === 'right' && r != null) return r;
+      if (!sideView) return fallback(l, r);
+      return combineAngles(l, r, { preferHighOnMismatch: true });
+    };
+
     const mapping = {
-      'knee_angle': () => Math.min(angles.leftKnee || 180, angles.rightKnee || 180),
+      'knee_angle': () => sideAwareFlexion(angles.leftKnee, angles.rightKnee, (left, right) => Math.min(left || 180, right || 180)),
       'elbow_angle': () => combineAngles(angles.leftElbow, angles.rightElbow, { preferHighOnMismatch: true }),
-      'hip_angle': () => Math.min(angles.leftHip || 180, angles.rightHip || 180),
+      'hip_angle': () => sideAwareFlexion(angles.leftHip, angles.rightHip, (left, right) => Math.min(left || 180, right || 180)),
       'shoulder_angle': () => Math.max(angles.leftShoulder || 0, angles.rightShoulder || 0),
       'spine_angle': () => angles.spine || 0
     };

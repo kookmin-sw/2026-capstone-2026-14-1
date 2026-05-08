@@ -239,20 +239,43 @@ class PoseEngine {
 
     const quality = this.getFrameQuality(landmarks, view);
     const spine = this.getSpineAngle(landmarks, canUseWorld ? worldLandmarks : null);
-    const tibia = this.getTibiaAngle(landmarks, canUseWorld ? worldLandmarks : null);
+
+    let leftKnee = angleFlexion(LANDMARKS.LEFT_HIP, LANDMARKS.LEFT_KNEE, LANDMARKS.LEFT_ANKLE);
+    let rightKnee = angleFlexion(LANDMARKS.RIGHT_HIP, LANDMARKS.RIGHT_KNEE, LANDMARKS.RIGHT_ANKLE);
+    let leftHip = angleFlexion(LANDMARKS.LEFT_SHOULDER, LANDMARKS.LEFT_HIP, LANDMARKS.LEFT_KNEE);
+    let rightHip = angleFlexion(LANDMARKS.RIGHT_SHOULDER, LANDMARKS.RIGHT_HIP, LANDMARKS.RIGHT_KNEE);
+
+    let tibia = this.getTibiaAngle(landmarks, canUseWorld ? worldLandmarks : null);
+    let selectedSideChain = null;
+
+    if (view === 'SIDE' && Array.isArray(landmarks) && landmarks.length >= 33) {
+      const limb = this.selectVisibleSideChain(landmarks);
+      selectedSideChain = limb;
+      const tibiaOne = this.getTibiaAngleForLimb(landmarks, canUseWorld ? worldLandmarks : null, limb);
+      if (Number.isFinite(tibiaOne)) {
+        tibia = tibiaOne;
+      }
+      if (limb === 'left') {
+        rightKnee = null;
+        rightHip = null;
+      } else {
+        leftKnee = null;
+        leftHip = null;
+      }
+    }
 
     return {
       // 무릎 각도 (서있을 때 ~180도, 스쿼트 시 ~90도)
-      leftKnee: angleFlexion(LANDMARKS.LEFT_HIP, LANDMARKS.LEFT_KNEE, LANDMARKS.LEFT_ANKLE),
-      rightKnee: angleFlexion(LANDMARKS.RIGHT_HIP, LANDMARKS.RIGHT_KNEE, LANDMARKS.RIGHT_ANKLE),
+      leftKnee,
+      rightKnee,
 
       // 팔꿈치 각도 (팔 폈을 때 ~180도, 굽힐 때 ~45도)
       leftElbow: angleFlexion(LANDMARKS.LEFT_SHOULDER, LANDMARKS.LEFT_ELBOW, LANDMARKS.LEFT_WRIST, { prefer3D: true }),
       rightElbow: angleFlexion(LANDMARKS.RIGHT_SHOULDER, LANDMARKS.RIGHT_ELBOW, LANDMARKS.RIGHT_WRIST, { prefer3D: true }),
 
       // 엉덩이 각도 (서있을 때 ~180도, 굽힐 때 감소)
-      leftHip: angleFlexion(LANDMARKS.LEFT_SHOULDER, LANDMARKS.LEFT_HIP, LANDMARKS.LEFT_KNEE),
-      rightHip: angleFlexion(LANDMARKS.RIGHT_SHOULDER, LANDMARKS.RIGHT_HIP, LANDMARKS.RIGHT_KNEE),
+      leftHip,
+      rightHip,
 
       // 어깨 각도 (팔 내렸을 때 ~0도, 올렸을 때 ~180도)
       leftShoulder: angleFlexion(LANDMARKS.LEFT_HIP, LANDMARKS.LEFT_SHOULDER, LANDMARKS.LEFT_ELBOW),
@@ -274,13 +297,55 @@ class PoseEngine {
       kneeValgus: this.getKneeValgus(landmarks),
 
       // 스쿼트 보조 signal
-      heelContact: this.getHeelContact(landmarks),
+      heelContact: this.getHeelContact(landmarks, { view, visibleSide: selectedSideChain }),
       hipBelowKnee: this.getHipBelowKnee(landmarks),
 
       // 디버깅/품질 확인용
       view,
+      visibleSide: selectedSideChain,
       angleSource: !canUseWorld ? 'IMAGE_2D' : (prefer2DForFlexion ? 'SMART_IMAGE_2D' : 'SMART_WORLD_3D'),
       quality
+    };
+  }
+
+  /**
+   * shoulder–hip–knee–ankle 체인(또는 임의 key joint 목록)에 대한 visibility/트래킹 통계
+   */
+  computeKeyJointSubsetQualityStats(landmarks, indices, inFrameMargin) {
+    const jointCount = indices.length;
+    const visibilities = indices
+      .map((idx) => landmarks?.[idx]?.visibility)
+      .filter((value) => Number.isFinite(value));
+    const trackedPoints = indices
+      .map((idx) => landmarks?.[idx])
+      .filter((point) => point && Number.isFinite(point.x) && Number.isFinite(point.y));
+    const inFramePoints = trackedPoints.filter((point) =>
+      point.x >= inFrameMargin && point.x <= (1 - inFrameMargin) &&
+      point.y >= inFrameMargin && point.y <= (1 - inFrameMargin)
+    );
+
+    const avgVisibility = visibilities.length
+      ? visibilities.reduce((sum, value) => sum + value, 0) / visibilities.length
+      : 0;
+    const minVisibility = visibilities.length
+      ? Math.min(...visibilities)
+      : 0;
+    const visibleRatio = jointCount > 0
+      ? visibilities.filter((value) => value >= 0.6).length / jointCount
+      : 0;
+    const trackedJointRatio = jointCount > 0
+      ? trackedPoints.length / jointCount
+      : 0;
+    const inFrameRatio = trackedPoints.length > 0
+      ? inFramePoints.length / trackedPoints.length
+      : 0;
+
+    return {
+      avgVisibility,
+      minVisibility,
+      visibleRatio,
+      trackedJointRatio,
+      inFrameRatio
     };
   }
 
@@ -297,32 +362,45 @@ class PoseEngine {
     ];
     const inFrameMargin = 0.05;
 
-    const visibilities = keyIndices
-      .map((idx) => landmarks?.[idx]?.visibility)
-      .filter((value) => Number.isFinite(value));
-    const trackedPoints = keyIndices
-      .map((idx) => landmarks?.[idx])
-      .filter((point) => point && Number.isFinite(point.x) && Number.isFinite(point.y));
-    const inFramePoints = trackedPoints.filter((point) =>
-      point.x >= inFrameMargin && point.x <= (1 - inFrameMargin) &&
-      point.y >= inFrameMargin && point.y <= (1 - inFrameMargin)
-    );
+    let avgVisibility;
+    let minVisibility;
+    let visibleRatio;
+    let trackedJointRatio;
+    let inFrameRatio;
 
-    const avgVisibility = visibilities.length
-      ? visibilities.reduce((sum, value) => sum + value, 0) / visibilities.length
-      : 0;
-    const minVisibility = visibilities.length
-      ? Math.min(...visibilities)
-      : 0;
-    const visibleRatio = keyIndices.length > 0
-      ? visibilities.filter((value) => value >= 0.6).length / keyIndices.length
-      : 0;
-    const trackedJointRatio = keyIndices.length > 0
-      ? trackedPoints.length / keyIndices.length
-      : 0;
-    const inFrameRatio = trackedPoints.length > 0
-      ? inFramePoints.length / trackedPoints.length
-      : 0;
+    if (view === 'SIDE') {
+      const leftChain = [
+        LANDMARKS.LEFT_SHOULDER,
+        LANDMARKS.LEFT_HIP,
+        LANDMARKS.LEFT_KNEE,
+        LANDMARKS.LEFT_ANKLE
+      ];
+      const rightChain = [
+        LANDMARKS.RIGHT_SHOULDER,
+        LANDMARKS.RIGHT_HIP,
+        LANDMARKS.RIGHT_KNEE,
+        LANDMARKS.RIGHT_ANKLE
+      ];
+      const left = this.computeKeyJointSubsetQualityStats(landmarks, leftChain, inFrameMargin);
+      const right = this.computeKeyJointSubsetQualityStats(landmarks, rightChain, inFrameMargin);
+      const pickRight =
+        right.avgVisibility > left.avgVisibility ||
+        (right.avgVisibility === left.avgVisibility && right.minVisibility > left.minVisibility);
+      const best = pickRight ? right : left;
+      avgVisibility = best.avgVisibility;
+      minVisibility = best.minVisibility;
+      visibleRatio = best.visibleRatio;
+      trackedJointRatio = best.trackedJointRatio;
+      inFrameRatio = best.inFrameRatio;
+    } else {
+      const full = this.computeKeyJointSubsetQualityStats(landmarks, keyIndices, inFrameMargin);
+      avgVisibility = full.avgVisibility;
+      minVisibility = full.minVisibility;
+      visibleRatio = full.visibleRatio;
+      trackedJointRatio = full.trackedJointRatio;
+      inFrameRatio = full.inFrameRatio;
+    }
+
     const viewStability = this.getViewStability(view);
 
     const score = Math.max(0, Math.min(1,
@@ -588,6 +666,55 @@ class PoseEngine {
   }
 
   /**
+   * shoulder–hip–knee–ankle 가시성 기준 측면에서 더 잘 보이는 쪽 (getFrameQuality SIDE와 동일)
+   * @returns {'left'|'right'}
+   */
+  selectVisibleSideChain(landmarks) {
+    const inFrameMargin = 0.05;
+    const leftChain = [
+      LANDMARKS.LEFT_SHOULDER,
+      LANDMARKS.LEFT_HIP,
+      LANDMARKS.LEFT_KNEE,
+      LANDMARKS.LEFT_ANKLE
+    ];
+    const rightChain = [
+      LANDMARKS.RIGHT_SHOULDER,
+      LANDMARKS.RIGHT_HIP,
+      LANDMARKS.RIGHT_KNEE,
+      LANDMARKS.RIGHT_ANKLE
+    ];
+    const left = this.computeKeyJointSubsetQualityStats(landmarks, leftChain, inFrameMargin);
+    const right = this.computeKeyJointSubsetQualityStats(landmarks, rightChain, inFrameMargin);
+    const pickRight =
+      right.avgVisibility > left.avgVisibility ||
+      (right.avgVisibility === left.avgVisibility && right.minVisibility > left.minVisibility);
+    return pickRight ? 'right' : 'left';
+  }
+
+  /**
+   * 한쪽 무릎–발목으로 경골 기울기 (측면 단일 체인용)
+   */
+  getTibiaAngleForLimb(landmarks, worldLandmarks = null, limbSide = 'left') {
+    const canUseWorld = Array.isArray(worldLandmarks) && worldLandmarks.length >= 33;
+    const kneeIdx = limbSide === 'right' ? LANDMARKS.RIGHT_KNEE : LANDMARKS.LEFT_KNEE;
+    const ankleIdx = limbSide === 'right' ? LANDMARKS.RIGHT_ANKLE : LANDMARKS.LEFT_ANKLE;
+
+    if (canUseWorld) {
+      const tilt3d = this.getSegmentTiltAngle3D(
+        worldLandmarks[kneeIdx],
+        worldLandmarks[ankleIdx]
+      );
+      if (Number.isFinite(tilt3d)) return tilt3d;
+    }
+
+    const tilt2d = this.getSegmentTiltAngle(
+      landmarks[kneeIdx],
+      landmarks[ankleIdx]
+    );
+    return Number.isFinite(tilt2d) ? tilt2d : null;
+  }
+
+  /**
    * 무릎 정렬 proxy (정면 기준으로 무릎이 발 라인을 따라가는지)
    */
   getKneeAlignment(landmarks) {
@@ -651,14 +778,19 @@ class PoseEngine {
    * 뒤꿈치 접지 여부 추정
    * - heel landmark가 foot index보다 눈에 띄게 위로 들리면 접지 이탈로 본다.
    */
-  getHeelContact(landmarks) {
+  getHeelContact(landmarks, options = {}) {
+    const side = ['left', 'right'].includes((options.visibleSide || '').toString().toLowerCase())
+      ? options.visibleSide.toString().toLowerCase()
+      : null;
+    const isSideView = options.view === 'SIDE';
+    const contactTolerance = isSideView ? 0.035 : 0.02;
     const footPairs = [
-      [LANDMARKS.LEFT_HEEL, LANDMARKS.LEFT_FOOT_INDEX],
-      [LANDMARKS.RIGHT_HEEL, LANDMARKS.RIGHT_FOOT_INDEX]
+      { side: 'left', heelIdx: LANDMARKS.LEFT_HEEL, toeIdx: LANDMARKS.LEFT_FOOT_INDEX },
+      { side: 'right', heelIdx: LANDMARKS.RIGHT_HEEL, toeIdx: LANDMARKS.RIGHT_FOOT_INDEX }
     ];
     const observed = [];
 
-    footPairs.forEach(([heelIdx, toeIdx]) => {
+    const observeFoot = ({ heelIdx, toeIdx }) => {
       const heel = landmarks[heelIdx];
       const toe = landmarks[toeIdx];
       if (
@@ -667,14 +799,25 @@ class PoseEngine {
         (Number.isFinite(heel.visibility) && heel.visibility < 0.5) ||
         (Number.isFinite(toe.visibility) && toe.visibility < 0.5)
       ) {
-        return;
+        return null;
       }
 
-      observed.push(heel.y >= toe.y - 0.02);
+      return heel.y >= toe.y - contactTolerance;
+    };
+
+    if (isSideView && side) {
+      const selectedPair = footPairs.find((pair) => pair.side === side);
+      const selectedContact = selectedPair ? observeFoot(selectedPair) : null;
+      if (selectedContact != null) return selectedContact;
+    }
+
+    footPairs.forEach((pair) => {
+      const contact = observeFoot(pair);
+      if (contact != null) observed.push(contact);
     });
 
     if (!observed.length) return null;
-    return observed.every(Boolean);
+    return isSideView ? observed.some(Boolean) : observed.every(Boolean);
   }
 
   /**

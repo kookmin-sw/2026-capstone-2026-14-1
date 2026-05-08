@@ -220,3 +220,25 @@ test('PoseEngine.getFrameQuality returns only signal data, no decisions', () => 
   assert.equal('withhold' in quality, false, 'quality must not have withhold field');
   assert.equal('pass' in quality, false, 'quality must not have pass field');
 });
+
+test('PoseEngine.getFrameQuality for SIDE uses better visible shoulder–hip–knee–ankle chain', () => {
+  const { PoseEngine } = require('../../public/js/workout/pose-engine.js');
+  const engine = new PoseEngine();
+  const pt = (visibility) => ({ x: 0.5, y: 0.5, z: 0, visibility });
+  const mockLandmarks = new Array(33).fill(null);
+  mockLandmarks[11] = pt(0.9);
+  mockLandmarks[23] = pt(0.88);
+  mockLandmarks[25] = pt(0.86);
+  mockLandmarks[27] = pt(0.82);
+  mockLandmarks[12] = pt(0.2);
+  mockLandmarks[24] = pt(0.18);
+  mockLandmarks[26] = pt(0.15);
+  mockLandmarks[28] = pt(0.12);
+
+  const sideQ = engine.getFrameQuality(mockLandmarks, 'SIDE');
+  const frontQ = engine.getFrameQuality(mockLandmarks, 'FRONT');
+
+  assert.ok(sideQ.minVisibility >= 0.81, 'SIDE min should follow best chain, not occluded side');
+  assert.ok(frontQ.minVisibility < 0.2, 'FRONT min includes far-side joints');
+  assert.ok(sideQ.avgVisibility > frontQ.avgVisibility);
+});

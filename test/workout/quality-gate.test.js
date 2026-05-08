@@ -105,6 +105,63 @@ test('evaluateQualityGate returns withhold for view mismatch (low confidence)', 
   assert.ok(GATE_ONLY_REASONS.includes(result.reason));
 });
 
+test('evaluateQualityGate SIDE accepts lower estimatedView confidence than FRONT', () => {
+  const baseInputs = {
+    frameInclusionRatio: 0.95,
+    keyJointVisibilityAverage: 0.80,
+    minKeyJointVisibility: 0.71,
+    detectionConfidence: 0.92,
+    trackingConfidence: 0.93,
+    stableFrameCount: QUALITY_GATE_THRESHOLDS.stableFrameCount,
+    unstableFrameRatio: 0.10,
+    cameraDistanceOk: true,
+  };
+
+  const sidePass = evaluateQualityGate({
+    ...baseInputs,
+    estimatedView: 'SIDE',
+    estimatedViewConfidence: 0.65,
+  }, {
+    allowedViews: ['SIDE'],
+    selectedView: 'SIDE',
+  });
+  assert.equal(sidePass.result, 'pass');
+  assert.equal(sidePass.reason, null);
+
+  const frontHold = evaluateQualityGate({
+    ...baseInputs,
+    estimatedView: 'FRONT',
+    estimatedViewConfidence: 0.65,
+  }, {
+    allowedViews: ['FRONT'],
+    selectedView: 'FRONT',
+  });
+  assert.equal(frontHold.result, 'withhold');
+  assert.equal(frontHold.reason, 'view_mismatch');
+});
+
+test('evaluateQualityGate returns withhold for diagonal estimated view', () => {
+  const result = evaluateQualityGate({
+    frameInclusionRatio: 0.95,
+    keyJointVisibilityAverage: 0.80,
+    minKeyJointVisibility: 0.70,
+    estimatedView: 'DIAGONAL',
+    estimatedViewConfidence: 0.90,
+    detectionConfidence: 0.92,
+    trackingConfidence: 0.93,
+    stableFrameCount: 10,
+    unstableFrameRatio: 0.05,
+    cameraDistanceOk: true,
+  }, {
+    allowedViews: ['FRONT', 'SIDE', 'DIAGONAL'],
+    selectedView: 'SIDE',
+  });
+
+  assert.equal(result.result, 'withhold');
+  assert.equal(result.reason, 'view_mismatch');
+  assert.ok(GATE_ONLY_REASONS.includes(result.reason));
+});
+
 test('evaluateQualityGate returns withhold for unstable tracking → view_unstable', () => {
   const result = evaluateQualityGate({
     frameInclusionRatio: 0.95,
@@ -305,6 +362,7 @@ test('evaluateQualityGate never emits a reason outside GATE_ONLY_REASONS', () =>
     { inputs: { cameraDistanceOk: true, detectionConfidence: 0.9, trackingConfidence: 0.9, frameInclusionRatio: 0.5, keyJointVisibilityAverage: 0.8, minKeyJointVisibility: 0.7, estimatedView: 'SIDE', estimatedViewConfidence: 0.8, stableFrameCount: 10, unstableFrameRatio: 0.05 }, context: { allowedViews: ['SIDE'] } },
     { inputs: { cameraDistanceOk: true, detectionConfidence: 0.9, trackingConfidence: 0.9, frameInclusionRatio: 0.95, keyJointVisibilityAverage: 0.5, minKeyJointVisibility: 0.3, estimatedView: 'SIDE', estimatedViewConfidence: 0.8, stableFrameCount: 10, unstableFrameRatio: 0.05 }, context: { allowedViews: ['SIDE'] } },
     { inputs: { cameraDistanceOk: true, detectionConfidence: 0.9, trackingConfidence: 0.9, frameInclusionRatio: 0.95, keyJointVisibilityAverage: 0.8, minKeyJointVisibility: 0.7, estimatedView: 'FRONT', estimatedViewConfidence: 0.8, stableFrameCount: 10, unstableFrameRatio: 0.05 }, context: { allowedViews: ['SIDE'] } },
+    { inputs: { cameraDistanceOk: true, detectionConfidence: 0.9, trackingConfidence: 0.9, frameInclusionRatio: 0.95, keyJointVisibilityAverage: 0.8, minKeyJointVisibility: 0.7, estimatedView: 'DIAGONAL', estimatedViewConfidence: 0.8, stableFrameCount: 10, unstableFrameRatio: 0.05 }, context: { allowedViews: ['FRONT', 'SIDE', 'DIAGONAL'] } },
     { inputs: { cameraDistanceOk: true, detectionConfidence: 0.9, trackingConfidence: 0.9, frameInclusionRatio: 0.95, keyJointVisibilityAverage: 0.8, minKeyJointVisibility: 0.7, estimatedView: 'SIDE', estimatedViewConfidence: 0.8, stableFrameCount: 10, unstableFrameRatio: 0.5 }, context: { allowedViews: ['SIDE'] } },
     { inputs: { cameraDistanceOk: true, detectionConfidence: 0.9, trackingConfidence: 0.9, frameInclusionRatio: 0.95, keyJointVisibilityAverage: 0.8, minKeyJointVisibility: 0.7, estimatedView: 'SIDE', estimatedViewConfidence: 0.8, stableFrameCount: 3, unstableFrameRatio: 0.05 }, context: { allowedViews: ['SIDE'] } },
   ];
@@ -319,7 +377,8 @@ test('evaluateQualityGate never emits a reason outside GATE_ONLY_REASONS', () =>
 test('QUALITY_GATE_THRESHOLDS has all seed values from spec', () => {
   assert.equal(QUALITY_GATE_THRESHOLDS.detectionConfidence, 0.50);
   assert.equal(QUALITY_GATE_THRESHOLDS.trackingConfidence, 0.50);
-  assert.equal(QUALITY_GATE_THRESHOLDS.estimatedViewConfidence, 0.60);
+  assert.equal(QUALITY_GATE_THRESHOLDS.estimatedViewConfidence, 0.70);
+  assert.equal(QUALITY_GATE_THRESHOLDS.estimatedViewConfidenceSide, 0.60);
   assert.equal(QUALITY_GATE_THRESHOLDS.keyJointVisibilityAverage, 0.65);
   assert.equal(QUALITY_GATE_THRESHOLDS.minKeyJointVisibility, 0.40);
   assert.equal(QUALITY_GATE_THRESHOLDS.stableFrameCount, 8);

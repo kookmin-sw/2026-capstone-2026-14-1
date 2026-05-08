@@ -18,6 +18,7 @@ function mapWithholdReasonToMessage(reason) {
     tracked_joints_low: '팔과 하체가 모두 보이도록 카메라를 조금 더 멀리 두세요.',
     view_unstable: '몸 방향이 흔들리고 있습니다. 측면 자세를 유지해주세요.',
     view_mismatch: '현재 운동은 옆면 시점이 필요합니다.',
+    side_low_confidence: '측면이 안정적으로 인식되도록 조명과 거리를 맞춰주세요.',
     low_confidence: '카메라 위치와 조명을 조정한 뒤 다시 자세를 잡아주세요.',
   };
 
