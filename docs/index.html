@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FitPlus - 2026 Capstone Team 14</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e5e7eb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    header {
+      padding: 72px 24px;
+      background: linear-gradient(135deg, #1d4ed8, #0f766e);
+      color: white;
+      text-align: center;
+    }
+
+    header h1 {
+      margin: 0 0 16px;
+      font-size: 48px;
+    }
+
+    header p {
+      max-width: 720px;
+      margin: 0 auto;
+      font-size: 20px;
+      opacity: 0.95;
+    }
+
+    main {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 48px 24px;
+    }
+
+    section {
+      margin-bottom: 40px;
+      padding: 32px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    }
+
+    h2 {
+      margin-top: 0;
+      font-size: 28px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      padding: 20px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: #ffffff;
+    }
+
+    .card h3 {
+      margin-top: 0;
+      color: var(--primary);
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .button {
+      display: inline-block;
+      padding: 12px 18px;
+      border-radius: 999px;
+      background: var(--primary);
+      color: white;
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .button.secondary {
+      background: #111827;
+    }
+
+    footer {
+      padding: 32px 24px;
+      text-align: center;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>FitPlus</h1>
+    <p>
+      웹캠 기반 실시간 AI 운동 코칭 서비스.
+      별도 웨어러블 기기 없이 사용자의 운동 자세를 분석하고,
+      반복 횟수·자세 점수·피드백을 제공합니다.
+    </p>
+  </header>
+
+  <main>
+    <section>
+      <h2>프로젝트 소개</h2>
+      <p>
+        FitPlus는 사용자가 웹캠만으로 스쿼트, 푸쉬업, 플랭크 등의 운동을 수행하면
+        MediaPipe Pose를 통해 신체 랜드마크를 추출하고, 관절 각도와 자세 안정성을
+        분석하여 실시간 피드백을 제공하는 웹 운동 코칭 서비스입니다.
+      </p>
+      <p>
+        이 프로젝트의 핵심 목표는 사용자가 혼자 운동할 때도 자신의 자세가 올바른지
+        확인하고, 운동 기록을 기반으로 개선 방향을 파악할 수 있게 하는 것입니다.
+      </p>
+
+      <div class="links">
+        <a class="button" href="https://github.com/kookmin-sw/2026-capstone-14">GitHub Repository</a>
+        <a class="button secondary" href="#features">주요 기능 보기</a>
+      </div>
+    </section>
+
+    <section id="features">
+      <h2>주요 기능</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>실시간 자세 분석</h3>
+          <p>브라우저에서 MediaPipe Pose를 사용해 사용자의 관절 위치와 운동 자세를 분석합니다.</p>
+        </div>
+        <div class="card">
+          <h3>운동별 점수화</h3>
+          <p>스쿼트, 푸쉬업, 플랭크별 규칙을 기반으로 반복 횟수, 자세 품질, 안정성을 평가합니다.</p>
+        </div>
+        <div class="card">
+          <h3>운동 기록 관리</h3>
+          <p>운동 세션 결과를 저장하고, 히스토리와 통계를 통해 사용자의 변화를 확인합니다.</p>
+        </div>
+        <div class="card">
+          <h3>AI 성장 리포트</h3>
+          <p>누적 운동 기록을 기반으로 개선점, 약점, 다음 목표를 요약합니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>기술 스택</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Frontend</h3>
+          <p>HTML, CSS, Vanilla JavaScript, EJS, MediaPipe Pose</p>
+        </div>
+        <div class="card">
+          <h3>Backend</h3>
+          <p>Node.js, Express, JWT 인증, Supabase 연동</p>
+        </div>
+        <div class="card">
+          <h3>Data / AI</h3>
+          <p>Supabase PostgreSQL, OpenRouter API, AI 운동 리포트</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>기대 효과</h2>
+      <p>
+        FitPlus는 사용자가 운동 자세를 스스로 점검하기 어려운 문제를 해결하기 위해
+        실시간 시각 피드백, 점수화, 기록 기반 분석을 제공합니다.
+        이를 통해 사용자는 반복적인 운동 수행 과정에서 자신의 자세 문제를 인식하고
+        점진적으로 개선할 수 있습니다.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    2026 국민대학교 소프트웨어융합대학 캡스톤디자인 14조
+  </footer>
+</body>
+</html>
