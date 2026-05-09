@@ -969,6 +969,10 @@ body {
     padding: 20px 16px calc(112px + env(safe-area-inset-bottom));
   }
 
+  .app.no-topbar .content {
+    padding-bottom: calc(28px + env(safe-area-inset-bottom));
+  }
+
   [data-theme="dark"] .tabs {
     background: var(--mobile-nav-bg);
   }

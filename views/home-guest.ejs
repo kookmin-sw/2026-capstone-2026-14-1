@@ -293,13 +293,15 @@
     overflow-y: auto;
     scroll-snap-type: y mandatory;
     scroll-behavior: smooth;
-    height: calc(100vh - 90px);
+    height: 100vh;
+    height: 100svh;
     margin: -32px;
     padding: 0;
   }
   .guest-scroll-section {
     scroll-snap-align: start;
-    min-height: calc(100vh - 90px);
+    min-height: 100vh;
+    min-height: 100svh;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -391,7 +393,7 @@
     gap: 28px;
     align-items: center;
     overflow: hidden;
-    border-radius: 28px;
+    border-radius: 0;
     padding: clamp(28px, 5vw, 56px);
     background:
       radial-gradient(circle at 14% 18%, rgba(56, 189, 248, 0.22), transparent 28%),
@@ -990,7 +992,7 @@
 
     .guest-index-hero {
       min-height: 0;
-      border-radius: 20px;
+      border-radius: 0;
       padding: 24px;
     }
 

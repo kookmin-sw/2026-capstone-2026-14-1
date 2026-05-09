@@ -447,6 +447,7 @@ const getHomePage = async (req, res, next) => {
                 title: 'Home',
                 today: formatKoreanDate(),
                 activeTab: 'home',
+                hideTopbar: true,
                 streak: 0,
                 todaySummary: { count: 0, totalMinutes: 0, totalReps: 0, totalDurationResultSec: 0, avgScore: 0 },
                 weekSummary: { count: 0, totalMinutes: 0, totalReps: 0, totalDurationResultSec: 0, avgScore: 0 },

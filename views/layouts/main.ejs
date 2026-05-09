@@ -48,6 +48,9 @@
     <% const currentTab = (typeof locals !== 'undefined' && typeof locals.activeTab !== 'undefined')
       ? locals.activeTab
       : (typeof activeTab !== 'undefined' ? activeTab : ''); %>
+    <% const shouldHideTopbar = (typeof locals !== 'undefined' && typeof locals.hideTopbar !== 'undefined')
+      ? locals.hideTopbar
+      : (typeof hideTopbar !== 'undefined' ? hideTopbar : false); %>
     <% const tabClass = (name) => `tab${currentTab === name ? ' active' : ''}`; %>
     <% const tabItems = [
       {
@@ -93,36 +96,38 @@
         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5.5A2.5 2.5 0 0 1 8.5 3H20v15.5A2.5 2.5 0 0 0 17.5 16H6Z" /><path d="M6 5.5v15A2.5 2.5 0 0 1 3.5 18H17.5" /><path d="M10 7h6M10 10h4" /></svg>'
       }
     ]; %>
-    <div class="app">
-      <header class="topbar">
-        <div class="brand">
-          <div class="logo">FitPlus</div>
-          <div class="tag">AI 홈 트레이닝</div>
-        </div>
-        <nav class="tabs" aria-label="주요 탭">
-          <% tabItems.forEach((item) => { %>
-            <a
-              class="<%= tabClass(item.name) %>"
-              href="<%= item.href %>"
-              aria-label="<%= item.label %>"
-              title="<%= item.label %>"
-            >
-              <span class="tab-icon" aria-hidden="true"><%- item.icon %></span>
-              <span class="tab-label tab-label-full"><%= item.label %></span>
-              <span class="tab-label tab-label-short"><%= item.shortLabel %></span>
-            </a>
-          <% }) %>
-        </nav>
-        <div class="profile-area">
-          <% if (isLoggedIn) { %>
-            <a class="name" href="/settings"><%= displayName %></a>
-            <a class="auth-btn logout-btn" href="/logout">로그아웃</a>
-          <% } else { %>
-            <span class="name"><%= displayName %></span>
-            <a class="auth-btn login-btn" href="/login">로그인</a>
-          <% } %>
-        </div>
-      </header>
+    <div class="app<%= shouldHideTopbar ? ' no-topbar' : '' %>">
+      <% if (!shouldHideTopbar) { %>
+        <header class="topbar">
+          <div class="brand">
+            <div class="logo">FitPlus</div>
+            <div class="tag">AI 홈 트레이닝</div>
+          </div>
+          <nav class="tabs" aria-label="주요 탭">
+            <% tabItems.forEach((item) => { %>
+              <a
+                class="<%= tabClass(item.name) %>"
+                href="<%= item.href %>"
+                aria-label="<%= item.label %>"
+                title="<%= item.label %>"
+              >
+                <span class="tab-icon" aria-hidden="true"><%- item.icon %></span>
+                <span class="tab-label tab-label-full"><%= item.label %></span>
+                <span class="tab-label tab-label-short"><%= item.shortLabel %></span>
+              </a>
+            <% }) %>
+          </nav>
+          <div class="profile-area">
+            <% if (isLoggedIn) { %>
+              <a class="name" href="/settings"><%= displayName %></a>
+              <a class="auth-btn logout-btn" href="/logout">로그아웃</a>
+            <% } else { %>
+              <span class="name"><%= displayName %></span>
+              <a class="auth-btn login-btn" href="/login">로그인</a>
+            <% } %>
+          </div>
+        </header>
+      <% } %>
 
       <main class="content">
         <%- body %>
