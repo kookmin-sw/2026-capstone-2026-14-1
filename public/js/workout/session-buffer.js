@@ -4,6 +4,18 @@
  */
 
 class SessionBuffer {
+  /**
+   * 세션 단위로 점수 타임라인·반복 기록·이벤트·메트릭 누적을 메모리에 보관하고
+   * localStorage에 주기 백업합니다. 종료 시 export()로 서버 전송용 페이로드를 만듭니다.
+   *
+   * @param {string|number} sessionId - 세션 식별자 (스토리지 키 접두어에 사용)
+   * @param {Object} [options={}]
+   * @param {string} [options.exerciseCode] - 운동 코드 (소문자 정규화)
+   * @param {string} [options.mode] - 'FREE' 등 세션 모드
+   * @param {string} [options.selectedView] - 'FRONT' | 'SIDE' | 'DIAGONAL' | 기타(null로 정규화)
+   * @param {string} [options.resultBasis] - 'REPS' | 'DURATION' — 최종 결과 해석 힌트
+   * @param {number} [options.targetSec] - 시간 기반 운동 목표(초), 양수만 유지
+   */
   constructor(sessionId, options = {}) {
     this.sessionId = sessionId;
     this.startTime = Date.now();
@@ -99,7 +111,7 @@ class SessionBuffer {
   addScore(scoreResult) {
     const now = Date.now();
 
-    // 1초 간격으로 샘플링
+    // 매 프레임 저장하지 않고 1초마다 한 점 — 페이로드·localStorage 크기 제어
     if (now - this.lastScoreTime >= 1000) {
       const sampledBreakdown = (scoreResult.breakdown || []).map((item) => ({
         key: item.key,
@@ -489,6 +501,21 @@ class SessionBuffer {
     }));
   }
 
+  /**
+   * 세션 종료 후 API/저장소로 넘길 최종 묶음 데이터를 생성합니다.
+   *
+   * - 횟수 기반: final_score는 rep 기록 평균(calculateFinalScore), metric_results는 rep breakdown 누적 우선
+   * - 시간 기반: posture_score(자세)·time_score(목표 대비 유지)를 가중 합산해 final_score 산출
+   * - interim_snapshots: 초 단위 타임라인을 서버 INTERIM 스냅샷 형식으로 정규화
+   * - withhold_count / rep_results: 품질 게이트·rep 판정 분석용 MVP 필드
+   *
+   * @param {Object} [options={}]
+   * @param {boolean} [options.isTimeBased] - true면 플랭크 등 시간 운동 해석 경로
+   * @param {number} [options.bestHoldSec] - 시간 운동: 최고 유지(초)
+   * @param {number} [options.targetSec] - 시간 운동: 목표(초), 없으면 생성 시 targetSec
+   * @param {number} [options.bestHoldPostureScore] - 시간 운동: 자세 점수 오버라이드(없으면 calculateFinalScore)
+   * @returns {Object} 서버 스펙에 맞춘 요약 객체(selected_view, final_score, metric_results, …)
+   */
   export(options = {}) {
     const isTimeBased = options.isTimeBased === true || this.resultBasisHint === 'DURATION';
     const bestHoldSec = this.normalizePositiveInt(options.bestHoldSec) || 0;

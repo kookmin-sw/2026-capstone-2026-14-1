@@ -1,13 +1,21 @@
 /**
- * FitPlus Scoring Engine - 실시간 점수 계산
- * DB의 scoring_profile_metric 기반 점수 산출
+ * FitPlus Scoring Engine — 프레임 단위 자세 채점 및 공통 품질 게이트
+ *
+ * - `calculate(angles)`: DB `scoring_profile_metric` 규칙으로 각 메트릭 점수·가중 합산 (실시간 UI용).
+ * - `scoreRep(repRecord)`: 운동 모듈에 위임해 rep 단위 최종 채점(없으면 repRecord 그대로 반환).
+ * - 파일 하단 `evaluateQualityGate` / `applyRepOutcome`: 세션·스펙 공통 게이트/결과 전이 (운동 모듈 밖).
+ *
+ * 전역: window.ScoringEngine, evaluateQualityGate, QUALITY_GATE_THRESHOLDS, …
  */
 
 class ScoringEngine {
   /**
-   * @param {Object} scoringProfile - DB에서 가져온 채점 프로파일
-   *   - scoring_profile_id
-   *   - scoring_profile_metric[] (weight, max_score, rule, metric)
+   * 프로필에 메트릭 배열이 있으면 DB 정의를 쓰고, 비어 있으면 운동 모듈 `getDefaultProfileMetrics()`로 대체합니다.
+   *
+   * @param {Object|null} scoringProfile - { scoring_profile_metric?: Array } DB 채점 프로필
+   * @param {Object} [options={}]
+   * @param {string} [options.exerciseCode] - WorkoutExerciseRegistry 조회용 (소문자·하이픈 정규화)
+   * @param {'FRONT'|'SIDE'|'DIAGONAL'|string} [options.selectedView] - 측면 시 좌우 각도 pick 정책에 영향
    */
   constructor(scoringProfile, options = {}) {
     this.profile = scoringProfile;
@@ -65,16 +73,17 @@ class ScoringEngine {
       const metric = pm.metric;
       const rule = pm.rule || {};
 
-      // 메트릭 키에 해당하는 실제 값 추출
+      // DB metric.key ↔ PoseEngine angles 키 — 측면뷰면 visibleSide 등으로 좌/우 선택
       const actualValue = this.getMetricValue(angles, metric.key);
 
       if (actualValue === null) {
-        continue; // 해당 각도를 계산할 수 없는 경우 스킵
+        continue; // 각도 소스 없음(가려짐·뷰 불일치 등) — 해당 메트릭은 합산에서 제외
       }
 
-      // 규칙에 따른 점수 계산
+      // rule.type: threshold | optimal | … → 0 ~ pm.max_score 사이 원시 점수
       const metricScore = this.evaluateMetric(actualValue, rule, pm.max_score);
 
+      // UI/로그용 0~100 스케일 (메트릭별 max가 다를 수 있음)
       const normalizedScore = Number.isFinite(Number(pm.max_score)) && Number(pm.max_score) > 0
         ? Math.max(0, Math.min(100, (metricScore / Number(pm.max_score)) * 100))
         : null;
@@ -89,10 +98,12 @@ class ScoringEngine {
         normalizedScore,
         maxScore: pm.max_score,
         weight: pm.weight,
+        // max의 70% 미만일 때만 교정 힌트를 달아 checkFeedback 후보로 쓸 수 있게 함
         feedback: metricScore < pm.max_score * 0.7 ?
           this.generateFeedback(metric.key, actualValue, rule) : null
       });
 
+      // 가중 합이 아니라 max_score 비율로 최종 0~100 환산하기 위한 분모 누적
       totalScore += metricScore;
       totalWeight += pm.max_score;
     }
@@ -799,6 +810,7 @@ function estimatedViewConfidenceThreshold(estimatedView) {
  * Only pass → exercise module evaluation runs.
  */
 function evaluateQualityGate(inputs, context) {
+  // 아래 순서는 "먼저 막을 수 있는" 실패부터 검사 — 이유 코드는 UI 메시지 매핑에 직결
   if (!inputs.cameraDistanceOk) {
     return { result: 'withhold', reason: 'out_of_frame' };
   }
@@ -816,27 +828,32 @@ function evaluateQualityGate(inputs, context) {
     return { result: 'withhold', reason: 'joints_missing' };
   }
 
+  // 대각은 스펙상 채점 뷰로 쓰지 않음
   if (inputs.estimatedView === 'DIAGONAL') {
     return { result: 'withhold', reason: 'view_mismatch' };
   }
 
   const selectedView = context?.selectedView || null;
   if (selectedView && selectedView !== 'DIAGONAL') {
+    // 사용자가 고른 뷰와 추정 뷰·신뢰도가 맞을 때만 통과
     const matchesSelectedView = inputs.estimatedView === selectedView;
     const viewConfMin = estimatedViewConfidenceThreshold(inputs.estimatedView);
     if (!matchesSelectedView || inputs.estimatedViewConfidence < viewConfMin) {
       return { result: 'withhold', reason: 'view_mismatch' };
     }
   } else if ((context?.allowedViews || []).length > 0) {
+    // 명시적 선택이 없으면 운동 허용 뷰 목록 안에서만 허용
     const viewAllowed = context.allowedViews.includes(inputs.estimatedView);
     const viewConfMin = estimatedViewConfidenceThreshold(inputs.estimatedView);
     if (!viewAllowed || inputs.estimatedViewConfidence < viewConfMin) {
       return { result: 'withhold', reason: 'view_mismatch' };
     }
   }
+  // 최근 윈도우에 흔들리는 프레임 비율이 크면 아직 측면 고정이 안 된 것으로 본다
   if (inputs.unstableFrameRatio >= QUALITY_GATE_THRESHOLDS.unstableFrameRatio) {
     return { result: 'withhold', reason: 'view_unstable' };
   }
+  // 연속 안정 프레임이 부족하면 동일 사유로 유예(스파이크 한두 번으로 바로 채점하지 않음)
   if (inputs.stableFrameCount < QUALITY_GATE_THRESHOLDS.stableFrameCount) {
     return { result: 'withhold', reason: 'view_unstable' };
   }
@@ -854,6 +871,7 @@ function evaluateQualityGate(inputs, context) {
  */
 function applyRepOutcome({ gateResult, repState, exerciseEvaluation }) {
   if (gateResult === 'withhold') {
+    // 게이트에 걸리면 이번 rep는 없던 일 — 카운트·기록 모두 상위에서 막음
     return {
       repResult: 'withheld',
       incrementRepCount: false,
@@ -862,7 +880,7 @@ function applyRepOutcome({ gateResult, repState, exerciseEvaluation }) {
     };
   }
 
-  // gateResult is 'pass' — evaluate exercise result
+  // gateResult is 'pass' — exercise 모듈이 soft/hard 실패·정상 채점 분기
   if (exerciseEvaluation && exerciseEvaluation.hardFailReason) {
     return {
       repResult: 'hard_fail',

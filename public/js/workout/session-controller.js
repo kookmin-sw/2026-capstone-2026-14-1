@@ -1,9 +1,19 @@
+/**
+ * session-controller.js
+ *
+ * 운동 세션 라이프사이클 단일 진입점: 카메라·PoseEngine·ScoringEngine·RepCounter·UI·버퍼·루틴·학습 모드 연동.
+ * - 포즈 루프: 품질 게이트 → 채점 → rep 갱신 → 음성/화면 피드백
+ * - IIFE 내부 클로저로 상태 보관; Node 테스트 시 require로 일부 헬퍼 재사용
+ */
+
 function loadSessionQualityGate() {
-  if (typeof module !== 'undefined' && typeof require === 'function') {
-    return require('./quality-gate-session.js');
+  // Node 단위 테스트: CommonJS require로 동일 헬퍼를 직접 로드
+  if (typeof module !== "undefined" && typeof require === "function") {
+    return require("./quality-gate-session.js");
   }
 
-  if (typeof window !== 'undefined') {
+  // 브라우저: 스크립트 로드 순서에 따라 전역에 붙은 모듈 사용
+  if (typeof window !== "undefined") {
     return window.SessionQualityGate || null;
   }
 
@@ -13,11 +23,11 @@ function loadSessionQualityGate() {
 const sessionQualityGateHelpers = loadSessionQualityGate();
 
 function loadSessionUiFactory() {
-  if (typeof module !== 'undefined' && typeof require === 'function') {
-    return require('./session-ui.js').createSessionUi;
+  if (typeof module !== "undefined" && typeof require === "function") {
+    return require("./session-ui.js").createSessionUi;
   }
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     return window.createSessionUi || null;
   }
 
@@ -27,11 +37,11 @@ function loadSessionUiFactory() {
 const sessionUiFactory = loadSessionUiFactory();
 
 function loadSessionVoiceFactory() {
-  if (typeof module !== 'undefined' && typeof require === 'function') {
-    return require('./session-voice.js').createSessionVoice;
+  if (typeof module !== "undefined" && typeof require === "function") {
+    return require("./session-voice.js").createSessionVoice;
   }
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     return window.createSessionVoice || null;
   }
 
@@ -41,11 +51,11 @@ function loadSessionVoiceFactory() {
 const sessionVoiceFactory = loadSessionVoiceFactory();
 
 function loadRoutineSessionManagerFactory() {
-  if (typeof module !== 'undefined' && typeof require === 'function') {
-    return require('./routine-session-manager.js').createRoutineSessionManager;
+  if (typeof module !== "undefined" && typeof require === "function") {
+    return require("./routine-session-manager.js").createRoutineSessionManager;
   }
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     return window.createRoutineSessionManager || null;
   }
 
@@ -55,11 +65,11 @@ function loadRoutineSessionManagerFactory() {
 const routineSessionManagerFactory = loadRoutineSessionManagerFactory();
 
 function loadWorkoutOnboardingGuide() {
-  if (typeof module !== 'undefined' && typeof require === 'function') {
-    return require('./onboarding-guide.js');
+  if (typeof module !== "undefined" && typeof require === "function") {
+    return require("./onboarding-guide.js");
   }
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     return window.WorkoutOnboardingGuide || null;
   }
 
@@ -69,11 +79,11 @@ function loadWorkoutOnboardingGuide() {
 const workoutOnboardingGuide = loadWorkoutOnboardingGuide();
 
 function loadLearnStepEngine() {
-  if (typeof module !== 'undefined' && typeof require === 'function') {
-    return require('./learn-step-engine.js');
+  if (typeof module !== "undefined" && typeof require === "function") {
+    return require("./learn-step-engine.js");
   }
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     return window.LearnStepEngine || null;
   }
 
@@ -83,19 +93,19 @@ function loadLearnStepEngine() {
 const learnStepEngine = loadLearnStepEngine();
 
 if (!sessionQualityGateHelpers) {
-  throw new Error('SessionQualityGate helpers are unavailable.');
+  throw new Error("SessionQualityGate helpers are unavailable.");
 }
 
-if (typeof sessionUiFactory !== 'function') {
-  throw new Error('createSessionUi factory is unavailable.');
+if (typeof sessionUiFactory !== "function") {
+  throw new Error("createSessionUi factory is unavailable.");
 }
 
-if (typeof routineSessionManagerFactory !== 'function') {
-  throw new Error('createRoutineSessionManager factory is unavailable.');
+if (typeof routineSessionManagerFactory !== "function") {
+  throw new Error("createRoutineSessionManager factory is unavailable.");
 }
 
 if (!learnStepEngine) {
-  throw new Error('LearnStepEngine helpers are unavailable.');
+  throw new Error("LearnStepEngine helpers are unavailable.");
 }
 
 const {
@@ -119,7 +129,7 @@ function resolveDisplayedSetCountOnPause({
   nextIsPaused,
 }) {
   const current = Math.max(1, Math.round(Number(displayedSetCount) || 1));
-  if (mode === 'FREE' && phase === 'WORKING' && nextIsPaused === true) {
+  if (mode === "FREE" && phase === "WORKING" && nextIsPaused === true) {
     return current + 1;
   }
   return current;
@@ -131,7 +141,7 @@ function clearPoseOverlay({ poseEngine, poseCanvas }) {
     return;
   }
 
-  const ctx = poseCanvas?.getContext?.('2d');
+  const ctx = poseCanvas?.getContext?.("2d");
   if (!ctx || !poseCanvas) return;
 
   ctx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
@@ -139,7 +149,7 @@ function clearPoseOverlay({ poseEngine, poseCanvas }) {
 
 /**
  * 운동 세션 페이지 — 포즈/점수/루틴/세션 저장 오케스트레이션
-  * 아키텍처 흐름:
+ * 아키텍처 흐름:
  *   1. initAIEngines(): MediaPipe Pose + ScoringEngine + RepCounter 초기화
  *   2. connectCameraSource(): 선택한 카메라 소스 스트림 연결
  *   3. startPoseDetection(): requestAnimationFrame 루프 시작 → poseEngine.send(video)
@@ -210,54 +220,57 @@ async function initSession(workoutData) {
     learnLastEvaluation: null,
   };
 
-// ── DOM 요소 캐싱 ──
-  const videoElement = document.getElementById("videoElement");    // 카메라 비디오 소스
-  const poseCanvas = document.getElementById("poseCanvas");        // 랜드마크 오버레이 캔버스
-  const cameraFrame = document.getElementById("cameraFrame");      // 카메라 프레임 컨테이너
-  const cameraOverlay = document.getElementById("cameraOverlay");  // 로딩/에러 오버레이
-  const statusBadge = document.getElementById("statusBadge");      // 상태 뱃지 (PREPARING/WORKING 등)
-  const liveScoreEl = document.getElementById("liveScore");        // 실시간 점수 표시
+  // ── DOM 요소 캐싱 ──
+  const videoElement = document.getElementById("videoElement"); // 카메라 비디오 소스
+  const poseCanvas = document.getElementById("poseCanvas"); // 랜드마크 오버레이 캔버스
+  const cameraFrame = document.getElementById("cameraFrame"); // 카메라 프레임 컨테이너
+  const cameraOverlay = document.getElementById("cameraOverlay"); // 로딩/에러 오버레이
+  const statusBadge = document.getElementById("statusBadge"); // 상태 뱃지 (PREPARING/WORKING 등)
+  const liveScoreEl = document.getElementById("liveScore"); // 실시간 점수 표시
   const scoreModeLabelEl = document.getElementById("scoreModeLabel");
   const scoreBreakdownEl = document.getElementById("scoreBreakdown");
   const phaseInfoEl = document.getElementById("phaseInfo");
   const viewInfoEl = document.getElementById("viewInfo");
-  const repCountEl = document.getElementById("repCount");          // 횟수/시간 카운터
+  const repCountEl = document.getElementById("repCount"); // 횟수/시간 카운터
   const repCountLabelEl = document.getElementById("repCountLabel");
-  const setCountEl = document.getElementById("setCount");          // 세트 카운터
+  const setCountEl = document.getElementById("setCount"); // 세트 카운터
   const setCountLabelEl = document.getElementById("setCountLabel");
   const routineProgressEl = document.getElementById("routineProgress");
-  const timerValueEl = document.getElementById("timerValue");      // 타이머 값
-  const timerLabelEl = document.getElementById("timerLabel");      // 타이머 라벨
-  const restTimerEl = document.getElementById("restTimer");        // 휴식 타이머
+  const timerValueEl = document.getElementById("timerValue"); // 타이머 값
+  const timerLabelEl = document.getElementById("timerLabel"); // 타이머 라벨
+  const restTimerEl = document.getElementById("restTimer"); // 휴식 타이머
   const restValueEl = document.getElementById("restValue");
   const alertContainer = document.getElementById("alertContainer");
   const alertTitle = document.getElementById("alertTitle");
   const alertMessage = document.getElementById("alertMessage");
   const startBtn = document.getElementById("startBtn");
-  const originalStartBtnText = startBtn?.textContent?.trim()
-    || (workoutData.mode === "LEARN" ? "학습 시작" : "운동 시작");
+  const originalStartBtnText =
+    startBtn?.textContent?.trim() ||
+    (workoutData.mode === "LEARN" ? "학습 시작" : "운동 시작");
   const pauseBtn = document.getElementById("pauseBtn");
   const finishBtn = document.getElementById("finishBtn");
-  const viewSelectRoot = document.getElementById("viewSelect");    // 뷰(FRONT/SIDE) 선택
+  const viewSelectRoot = document.getElementById("viewSelect"); // 뷰(FRONT/SIDE) 선택
   const routineStepEl = document.getElementById("routineStep");
   const plankTargetSelectRoot = document.getElementById("plankTargetSelect");
-  const plankTargetInput = document.getElementById("plankTargetSeconds");  // 플랭크 목표 시간 입력
+  const plankTargetInput = document.getElementById("plankTargetSeconds"); // 플랭크 목표 시간 입력
   const plankTargetHint = document.getElementById("plankTargetHint");
   const plankTargetReadoutEl = document.getElementById("plankTargetReadout");
-  const plankCurrentHoldEl = document.getElementById("plankCurrentHold");  // 현재 유지 시간
-  const plankBestHoldEl = document.getElementById("plankBestHold");        // 최고 유지 시간
+  const plankCurrentHoldEl = document.getElementById("plankCurrentHold"); // 현재 유지 시간
+  const plankBestHoldEl = document.getElementById("plankBestHold"); // 최고 유지 시간
   const plankPhaseInfoEl = document.getElementById("plankPhaseInfo");
   const plankProgressEl = document.getElementById("plankProgress");
   const plankRuntimePanelEl = document.getElementById("plankRuntimePanel");
   const plankStateLabelEl = document.getElementById("plankStateLabel");
   const plankGoalLabelEl = document.getElementById("plankGoalLabel");
   const plankSegmentLabelEl = document.getElementById("plankSegmentLabel");
-const plankTimerPanelEl = document.getElementById("plankTimerPanel");
+  const plankTimerPanelEl = document.getElementById("plankTimerPanel");
   const onboardingModal = document.getElementById("workoutOnboardingModal");
   const onboardingTitleEl = document.getElementById("onboardingSlideTitle");
   const onboardingProgressEl = document.getElementById("onboardingProgress");
   const onboardingImageEl = document.getElementById("onboardingImage");
-  const onboardingImagePlaceholderEl = document.getElementById("onboardingImagePlaceholder");
+  const onboardingImagePlaceholderEl = document.getElementById(
+    "onboardingImagePlaceholder",
+  );
   const onboardingBulletsEl = document.getElementById("onboardingSlideBullets");
   const onboardingPrevBtn = document.getElementById("onboardingPrevBtn");
   const onboardingNextBtn = document.getElementById("onboardingNextBtn");
@@ -266,9 +279,15 @@ const plankTimerPanelEl = document.getElementById("plankTimerPanel");
   const learnStepCounterEl = document.getElementById("learnStepCounter");
   const learnStepTitleEl = document.getElementById("learnStepTitle");
   const learnStepBadgeEl = document.getElementById("learnStepBadge");
-  const learnStepInstructionEl = document.getElementById("learnStepInstruction");
-  const learnHoldProgressBarEl = document.getElementById("learnHoldProgressBar");
-  const learnHoldProgressTextEl = document.getElementById("learnHoldProgressText");
+  const learnStepInstructionEl = document.getElementById(
+    "learnStepInstruction",
+  );
+  const learnHoldProgressBarEl = document.getElementById(
+    "learnHoldProgressBar",
+  );
+  const learnHoldProgressTextEl = document.getElementById(
+    "learnHoldProgressText",
+  );
   const learnStepHintsEl = document.getElementById("learnStepHints");
   const learnStepChecksEl = document.getElementById("learnStepChecks");
   const learnStepStatusEl = document.getElementById("learnStepStatus");
@@ -352,7 +371,7 @@ const plankTimerPanelEl = document.getElementById("plankTimerPanel");
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
-const ui = sessionUiFactory({
+  const ui = sessionUiFactory({
     refs: uiRefs,
     createElement: document.createElement.bind(document),
     formatClock,
@@ -363,33 +382,55 @@ const ui = sessionUiFactory({
     startRest,
     finishWorkout,
   });
-  const DEFAULT_API_TTS_MODEL = 'openai/gpt-4o-mini-tts-2025-12-15';
-  const DEFAULT_API_TTS_VOICE = 'nova';
+  const DEFAULT_API_TTS_MODEL = "openai/gpt-4o-mini-tts-2025-12-15";
+  const DEFAULT_API_TTS_VOICE = "nova";
   const SUPPORTED_API_TTS_MODELS = new Set([DEFAULT_API_TTS_MODEL]);
   const SUPPORTED_API_TTS_VOICES = new Set([
-    'alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova',
-    'onyx', 'sage', 'shimmer', 'verse', 'marin', 'cedar',
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "fable",
+    "nova",
+    "onyx",
+    "sage",
+    "shimmer",
+    "verse",
+    "marin",
+    "cedar",
   ]);
 
   function readTtsConfig() {
     try {
-      return JSON.parse((typeof window !== 'undefined' ? window.localStorage : null)?.getItem?.('fitplus_tts_config'))
-        || { provider: 'browser' };
+      return (
+        JSON.parse(
+          (typeof window !== "undefined"
+            ? window.localStorage
+            : null
+          )?.getItem?.("fitplus_tts_config"),
+        ) || { provider: "browser" }
+      );
     } catch {
-      return { provider: 'browser' };
+      return { provider: "browser" };
     }
   }
 
   function createTtsProvider(config) {
-    if (config.provider === 'openrouter' && typeof createApiSpeechProvider === 'function') {
+    if (
+      config.provider === "openrouter" &&
+      typeof createApiSpeechProvider === "function"
+    ) {
       const selectedModel = SUPPORTED_API_TTS_MODELS.has(config.model)
         ? config.model
         : DEFAULT_API_TTS_MODEL;
-      const selectedVoice = selectedModel === config.model && SUPPORTED_API_TTS_VOICES.has(config.voice)
-        ? config.voice
-        : DEFAULT_API_TTS_VOICE;
+      const selectedVoice =
+        selectedModel === config.model &&
+        SUPPORTED_API_TTS_VOICES.has(config.voice)
+          ? config.voice
+          : DEFAULT_API_TTS_VOICE;
       return createApiSpeechProvider({
-        endpoint: '/api/tts',
+        endpoint: "/api/tts",
         model: selectedModel,
         voice: selectedVoice,
       });
@@ -398,24 +439,24 @@ const ui = sessionUiFactory({
   }
 
   const ttsConfig = readTtsConfig();
-  const ttsProvider = typeof createApiSpeechProvider !== 'undefined'
-    ? createTtsProvider(ttsConfig)
-    : createBrowserSpeechProvider();
+  const ttsProvider =
+    typeof createApiSpeechProvider !== "undefined"
+      ? createTtsProvider(ttsConfig)
+      : createBrowserSpeechProvider();
 
-  const voice = typeof sessionVoiceFactory === 'function'
-    ? sessionVoiceFactory({
-        provider: ttsProvider,
-        enabled: true,
-        storage: typeof window !== 'undefined' ? window.localStorage : null,
-      })
-    : null;
+  const voice =
+    typeof sessionVoiceFactory === "function"
+      ? sessionVoiceFactory({
+          provider: ttsProvider,
+          enabled: true,
+          storage: typeof window !== "undefined" ? window.localStorage : null,
+        })
+      : null;
   const isLearnMode = () => workoutData.mode === "LEARN";
   const isTimeBasedExercise = () => Boolean(repCounter?.pattern?.isTimeBased);
 
   function getFeedbackTimestamp() {
-    return sessionBuffer?.startTime
-      ? Date.now() - sessionBuffer.startTime
-      : 0;
+    return sessionBuffer?.startTime ? Date.now() - sessionBuffer.startTime : 0;
   }
 
   function buildDeliveryResult(visual, voiceResult) {
@@ -430,11 +471,12 @@ const ui = sessionUiFactory({
     message,
     metric = null,
     repRecord = null,
-    severity = 'info',
-    source = 'session',
+    severity = "info",
+    source = "session",
     withholdReason = null,
   }) {
-    const normalizedMessage = (message || '').toString().trim();
+    const normalizedMessage = (message || "").toString().trim();
+    // SessionBuffer.recordEvent / 분석 파이프라인이 기대하는 공통 이벤트 셰이프
     const event = {
       type,
       timestamp: getFeedbackTimestamp(),
@@ -446,9 +488,12 @@ const ui = sessionUiFactory({
     };
 
     if (metric) {
+      // 어떤 메트릭이 문제인지 식별 + 점수 스냅샷
       event.metric_key = metric.key || metric.metric_key || null;
       event.metric_name = metric.title || metric.metric_name || null;
-      event.score = Number.isFinite(Number(metric.score)) ? Number(metric.score) : null;
+      event.score = Number.isFinite(Number(metric.score))
+        ? Number(metric.score)
+        : null;
       event.max_score = Number.isFinite(Number(metric.maxScore))
         ? Number(metric.maxScore)
         : 100;
@@ -477,7 +522,7 @@ const ui = sessionUiFactory({
 
   function shouldSpeakFeedbackEvent(event) {
     if (!event?.message) return false;
-    if (event.type === 'LOW_SCORE_HINT') return true;
+    if (event.type === "LOW_SCORE_HINT") return true;
     return false;
   }
 
@@ -487,21 +532,24 @@ const ui = sessionUiFactory({
     const visual = options.visual !== false;
     if (visual) {
       if (options.alertTitle) {
+        // 모달 — 게이트 보류 등 즉시 눈에 띄어야 할 때
         showAlert(options.alertTitle, event.message);
       } else if (options.toast) {
         ui.showToast(event.message);
       }
     }
 
+    // 음성은 스팸 방지 정책: 현재는 저점 힌트만 TTS 후보
     const voiceResult = shouldSpeakFeedbackEvent(event)
       ? voice?.speak(event.message, event)
-      : { spoken: false, reason: 'policy' };
+      : { spoken: false, reason: "policy" };
 
     const eventWithDelivery = {
       ...event,
       delivery: buildDeliveryResult(visual, voiceResult),
     };
 
+    // 세션 종료 후 "무슨 피드백이 나갔는지" 재현·분석 가능하도록 저장
     if (sessionBuffer?.recordEvent) {
       sessionBuffer.recordEvent(eventWithDelivery);
     } else if (sessionBuffer?.addEvent) {
@@ -538,7 +586,9 @@ const ui = sessionUiFactory({
 
   const getPrimaryTimerLabel = () => {
     if (isLearnMode()) return "\uD559\uC2B5 \uC2DC\uAC04";
-    return isPlankExerciseCode() ? "\uD50C\uB7AD\uD06C \uC2DC\uAC04" : "\uC6B4\uB3D9 \uC2DC\uAC04";
+    return isPlankExerciseCode()
+      ? "\uD50C\uB7AD\uD06C \uC2DC\uAC04"
+      : "\uC6B4\uB3D9 \uC2DC\uAC04";
   };
 
   /** 운동별 허용 뷰(FRONT/SIDE/DIAGONAL) 목록 반환 */
@@ -625,7 +675,10 @@ const ui = sessionUiFactory({
   function updatePrimaryCounterDisplay() {
     if (isLearnMode()) {
       ui.updateLearnCounterDisplay({
-        currentStep: Math.min(state.learnStepIndex + 1, Math.max(1, state.learnSteps.length)),
+        currentStep: Math.min(
+          state.learnStepIndex + 1,
+          Math.max(1, state.learnSteps.length),
+        ),
         totalSteps: Math.max(1, state.learnSteps.length),
       });
       return;
@@ -642,10 +695,11 @@ const ui = sessionUiFactory({
 
   function syncDisplayedSetCount() {
     if (!setCountEl || isLearnMode()) return;
-    const nextCount = workoutData.mode === "FREE"
-      ? state.displayedSetCount
-      : state.currentSet;
-    setCountEl.textContent = String(Math.max(1, Math.round(Number(nextCount) || 1)));
+    const nextCount =
+      workoutData.mode === "FREE" ? state.displayedSetCount : state.currentSet;
+    setCountEl.textContent = String(
+      Math.max(1, Math.round(Number(nextCount) || 1)),
+    );
   }
 
   /** 루틴 단계 프로그레스 표시 업데이트 — 현재 단계/전체, 완료 칩 하이라이트 */
@@ -913,16 +967,27 @@ const ui = sessionUiFactory({
     }
   }
 
-  function getLearnStatusText(step, evaluation, holdProgressPercent, gateMessage = null) {
+  function getLearnStatusText(
+    step,
+    evaluation,
+    holdProgressPercent,
+    gateMessage = null,
+  ) {
     if (gateMessage) return gateMessage;
-    if (state.learnCompleted) return "모든 step을 완료했습니다. 결과를 저장 중입니다.";
+    if (state.learnCompleted)
+      return "모든 step을 완료했습니다. 결과를 저장 중입니다.";
     if (!step) return "학습 step 정보를 준비 중입니다.";
     if (evaluation?.passed === true) {
       return holdProgressPercent >= 100
-        ? (step.successMessage || "좋아요! 다음 step으로 넘어갑니다.")
+        ? step.successMessage || "좋아요! 다음 step으로 넘어갑니다."
         : `좋아요. ${Math.max(0, 100 - Math.round(holdProgressPercent))}%만 더 유지해주세요.`;
     }
-    return evaluation?.status || evaluation?.feedback || step.instruction || "현재 step 자세를 잡아주세요.";
+    return (
+      evaluation?.status ||
+      evaluation?.feedback ||
+      step.instruction ||
+      "현재 step 자세를 잡아주세요."
+    );
   }
 
   function updateLearnModeDisplay({
@@ -941,16 +1006,16 @@ const ui = sessionUiFactory({
         visible: true,
         stepIndex: totalSteps - 1,
         totalSteps,
-        title: `${workoutData.exercise?.name || '운동'} 학습 완료`,
-        badge: '완료',
-        instruction: '모든 step을 통과했습니다. 지금 결과를 저장하고 있습니다.',
+        title: `${workoutData.exercise?.name || "운동"} 학습 완료`,
+        badge: "완료",
+        instruction: "모든 step을 통과했습니다. 지금 결과를 저장하고 있습니다.",
         hints: [
-          '잠시 후 결과 화면으로 이동합니다.',
-          '다음에는 바로 자율 운동으로 이어가 보세요.',
+          "잠시 후 결과 화면으로 이동합니다.",
+          "다음에는 바로 자율 운동으로 이어가 보세요.",
         ],
         checks: [],
         holdProgressPercent: 100,
-        statusText: '학습이 완료되었습니다.',
+        statusText: "학습이 완료되었습니다.",
       });
       updatePrimaryCounterDisplay();
       return;
@@ -960,13 +1025,18 @@ const ui = sessionUiFactory({
       visible: true,
       stepIndex: safeStepIndex,
       totalSteps,
-      title: step.title || `${workoutData.exercise?.name || '운동'} step`,
-      badge: step.badge || '자세 맞추기',
-      instruction: step.instruction || '현재 step 자세를 준비하세요.',
+      title: step.title || `${workoutData.exercise?.name || "운동"} step`,
+      badge: step.badge || "자세 맞추기",
+      instruction: step.instruction || "현재 step 자세를 준비하세요.",
       hints: Array.isArray(step.hintLines) ? step.hintLines : [],
       checks: evaluation?.checks || [],
       holdProgressPercent,
-      statusText: getLearnStatusText(step, evaluation, holdProgressPercent, gateMessage),
+      statusText: getLearnStatusText(
+        step,
+        evaluation,
+        holdProgressPercent,
+        gateMessage,
+      ),
     });
     updatePrimaryCounterDisplay();
   }
@@ -977,13 +1047,16 @@ const ui = sessionUiFactory({
       return false;
     }
 
+    // DB 프로필(+선택 뷰)로 실시간 채점기 구성; 프로필 비어 있으면 운동 모듈 기본 메트릭 사용
     scoringEngine = new ScoringEngine(workoutData.scoringProfile || null, {
       exerciseCode: workoutData.exercise.code,
       selectedView: state.selectedView,
     });
+    // squat-exercise.js 등: 페이즈·scoreRep·라이브 피드백 필터
     exerciseModule = resolveExerciseModule(workoutData.exercise.code);
 
     repCounter = new RepCounter(workoutData.exercise.code);
+    // rep 하나 끝날 때 운동 모듈/프로필 기반으로 최종 점수·breakdown 보강
     repCounter.repEvaluator = (repRecord) => scoringEngine.scoreRep(repRecord);
     repCounter.onRepComplete = handleRepComplete;
     if (repCounter?.pattern?.isTimeBased && repCounter?.setTargetSec) {
@@ -1021,12 +1094,14 @@ const ui = sessionUiFactory({
   async function initAIEngines() {
     try {
       poseEngine = new PoseEngine();
+      // MediaPipe Wasm/모델 로드 — 완료 전에는 send() 불가
       await poseEngine.initialize();
 
       if (!bindEnginesToCurrentExercise()) {
         throw new Error("운동 정보를 불러오지 못했습니다.");
       }
 
+      // 포즈 추론이 끝날 때마다 브라우저 → 이 콜백 순으로 흐름이 이어짐
       poseEngine.onPoseDetected = handlePoseDetected;
       poseEngine.onNoPerson = handleNoPerson;
 
@@ -1044,6 +1119,7 @@ const ui = sessionUiFactory({
    * 스트림 획득 → 비디오 요소에 바인딩 → 세션 시작 버튼 활성화
    */
   async function connectCameraSource(sourceType) {
+    // 미러링·가로세로 등 프리뷰 방향만 먼저 맞춤(스트림과 독립)
     applyPreviewOrientation(sourceType);
     cameraOverlay.innerHTML = `
       <div class="camera-loading-overlay" aria-live="polite">
@@ -1059,9 +1135,11 @@ const ui = sessionUiFactory({
 
     try {
       sessionCamera.destroy();
+      // session-camera.js: 제약 완화 단계를 거쳐 MediaStream 획득
       const stream = await sessionCamera.getStream(sourceType);
       sessionCamera.applyStream(stream);
 
+      // 비디오 첫 프레임이 decoded(HAVE_CURRENT_DATA)될 때까지 대기 — 이후 poseEngine이 픽셀 읽기 가능
       await new Promise((resolve) => {
         if (videoElement.readyState >= 2) resolve();
         else
@@ -1110,6 +1188,7 @@ const ui = sessionUiFactory({
       }
       const ok = await aiInitPromise;
       aiInitPromise = null;
+      // 사용자가 빠르게 소스/뷰를 바꿔 warmUpGeneration이 증가하면 이전 초기화 결과는 폐기
       if (generation !== warmUpGeneration) return false;
       if (!ok) {
         cameraOverlay.hidden = false;
@@ -1124,6 +1203,7 @@ const ui = sessionUiFactory({
     if (generation !== warmUpGeneration) return false;
 
     aiReady = true;
+    // 플랭크는 목표 시간 미설정이면 시작 버튼은 여전히 비활성
     startBtn.disabled = !canStartCurrentExercise();
     startBtn.textContent = originalStartBtnText;
     return true;
@@ -1226,9 +1306,7 @@ const ui = sessionUiFactory({
     }
 
     const exerciseCode =
-      options.exerciseCode ||
-      workoutData.exercise?.code ||
-      "unknown";
+      options.exerciseCode || workoutData.exercise?.code || "unknown";
 
     if (sessionBuffer) {
       sessionBuffer.clearStorage();
@@ -1263,7 +1341,7 @@ const ui = sessionUiFactory({
    * 4. 타이머 시작, Wake Lock 획득
    * 5. 루틴 모드면 첫 단계 UI 표시
    */
-function showModelLoadingOverlay() {
+  function showModelLoadingOverlay() {
     state.phase = "PREPARING";
     ui.updateStatus("preparing", "모델 로딩 중");
     cameraOverlay.hidden = false;
@@ -1277,15 +1355,15 @@ function showModelLoadingOverlay() {
   }
 
   async function runStartCountdown() {
-    state.phase = 'COUNTDOWN';
-    ui.updateStatus('preparing', '시작 준비');
+    state.phase = "COUNTDOWN";
+    ui.updateStatus("preparing", "시작 준비");
 
     const steps = [
-      { num: '5', hint: '카메라 위치를 확인하세요' },
-      { num: '4', hint: '전신이 화면에 들어오게 서세요' },
-      { num: '3', hint: '좋은 자세를 준비하세요' },
-      { num: '2', hint: '호흡을 가다듬으세요' },
-      { num: '1', hint: '곧 시작합니다' },
+      { num: "5", hint: "카메라 위치를 확인하세요" },
+      { num: "4", hint: "전신이 화면에 들어오게 서세요" },
+      { num: "3", hint: "좋은 자세를 준비하세요" },
+      { num: "2", hint: "호흡을 가다듬으세요" },
+      { num: "1", hint: "곧 시작합니다" },
     ];
 
     cameraOverlay.hidden = false;
@@ -1296,8 +1374,8 @@ function showModelLoadingOverlay() {
       </div>
     `;
 
-    const numEl = document.getElementById('countdownNumber');
-    const hintEl = document.getElementById('countdownHint');
+    const numEl = document.getElementById("countdownNumber");
+    const hintEl = document.getElementById("countdownHint");
 
     for (const step of steps) {
       if (numEl) numEl.textContent = step.num;
@@ -1306,10 +1384,11 @@ function showModelLoadingOverlay() {
     }
 
     cameraOverlay.hidden = true;
-    cameraOverlay.innerHTML = '';
+    cameraOverlay.innerHTML = "";
   }
 
   async function startWorkout() {
+    // 실패·조기 return 시 UI를 원래대로 되돌리기 위한 스냅샷
     const prevOverlayHtml = cameraOverlay.innerHTML;
     const prevOverlayHidden = cameraOverlay.hidden;
     const prevStartHidden = startBtn.hidden;
@@ -1345,11 +1424,13 @@ function showModelLoadingOverlay() {
     try {
       showModelLoadingOverlay();
       warmUpGeneration++;
+      // aiReady면 스킵; 아니면 initAIEngines(단 한 번) — generation으로 경쟁 취소 처리
       const aiPrepared = aiReady || (await prepareAI(warmUpGeneration));
       if (!aiPrepared) {
         throw new Error("AI 모델 로딩에 실패했습니다.");
       }
 
+      // DB에 workout_session 행 생성 + session_id 발급
       const response = await fetch("/api/workout/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1370,20 +1451,20 @@ function showModelLoadingOverlay() {
       }
 
       state.sessionId = data.session.session_id;
-        state.selectedView =
-          normalizeViewCode(data.session.selected_view) || state.selectedView;
-        hasUnloadAbortSent = false;
-        pendingSessionPayload = null;
-        if (data.routineInstance) {
-          workoutData.routineInstance = data.routineInstance;
-        }
-        if (isLearnMode()) {
-          refreshLearnSteps({ resetProgress: true });
-          updateLearnModeDisplay();
-        }
-        syncPlankTargetUi();
-        updatePrimaryCounterDisplay();
-        updateRoutineStepDisplay();
+      state.selectedView =
+        normalizeViewCode(data.session.selected_view) || state.selectedView;
+      hasUnloadAbortSent = false;
+      pendingSessionPayload = null;
+      if (data.routineInstance) {
+        workoutData.routineInstance = data.routineInstance;
+      }
+      if (isLearnMode()) {
+        refreshLearnSteps({ resetProgress: true });
+        updateLearnModeDisplay();
+      }
+      syncPlankTargetUi();
+      updatePrimaryCounterDisplay();
+      updateRoutineStepDisplay();
       updatePlankRuntimeDisplay(
         repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
       );
@@ -1394,8 +1475,10 @@ function showModelLoadingOverlay() {
         targetSec: getCurrentTargetSec() || null,
         source: "SESSION_START",
       });
+      // 루틴/플랭크 UI와 동기화된 "현재 목표 초"
       state.currentTargetSec = getCurrentTargetSec();
 
+      // 운동 중에는 소스·뷰·목표 변경을 막아 녹화/채점 조건이 바뀌지 않게 함
       cameraOverlay.hidden = true;
       startBtn.hidden = true;
       if (sourceSelectEl) sourceSelectEl.hidden = true;
@@ -1405,17 +1488,18 @@ function showModelLoadingOverlay() {
       if (setupPanelContainer)
         setupPanelContainer.classList.add("hidden-during-workout");
 
-        await runStartCountdown();
+      await runStartCountdown();
 
-        state.phase = "WORKING";
-        ui.updateStatus("running", isLearnMode() ? "학습 중" : "운동 중");
+      state.phase = "WORKING";
+      ui.updateStatus("running", isLearnMode() ? "학습 중" : "운동 중");
 
-        pauseBtn.disabled = false;
-        finishBtn.disabled = false;
-        finishBtn.textContent = isLearnMode() ? "학습 종료" : "운동 종료";
+      pauseBtn.disabled = false;
+      finishBtn.disabled = false;
+      finishBtn.textContent = isLearnMode() ? "학습 종료" : "운동 종료";
 
-        startTimer();
-        startPoseDetection();
+      startTimer();
+      startPoseDetection();
+      // 화면 꺼짐 방지(지원 브라우저) — 긴 세션에서 카메라·루프 유지에 도움
       await requestWakeLock();
     } catch (error) {
       console.error("[Session] 시작 에러:", error);
@@ -1426,7 +1510,8 @@ function showModelLoadingOverlay() {
       startBtn.textContent = prevStartText;
       if (sourceSelectEl) sourceSelectEl.hidden = prevSourceSelectHidden;
       if (viewSelectRoot) viewSelectRoot.hidden = prevViewSelectHidden;
-      if (plankTargetSelectRoot) plankTargetSelectRoot.hidden = prevPlankTargetHidden;
+      if (plankTargetSelectRoot)
+        plankTargetSelectRoot.hidden = prevPlankTargetHidden;
       if (setupPanelContainer && !hadSetupPanelHiddenClass) {
         setupPanelContainer.classList.remove("hidden-during-workout");
       }
@@ -1443,21 +1528,26 @@ function showModelLoadingOverlay() {
   function startPoseDetection() {
     if (!poseEngine) return;
 
+    // MediaPipe Graph 실행 시작 — 이후 send()가 유효
     poseEngine.start();
 
     const processFrame = async () => {
       try {
+        // 일시정지 중엔 모델에 프레임을 넣지 않음(부하·불필요한 콜백 방지)
         if (poseEngine && poseEngine.isRunning && !state.isPaused) {
+          // 비디오 현재 프레임 → 랜드마크 추론 → 내부에서 onPoseDetected 트리거
           await poseEngine.send(videoElement);
 
           if (poseEngine.lastResults) {
+            // 관절선·점을 오버레이 캔버스에 그림(UI용, 채점은 이미 poseData로 진행됨)
             poseEngine.drawPose(poseCanvas, poseEngine.lastResults);
           }
         }
       } catch (error) {
-        console.error('[Session] processFrame 예외:', error);
+        console.error("[Session] processFrame 예외:", error);
       }
 
+      // FINISHED면 루프 중단 — 그 외에는 다음 vsync에서 다시 processFrame
       if (state.phase !== "FINISHED") {
         state.frameLoop = requestAnimationFrame(processFrame);
       }
@@ -1482,27 +1572,34 @@ function showModelLoadingOverlay() {
    *   5. SessionBuffer.addScore() → 타임라인 기록
    */
   function handlePoseDetected(poseData) {
+    // 사람이 다시 보이면 NO_PERSON 누적 카운터 리셋
     noPersonCount = 0;
 
     if (state.phase !== "WORKING" || state.isPaused) return;
-
+    // PoseEngine이 미리 계산해 둔 관절 각도(무릎·엉덩이 등) — ScoringEngine.calculate 입력
     const { angles } = poseData;
     // updateViewInfo(angles);
 
+    // 최근 프레임들의 안정성 비율·연속 안정 카운트 갱신(게이트 "얼마나 믿을 만한지")
     const stabilityMetrics = updateGateTracker(poseData, qualityGateTracker);
+    // scoring-engine의 evaluateQualityGate와 맞는 필드 형태로 묶음
     const gateInputs = buildGateInputs(poseData, stabilityMetrics);
     const gateContext = {
       allowedViews: getAllowedViews(),
-      // selectedView is the user-chosen scoring camera angle for this session.
-      // The common quality gate must enforce it when present.
+      // 사용자가 시작 전에 고른 촬영 각도 — 게이트가 "허용 뷰·실제 뷰" 정합성 검사에 사용
       selectedView: state.selectedView,
     };
-    const gateResult = (typeof evaluateQualityGate !== 'undefined')
-      ? evaluateQualityGate(gateInputs, gateContext)
-      : { result: 'pass', reason: null };
-    const gateThreshold = (typeof QUALITY_GATE_THRESHOLDS !== 'undefined')
-      ? QUALITY_GATE_THRESHOLDS.stableFrameCount
-      : 8;
+    // pass | withhold 및 사유 — 운동 모듈이 아닌 scoring-engine 쪽 단일 권한
+    const gateResult =
+      typeof evaluateQualityGate !== "undefined"
+        ? evaluateQualityGate(gateInputs, gateContext)
+        : { result: "pass", reason: null };
+    // withhold가 아니어도 "연속 안정 프레임"이 부족하면 아직 채점하지 않도록 하는 보조 임계
+    const gateThreshold =
+      typeof QUALITY_GATE_THRESHOLDS !== "undefined"
+        ? QUALITY_GATE_THRESHOLDS.stableFrameCount
+        : 8;
+    // true면 이 프레임은 점수/rep 에 반영하지 않음
     const suppression = shouldGateSuppressScoring(
       gateResult,
       qualityGateTracker,
@@ -1510,9 +1607,11 @@ function showModelLoadingOverlay() {
     );
 
     if (suppression.suppress) {
+      // 게이트 실패: 채점·rep 진행을 멈추고 사용자에게 이유 안내(음성은 정책에 따라 일부만)
       state.pauseRepScoring = true;
       state.currentWithholdReason = suppression.reason;
       if (isLearnMode()) {
+        // 홀드 타이머·마지막 평가 리셋 — 불안정 프레임으로 통과 처리되지 않게
         state.learnHoldMs = 0;
         state.learnLastEvaluation = null;
       }
@@ -1528,7 +1627,7 @@ function showModelLoadingOverlay() {
         score: 0,
         breakdown: [],
         gated: true,
-        displayText: '측정 불안정',
+        displayText: "측정 불안정",
         message: mapGateWithholdReasonToMessage(suppression.reason),
       });
       const message = mapGateWithholdReasonToMessage(suppression.reason);
@@ -1559,21 +1658,27 @@ function showModelLoadingOverlay() {
     // The quality gate (evaluateQualityGate) above already decides pass/withhold.
     // If gate passes, proceed directly to scoring.
 
+    // 프로필 메트릭 전체 채점(라이브 breakdown 원본)
     const rawScoreResult = scoringEngine.calculate(angles);
+    // 운동 모듈이 있으면 화면/음성용으로 breakdown 항목 필터·가공
     const liveScoreResult = getLiveFeedbackResult(rawScoreResult, angles);
     if (poseEngine && poseEngine.setVisualFeedback) {
+      // 관절 옆 텍스트 힌트 등 — 모듈이 넘긴 breakdown 기준
       poseEngine.setVisualFeedback(liveScoreResult.breakdown);
     }
 
     if (isLearnMode()) {
+      // 학습 모드는 rep 카운터 대신 스텝·홀드 평가 경로
       handleLearnPoseDetected(poseData, rawScoreResult, liveScoreResult);
       return;
     }
 
+    // 플랭크: 부드러운 피드백 점수로 상태 전이 / 횟수 운동: "공식" 합산 점수로 rep 머신 구동
     const scoreForState = isTimeBasedExercise()
       ? liveScoreResult.score
       : rawScoreResult.score;
 
+    // repCounter.update 직후 배열 길이 변화를 감지해 "새 샘플이 들어왔을 때만" 동기화하기 위한 스냅샷
     const previousCounts = {
       all: repCounter?.currentRepAllScores?.length || 0,
       active: repCounter?.currentRepScores?.length || 0,
@@ -1586,6 +1691,7 @@ function showModelLoadingOverlay() {
       updatePlankRuntimeDisplay(timeOrRepResult || repCounter.getTimeSummary());
       updatePrimaryCounterDisplay();
     }
+    // rep 내부 버퍼에 쌓인 점수와 헤더의 live 숫자를 맞춤
     syncRepCounterLatestScores(liveScoreResult.score, previousCounts);
 
     if (liveScoreResult.score > 0) {
@@ -1597,14 +1703,17 @@ function showModelLoadingOverlay() {
       );
     }
 
+    // 진행 중인 rep의 메트릭별 프레임 점수 누적 — 완료 후 요약·저장에 사용
     updateRepMetricBuffer(liveScoreResult);
 
     updateScoreDisplay(liveScoreResult);
 
     if (sessionBuffer) {
+      // 초~프레임 단위 타임라인(서버 분석·리플레이용)
       sessionBuffer.addScore(liveScoreResult);
     }
 
+    // 플랭크는 항상 저점 피드백 검사, 횟수 운동은 rep 진행 중에만(쿨다운은 checkFeedback 내부)
     const shouldCheckFeedback = repCounter?.pattern?.isTimeBased
       ? true
       : repCounter?.isInProgress();
@@ -1621,6 +1730,7 @@ function showModelLoadingOverlay() {
   function handleNoPerson() {
     if (state.phase !== "WORKING" || state.isPaused) return;
 
+    // 연속 미검출 프레임 수 — 임계 넘으면 한 번만 사용자 알림·이벤트 기록
     noPersonCount++;
     if (isLearnMode()) {
       state.learnHoldMs = 0;
@@ -1660,6 +1770,7 @@ function showModelLoadingOverlay() {
       .sort((a, b) => a - b);
     if (sorted.length === 0) return 0;
 
+    // 표본이 많을 때 상·하위 10%를 잘라 이상치에 덜 민감한 대표값 사용
     const trimCount = Math.floor(sorted.length * 0.1);
     const trimmed =
       sorted.length >= 10
@@ -1681,7 +1792,11 @@ function showModelLoadingOverlay() {
 
     const rawScore = Number(item?.score ?? item?.avg_score);
     const rawMaxScore = Number(item?.maxScore ?? item?.max_score);
-    if (Number.isFinite(rawScore) && Number.isFinite(rawMaxScore) && rawMaxScore > 0) {
+    if (
+      Number.isFinite(rawScore) &&
+      Number.isFinite(rawMaxScore) &&
+      rawMaxScore > 0
+    ) {
       return Math.max(0, Math.min(100, (rawScore / rawMaxScore) * 100));
     }
 
@@ -1700,7 +1815,7 @@ function showModelLoadingOverlay() {
       .map((item) => ({
         key: item.id || item.label,
         title: item.label,
-        score: Math.round((item.passed ? 1 : (Number(item.progress) || 0)) * 100),
+        score: Math.round((item.passed ? 1 : Number(item.progress) || 0) * 100),
       }))
       .slice(0, 3);
   }
@@ -1721,9 +1836,10 @@ function showModelLoadingOverlay() {
       return;
     }
 
-    const displayScore = evaluation?.passed === true
-      ? Math.round(holdProgressPercent)
-      : Math.round((Number(evaluation?.progress) || 0) * 100);
+    const displayScore =
+      evaluation?.passed === true
+        ? Math.round(holdProgressPercent)
+        : Math.round((Number(evaluation?.progress) || 0) * 100);
     const breakdown = buildLearnBreakdown(evaluation);
 
     ui.updateScoreDisplay({
@@ -1756,17 +1872,20 @@ function showModelLoadingOverlay() {
     });
 
     if (step.successMessage) {
-      deliverFeedbackEvent({
-        type: "LEARN_STEP_HINT",
-        timestamp: getFeedbackTimestamp(),
-        message: step.successMessage,
-        exercise_code: getCurrentExerciseCode(),
-        selected_view: state.selectedView,
-        severity: "info",
-        source: "learn",
-      }, {
-        alertTitle: "Step 완료",
-      });
+      deliverFeedbackEvent(
+        {
+          type: "LEARN_STEP_HINT",
+          timestamp: getFeedbackTimestamp(),
+          message: step.successMessage,
+          exercise_code: getCurrentExerciseCode(),
+          selected_view: state.selectedView,
+          severity: "info",
+          source: "learn",
+        },
+        {
+          alertTitle: "Step 완료",
+        },
+      );
     }
 
     state.learnStepIndex += 1;
@@ -1805,9 +1924,10 @@ function showModelLoadingOverlay() {
     }
 
     const now = performance.now();
-    const deltaMs = state.learnLastFrameAt == null
-      ? 0
-      : Math.max(0, Math.min(200, now - state.learnLastFrameAt));
+    const deltaMs =
+      state.learnLastFrameAt == null
+        ? 0
+        : Math.max(0, Math.min(200, now - state.learnLastFrameAt));
     state.learnLastFrameAt = now;
 
     if (state.learnTransitionUntil > now) {
@@ -1886,6 +2006,7 @@ function showModelLoadingOverlay() {
 
     for (const target of targets) {
       if (!Array.isArray(target.list)) continue;
+      // update() 직후 새 샘플이 append 됐다면, 마지막 슬롯을 이번 프레임 UI 점수로 덮어씀
       if (target.list.length > target.previous) {
         target.list[target.list.length - 1] = score;
       }
@@ -2007,6 +2128,7 @@ function showModelLoadingOverlay() {
     updatePrimaryCounterDisplay();
     updateRoutineStepDisplay();
 
+    // UI·버퍼용: 방금 끝난 rep의 메트릭 요약(없으면 프레임 누적 버퍼에서 역산)
     state.lastRepMetricSummary =
       Array.isArray(repRecord.breakdown) && repRecord.breakdown.length > 0
         ? repRecord.breakdown.map((item) => ({
@@ -2042,6 +2164,7 @@ function showModelLoadingOverlay() {
     }
 
     if (workoutData.mode === "ROUTINE" && workoutData.routine) {
+      // 목표 횟수/시간 달성 시 휴식·다음 세트·다음 동작으로 넘어갈지 결정
       void checkRoutineProgress();
     }
 
@@ -2062,6 +2185,7 @@ function showModelLoadingOverlay() {
       ? repCounter.isInProgress()
       : false;
 
+    // 헤더 큰 숫자: 플랭크=실시간 자세 점수, 횟수 운동=진행 중 rep 누적(아직 rep 없으면 0/대시)
     const displayScore = isTimeBased
       ? scoreResult.score
       : (hasAnyRep || isRepInProgress) && repCounter?.getCurrentRepScore
@@ -2092,6 +2216,7 @@ function showModelLoadingOverlay() {
           state.lastRepMetricSummary?.length > 0);
 
     if (shouldShowBreakdown) {
+      // 상위 3개 메트릭만 카드에 표시 — 진행 중엔 버퍼, 완료 직후엔 직전 rep 요약
       const items = isTimeBased
         ? scoreResult.breakdown
         : isRepInProgress
@@ -2110,9 +2235,7 @@ function showModelLoadingOverlay() {
           displayMaxScore: 100,
         }))
         .filter((it) => it && it.displayMaxScore != null)
-        .sort(
-          (a, b) => b.displayScore - a.displayScore,
-        )
+        .sort((a, b) => b.displayScore - a.displayScore)
         .slice(0, 3)
         .map((item) => ({
           key: item.key,
@@ -2134,9 +2257,7 @@ function showModelLoadingOverlay() {
       color,
       displayAsGrade: !scoreResult.gated,
       emptyMessage:
-        scoreResult.score === 0
-          ? "포즈 감지 중..."
-          : "rep 시작하면 표시됩니다",
+        scoreResult.score === 0 ? "포즈 감지 중..." : "rep 시작하면 표시됩니다",
       gated: scoreResult.gated,
       message: scoreResult.message,
       displayText,
@@ -2171,8 +2292,8 @@ function showModelLoadingOverlay() {
 
   /**
    * 가장 점수가 낮은 메트릭을 선택해 피드백 메시지 결정
-   * - normalizedScore가 70 미만인 메트릭 중 최하위 선택
-   * - breakdown의 feedback 필드가 있으면 사용, 없으면 기본 메시지
+   * - feedback 문자열이 있는 breakdown 항목만 후보
+   * - 정규화 점수 60 미만이면서(횟수 운동은 최소 샘플 수 충족 시) 최하위 하나 선택
    */
   function selectAlertFeedbackItem(scoreResult) {
     if (!scoreResult?.breakdown?.length) {
@@ -2183,13 +2304,18 @@ function showModelLoadingOverlay() {
     const candidates = scoreResult.breakdown
       .filter((item) => item?.feedback)
       .map((item) => {
+        // 횟수 운동: 같은 rep 동안 프레임별로 쌓인 점수가 있으면 그걸로 대표값(트리밍 평균)
         const bufferedScores = !isTimeBased
           ? state.repMetricBuffer?.[item.key]?.scores
           : null;
-        const bufferedCount = Array.isArray(bufferedScores) ? bufferedScores.length : 0;
-        const normalizedScore = bufferedCount > 0
-          ? aggregateScores(bufferedScores)
-          : getNormalizedMetricScore(item);
+        const bufferedCount = Array.isArray(bufferedScores)
+          ? bufferedScores.length
+          : 0;
+        const normalizedScore =
+          bufferedCount > 0
+            ? aggregateScores(bufferedScores)
+            : getNormalizedMetricScore(item);
+        // 노이즈 메트릭은 더 많은 샘플이 있을 때만 "진짜로 나쁨"이라고 알림
         const requiredSamples = item.key === "heel_contact" ? 4 : 2;
         return {
           ...item,
@@ -2205,6 +2331,7 @@ function showModelLoadingOverlay() {
         if (isTimeBased) return true;
         return item.bufferedCount >= item.requiredSamples;
       })
+      // 가장 낮은 정규화 점수 하나만 골라 과도한 동시 힌트 방지
       .sort((a, b) => a.normalizedScore - b.normalizedScore);
 
     return candidates[0] || null;
@@ -2215,10 +2342,10 @@ function showModelLoadingOverlay() {
    */
   function getWorkoutGradeLabel(score) {
     const numericScore = Number(score);
-    if (!Number.isFinite(numericScore) || numericScore <= 0) return '--';
-    if (numericScore >= 80) return '좋음';
-    if (numericScore >= 50) return '보통';
-    return '교정 필요';
+    if (!Number.isFinite(numericScore) || numericScore <= 0) return "--";
+    if (numericScore >= 80) return "좋음";
+    if (numericScore >= 50) return "보통";
+    return "교정 필요";
   }
 
   /**
@@ -2332,7 +2459,6 @@ function showModelLoadingOverlay() {
     updateRoutineStepDisplay();
     return true;
   }
-
 
   async function checkRoutineProgress(trigger = "REP") {
     if (state.phase !== "WORKING") return;
@@ -2486,10 +2612,7 @@ function showModelLoadingOverlay() {
       const errorMessage =
         String(error?.message || "").trim() ||
         "세트 저장에 실패했습니다. 잠시 후 다시 시도됩니다.";
-      showAlert(
-        "루틴 저장 실패",
-        errorMessage,
-      );
+      showAlert("루틴 저장 실패", errorMessage);
     } finally {
       state.routineSetSyncPending = false;
     }
@@ -2663,9 +2786,8 @@ function showModelLoadingOverlay() {
   function buildLearnSessionPayload() {
     const totalSteps = state.learnSteps.length;
     const completedSteps = Math.min(state.learnStepIndex, totalSteps);
-    const progressScore = totalSteps > 0
-      ? Math.round((completedSteps / totalSteps) * 100)
-      : 0;
+    const progressScore =
+      totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
 
     return {
       selected_view: state.selectedView,
@@ -2696,6 +2818,7 @@ function showModelLoadingOverlay() {
     finishBtn.textContent = "저장 중...";
     pauseBtn.disabled = true;
 
+    // 이후 handlePoseDetected 등은 phase/루프 정지로 더 이상 의미 있는 처리를 하지 않음
     state.phase = "FINISHED";
     clearInterval(state.timerInterval);
     clearInterval(state.restInterval);
@@ -2719,6 +2842,7 @@ function showModelLoadingOverlay() {
           : null;
       let sessionData = pendingSessionPayload;
       if (!sessionData) {
+        // 학습/일반/버퍼 없음 — 가능한 한 서버 스키마에 맞는 최소 페이로드
         if (isLearnMode()) {
           sessionData = buildLearnSessionPayload();
         } else if (sessionBuffer) {
@@ -2769,6 +2893,7 @@ function showModelLoadingOverlay() {
         sessionBuffer.clearStorage();
       }
       pendingSessionPayload = null;
+      // 저장 성공 시에만 결과 화면으로 이동
       window.location.href = `/workout/result/${state.sessionId}`;
     } catch (error) {
       console.error("[Session] 종료 에러:", error);
@@ -2792,10 +2917,10 @@ function showModelLoadingOverlay() {
       const totalSteps = state.learnSteps.length;
       const completedSteps = Math.min(state.learnStepIndex, totalSteps);
       if (completedSteps >= totalSteps && totalSteps > 0) {
-        return `${workoutData.exercise?.name || '운동'} 학습 ${totalSteps}단계를 모두 완료했습니다.`;
+        return `${workoutData.exercise?.name || "운동"} 학습 ${totalSteps}단계를 모두 완료했습니다.`;
       }
       if (totalSteps > 0) {
-        return `${workoutData.exercise?.name || '운동'} 학습 ${totalSteps}단계 중 ${completedSteps}단계를 완료했습니다.`;
+        return `${workoutData.exercise?.name || "운동"} 학습 ${totalSteps}단계 중 ${completedSteps}단계를 완료했습니다.`;
       }
       return "운동 배우기 세션을 마쳤습니다.";
     }
@@ -2856,18 +2981,26 @@ function showModelLoadingOverlay() {
     }
 
     hasUnloadAbortSent = true;
-    const learnCompletedSteps = Math.min(state.learnStepIndex, state.learnSteps.length);
+    const learnCompletedSteps = Math.min(
+      state.learnStepIndex,
+      state.learnSteps.length,
+    );
     const payload = JSON.stringify({
       reason,
       selected_view: state.selectedView,
       duration_sec: state.totalTime || 0,
-      total_reps: isLearnMode() ? 0 : (isTimeBasedExercise() ? 0 : state.currentRep || 0),
+      total_reps: isLearnMode()
+        ? 0
+        : isTimeBasedExercise()
+          ? 0
+          : state.currentRep || 0,
       total_result_value: isLearnMode()
         ? learnCompletedSteps
         : isTimeBasedExercise()
           ? state.bestHoldSec || 0
           : state.currentRep || 0,
-      result_basis: isTimeBasedExercise() && !isLearnMode() ? "DURATION" : "REPS",
+      result_basis:
+        isTimeBasedExercise() && !isLearnMode() ? "DURATION" : "REPS",
       target_sec: isTimeBasedExercise() ? getCurrentTargetSec() || null : null,
     });
     const url = `/api/workout/session/${state.sessionId}/abort`;
@@ -2901,7 +3034,7 @@ function showModelLoadingOverlay() {
   // ── 전역 노출: EJS 템플릿에서 onclick="startWorkout()" 등으로 호출 ──
   window.confirmExit = confirmExit;
   function initWorkoutOnboarding() {
-    if (workoutData.mode === 'ROUTINE') return;
+    if (workoutData.mode === "ROUTINE") return;
     if (!workoutOnboardingGuide?.createWorkoutOnboardingController) return;
     if (!onboardingModal) return;
 
@@ -2909,20 +3042,22 @@ function showModelLoadingOverlay() {
       exerciseCode: workoutData.exercise?.code,
     });
 
-    const controller = workoutOnboardingGuide.createWorkoutOnboardingController({
-      refs: {
-        modal: onboardingModal,
-        titleEl: onboardingTitleEl,
-        progressEl: onboardingProgressEl,
-        imageEl: onboardingImageEl,
-        imagePlaceholderEl: onboardingImagePlaceholderEl,
-        bulletsEl: onboardingBulletsEl,
-        prevBtn: onboardingPrevBtn,
-        nextBtn: onboardingNextBtn,
-        closeBtn: onboardingCloseBtn,
+    const controller = workoutOnboardingGuide.createWorkoutOnboardingController(
+      {
+        refs: {
+          modal: onboardingModal,
+          titleEl: onboardingTitleEl,
+          progressEl: onboardingProgressEl,
+          imageEl: onboardingImageEl,
+          imagePlaceholderEl: onboardingImagePlaceholderEl,
+          bulletsEl: onboardingBulletsEl,
+          prevBtn: onboardingPrevBtn,
+          nextBtn: onboardingNextBtn,
+          closeBtn: onboardingCloseBtn,
+        },
+        slides,
       },
-      slides,
-    });
+    );
 
     controller.open();
   }
@@ -2981,13 +3116,12 @@ function showModelLoadingOverlay() {
   await connectCameraSource(selectedCameraSource);
 }
 
-
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   window.initSession = initSession;
 }
 
 // CommonJS test exports
-if (typeof module !== 'undefined') {
+if (typeof module !== "undefined") {
   module.exports = {
     initSession,
     clearPoseOverlay,

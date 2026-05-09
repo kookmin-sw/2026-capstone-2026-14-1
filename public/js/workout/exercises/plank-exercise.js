@@ -11,7 +11,8 @@
 }
 */
 /**
- * 플랭크 전용 자세 게이트/시간 기반 점수 보조
+ * 플랭크 전용 운동 모듈 — 시간 기반 홀드(SETUP/HOLD/BREAK), 자세 점수 임계, 세션 보조 API.
+ * manifest의 EXERCISE_MANIFEST는 정적 메타데이터입니다.
  */
 (function registerPlankExerciseModule() {
   const registry = typeof window !== 'undefined' ? window.WorkoutExerciseRegistry : null;
@@ -21,6 +22,7 @@
     code: 'plank',
 
     getDefaultProfileMetrics() {
+      // DB 프로필이 비어 있을 때만 사용 — 측면 플랭크 라인·코어 메트릭 위주
       return [
         {
           weight: 0.3,

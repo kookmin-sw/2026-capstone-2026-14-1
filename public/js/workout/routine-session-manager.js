@@ -42,7 +42,7 @@ function resolveRoutineAdvanceAction({
     return { action: 'ROUTINE_COMPLETE', restSec, nextSessionId };
   }
 
-  // 명시적 액션이 없으면 기본 로직 적용
+  // 서버가 액션을 안 주면 클라이언트가 목표 세트/스텝을 보고 다음 동작 추론
   if (currentSet < totalSets) {
     return { action: 'NEXT_SET', restSec: fallbackRestSec, nextSessionId };
   }
@@ -195,6 +195,7 @@ function resolveRoutineProgressState({
     Math.max(1, Math.round(Number(currentSet) || 1)),
   );
   const completedSets = Math.min(totalSets, Math.max(0, safeCurrentSet - 1));
+  // 시간 목표면 홀드/작업 초, 횟수면 currentRep으로 현재 세트 달성도 산출
   const actualValue = targetType === 'TIME'
     ? (
       isTimeBasedExercise
@@ -209,6 +210,7 @@ function resolveRoutineProgressState({
     1,
     (completedSets + currentSetProgress) / totalSets,
   );
+  // 전체 루틴 대비: 완료된 스텝 + 현재 스텝의 일부 진행률
   const progressPercent = Math.round(
     ((stepIndex + stepProgress) / steps.length) * 100,
   );

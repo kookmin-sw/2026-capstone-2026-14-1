@@ -7,7 +7,12 @@
  */
 
 /**
- * 지수 평활 계수 alpha 계산 (시간 간격과 차단 주파수 기준)
+ * 지수 평활에 쓰일 alpha ∈ (0,1)를 계산합니다.
+ * deltaTime이 작거나 cutoff가 크면 alpha가 작아져 이전 값에 더 가깝게(더 부드럽게) 만듭니다.
+ *
+ * @param {number} deltaTime - 이전 샘플과의 시간 차이 (초)
+ * @param {number} cutoff - 차단 주파수 (Hz)
+ * @returns {number} 스무딩 계수 alpha
  */
 function smoothingFactor(deltaTime, cutoff) {
   const r = 2 * Math.PI * cutoff * deltaTime;
@@ -15,7 +20,12 @@ function smoothingFactor(deltaTime, cutoff) {
 }
 
 /**
- * 기본 지수 평활 적용
+ * 1차 지수 평활(Exponential smoothing): xHat = alpha*x + (1-alpha)*xPrev.
+ *
+ * @param {number} alpha - smoothingFactor 결과
+ * @param {number} x - 현재 입력
+ * @param {number} xPrev - 이전 출력
+ * @returns {number} 평활 결과
  */
 function exponentialSmoothing(alpha, x, xPrev) {
   return alpha * x + (1.0 - alpha) * xPrev;
@@ -61,10 +71,10 @@ class OneEuroFilter {
     const alphaD = smoothingFactor(deltaTime, this.dCutoff);
     const dxHat = exponentialSmoothing(alphaD, dx, this.dxPrev);
 
-    // 2. 속도에 따른 가변 차단 주파수 계산
+    // 2. 속도가 크면 cutoff를 올려 빠른 움직임에서 지연을 줄임 (정지 시엔 minCutoff로 부드럽게)
     const cutoff = this.minCutoff + this.beta * Math.abs(dxHat);
 
-    // 3. 신호 필터링
+    // 3. 가변 cutoff로 위치 신호만 한 번 더 지수 평활
     const alpha = smoothingFactor(deltaTime, cutoff);
     const xHat = exponentialSmoothing(alpha, x, this.xPrev);
 
@@ -77,7 +87,10 @@ class OneEuroFilter {
   }
 
   /**
-   * 필터 상태 리셋
+   * 필터 내부 상태(시간, 이전 출력, 이전 미분 추정)를 새 시퀀스 시작점으로 되돌립니다.
+   *
+   * @param {number} t - 기준 시각 (초)
+   * @param {number} x - 초기 출력으로 맞출 값
    */
   reset(t, x) {
     this.tPrev = t;
@@ -120,7 +133,10 @@ class OneEuroFilter3D {
   }
 
   /**
-   * 필터 상태 리셋
+   * 세 축 필터를 동일 시각·포인트로 초기화합니다.
+   *
+   * @param {number} t - 기준 시각 (초)
+   * @param {Object} point - { x, y, z }
    */
   reset(t, point) {
     this.filterX.reset(t, point.x || 0);
@@ -205,7 +221,12 @@ class LandmarkSmoother {
   }
 
   /**
-   * 파라미터 업데이트
+   * minCutoff / beta / dCutoff를 변경합니다.
+   * 기존 필터는 파라미터 불일치를 피하기 위해 모두 폐기하고 다음 프레임에서 재초기화됩니다.
+   *
+   * @param {number} [minCutoff]
+   * @param {number} [beta]
+   * @param {number} [dCutoff]
    */
   setParameters(minCutoff, beta, dCutoff) {
     this.minCutoff = minCutoff ?? this.minCutoff;
@@ -218,7 +239,7 @@ class LandmarkSmoother {
   }
 }
 
-// 프리셋 설정
+/** LandmarkSmoother·UI에서 쓸 minCutoff/beta/dCutoff 프리셋 묶음 */
 const SMOOTHER_PRESETS = {
   // 매우 부드러움 - 느린 동작, 정적 자세 분석용
   ULTRA_SMOOTH: { minCutoff: 0.5, beta: 0.1, dCutoff: 1.0 },

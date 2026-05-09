@@ -164,6 +164,7 @@ function buildGateInputsFromPoseData(poseData, stabilityMetrics) {
  */
 function shouldSuppressScoring(gateResult, tracker, threshold) {
   if (gateResult.result === 'withhold') {
+    // 이번 프레임에서 게이트가 직접 막음 — 추적기에 원인 저장 후 곧바로 억제
     tracker.isWithholding = true;
     tracker.withholdReason = gateResult.reason;
     return { suppress: true, reason: gateResult.reason };
@@ -176,6 +177,7 @@ function shouldSuppressScoring(gateResult, tracker, threshold) {
       threshold,
     })
   ) {
+    // 한번 막힌 뒤에는 연속 안정 프레임이 채워질 때까지 이전 withhold 사유 유지
     return {
       suppress: true,
       reason: tracker.withholdReason || 'insufficient_stable_frames',
@@ -184,6 +186,7 @@ function shouldSuppressScoring(gateResult, tracker, threshold) {
 
   tracker.isWithholding = false;
   tracker.withholdReason = null;
+  // pass이고 (있다면) 히스테리시스도 통과 → 정상 채점 허용
   return { suppress: false, reason: null };
 }
 

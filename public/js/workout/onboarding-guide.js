@@ -1,7 +1,18 @@
 /**
- * workout onboarding guide data + modal controller.
- * Browser에서는 window.WorkoutOnboardingGuide에 붙고,
- * Node 테스트에서는 CommonJS export로 사용한다.
+ * onboarding-guide.js
+ *
+ * 운동 시작 전 온보딩 모달용 데이터와 컨트롤러.
+ * - 운동 코드별 슬라이드(카메라 세팅 / 좋은 자세 / 주의할 자세 / 시작 전 확인) 생성
+ * - 브라우저: window.WorkoutOnboardingGuide
+ * - Node 테스트: CommonJS module.exports
+ */
+
+/**
+ * 온보딩·이미지 경로용 운동 코드를 정규화합니다.
+ * 소문자·하이픈 통일, 특수문자 제거. push-up 계열은 'push-up'으로 고정합니다.
+ *
+ * @param {string|number|undefined|null} value - 원시 운동 코드
+ * @returns {string} 정규화된 코드 (예: 'squat', 'push-up', 'default')
  */
 function normalizeOnboardingExerciseCode(value) {
   const normalized = String(value || '')
@@ -14,6 +25,7 @@ function normalizeOnboardingExerciseCode(value) {
   return normalized || 'default';
 }
 
+/** 모든 운동 공통: 첫 슬라이드 "카메라 세팅법" 불릿 */
 const CAMERA_SETUP_BULLETS = [
   '전신이 화면 안에 들어오도록 카메라를 충분히 멀리 둡니다.',
   '카메라는 몸의 정면 또는 선택한 채점 자세 방향에 맞춥니다.',
@@ -22,6 +34,7 @@ const CAMERA_SETUP_BULLETS = [
   '주변에 부딪힐 물건이 없는지 확인합니다.',
 ];
 
+/** 모든 운동 공통: 마지막 슬라이드 "시작 전 확인" 불릿 */
 const READY_CHECK_BULLETS = [
   '전신이 화면에 들어왔는지 확인하세요.',
   '주변에 부딪힐 물건이 없는지 확인하세요.',
@@ -30,6 +43,10 @@ const READY_CHECK_BULLETS = [
   '운동 시작 버튼을 누르면 5초 뒤 채점이 시작됩니다.',
 ];
 
+/**
+ * 운동별 "좋은 자세(good)" / "주의할 자세(caution)" 카피.
+ * 키는 normalizeOnboardingExerciseCode 결과와 맞춥니다.
+ */
 const EXERCISE_FORM_COPY = {
   squat: {
     good: [
@@ -89,10 +106,25 @@ const EXERCISE_FORM_COPY = {
   },
 };
 
+/**
+ * 온보딩 슬라이드 PNG 경로를 반환합니다.
+ *
+ * @param {string} exerciseCode - 정규화된 운동 코드 (디렉터리명)
+ * @param {string} slideKey - 'camera-setup' | 'good-form' | 'caution-form' | 'ready-check'
+ * @returns {string} 절대 경로 URL
+ */
 function buildImageSrc(exerciseCode, slideKey) {
   return `/images/workout-guides/${exerciseCode}/${slideKey}.png`;
 }
 
+/**
+ * 지정 운동에 대한 온보딩 슬라이드 배열을 만듭니다.
+ * 순서: 카메라 세팅 → 좋은 자세 → 주의 → 시작 전 확인.
+ *
+ * @param {Object} params
+ * @param {string} params.exerciseCode - 원시 운동 코드
+ * @returns {Array<{ key: string, title: string, imageSrc: string, imageAlt: string, bullets: string[] }>}
+ */
 function getWorkoutOnboardingSlides({ exerciseCode }) {
   const normalizedCode = normalizeOnboardingExerciseCode(exerciseCode);
   const copy = EXERCISE_FORM_COPY[normalizedCode] || EXERCISE_FORM_COPY.default;
@@ -129,6 +161,31 @@ function getWorkoutOnboardingSlides({ exerciseCode }) {
   ];
 }
 
+/**
+ * 온보딩 모달 UI를 제어하는 컨트롤러를 반환합니다.
+ * refs에 모달 루트·이미지·불릿 리스트·이전/다음 버튼 등이 연결되어 있어야 합니다.
+ *
+ * @param {Object} params
+ * @param {{
+ *   modal: HTMLElement,
+ *   titleEl: HTMLElement,
+ *   progressEl: HTMLElement,
+ *   bulletsEl: HTMLElement,
+ *   imageEl: HTMLImageElement,
+ *   imagePlaceholderEl: HTMLElement,
+ *   prevBtn: HTMLButtonElement,
+ *   nextBtn: HTMLButtonElement,
+ *   closeBtn: HTMLButtonElement
+ * }} params.refs
+ * @param {Array<Object>} params.slides - getWorkoutOnboardingSlides() 반환과 동일 구조의 슬라이드 배열
+ * @returns {{
+ *   open: () => void,
+ *   close: () => void,
+ *   next: () => void,
+ *   prev: () => void,
+ *   render: () => void
+ * }}
+ */
 function createWorkoutOnboardingController({ refs, slides }) {
   let currentIndex = 0;
   const safeSlides = Array.isArray(slides) && slides.length > 0 ? slides : [];
@@ -156,6 +213,7 @@ function createWorkoutOnboardingController({ refs, slides }) {
       refs.imageEl.hidden = true;
       refs.imageEl.src = slide.imageSrc;
       refs.imageEl.alt = slide.imageAlt;
+      // 로드 완료 전까지 플레이스홀더 표시 — load/error 핸들러가 표시 전환
       refs.imagePlaceholderEl.hidden = false;
     }
 
@@ -205,6 +263,7 @@ function createWorkoutOnboardingController({ refs, slides }) {
   return { open, close, next, prev, render };
 }
 
+/** 온보딩 모듈 공개 API */
 const WorkoutOnboardingGuide = {
   normalizeOnboardingExerciseCode,
   getWorkoutOnboardingSlides,

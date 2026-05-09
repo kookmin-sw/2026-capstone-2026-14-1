@@ -64,6 +64,7 @@ function createSessionUi({
 
     if (typeof document !== 'undefined' && document.body?.appendChild) {
       document.body.appendChild(toast);
+      // 레이아웃 안정 후 사용자 몰래 쌓이지 않도록 2초 뒤 제거
       setTimeout(() => toast.remove(), 2000);
     }
 

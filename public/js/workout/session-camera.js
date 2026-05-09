@@ -29,6 +29,7 @@ class SessionCamera {
    * @returns {Promise<MediaStream>} 미디어 스트림
    */
   async getStream(sourceType) {
+    // 화면 공유는 사용자가 창 선택 — facingMode 없음
     if (sourceType === 'screen') {
       return navigator.mediaDevices.getDisplayMedia({
         video: { width: 640, height: 480 }
@@ -91,6 +92,7 @@ class SessionCamera {
       const { width: containerW, height: containerH } = container.getBoundingClientRect();
       if (!containerW || !containerH) return;
 
+      // CSS object-fit: contain 과 동일하게 "레터박스" 안에 비디오가 들어가는 영역 계산
       const videoRatio = video.videoWidth / video.videoHeight;
       const containerRatio = containerW / containerH;
 

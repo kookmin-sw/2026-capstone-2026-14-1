@@ -1,9 +1,15 @@
 /**
- * FitPlus Rep Counter - 운동 횟수 감지
- * 상태 머신 기반 횟수 카운팅
+ * FitPlus Rep Counter — 반복(rep) 횟수·시간 기반 운동 상태 머신
+ *
+ * - 횟수 운동: NEUTRAL → (굽힌 ACTIVE) → NEUTRAL 한 사이클을 1 rep로 카운트.
+ *   운동 모듈이 `updateRepTracking`을 제공하면(예: 스쿼트) 하강/최저점/상승 등 세부 페이즈도 기록합니다.
+ * - 시간 운동(플랭크): SETUP에서 자세 점수가 임계 이상으로 일정 시간 유지되면 HOLD로 전환, 점수 하락 시 BREAK.
+ * - rep 완료 시 `repEvaluator`(보통 ScoringEngine.scoreRep)로 최종 점수·메타를 덧씌웁니다.
+ *
+ * 전역: window.RepCounter, window.REP_STATES, window.REP_PHASES, window.TIME_PHASES
  */
 
-// 운동별 상태
+// 운동별 상태 (무릎/팔 각으로 서 있음 vs 앉음/다운 구간 구분)
 const REP_STATES = {
   NEUTRAL: 'NEUTRAL',     // 중립 상태 (서있음, 팔 펴짐 등)
   TRANSITION: 'TRANSITION', // 전환 중
@@ -26,7 +32,9 @@ const TIME_PHASES = {
 
 class RepCounter {
   /**
-   * @param {string} exerciseCode - 운동 코드 (squat, pushup, lunge 등)
+   * 레지스트리에서 운동 모듈을 불러와 패턴(thresholds, minDuration 등)을 구성합니다.
+   *
+   * @param {string} exerciseCode - 운동 코드 (squat, push_up, plank …). 하이픈은 언더스코어로 정규화됩니다.
    */
   constructor(exerciseCode) {
     this.exerciseCode = (exerciseCode || '')
@@ -234,7 +242,7 @@ class RepCounter {
     const now = performance.now();
     const prevState = this.currentState;
 
-    // 현재 상태 판단
+    // 무릎/팔꿈치 등 "주 각도"가 임계 사이면 TRANSITION, 바깥이면 NEUTRAL/ACTIVE
     const newState = this.detectState(primaryAngle);
 
     // 상태 전이 기록
@@ -253,7 +261,7 @@ class RepCounter {
 
     this.currentState = newState;
 
-    // rep 시작 감지 (NEUTRAL -> 비NEUTRAL)
+    // NEUTRAL에서 벗어나는 순간을 rep 시작으로 보고 운동 모듈 스냅샷·버퍼 초기화
     if (prevState === REP_STATES.NEUTRAL && newState !== REP_STATES.NEUTRAL) {
       this.repStartTime = now;
       this.hadActive = false;
@@ -294,6 +302,7 @@ class RepCounter {
     this.previousPrimaryAngle = primaryAngle;
 
     if (repCompleted) {
+      // repRecord 반환 — session-controller의 onRepComplete로 전달
       return this.completeRep(now);
     }
 
@@ -305,10 +314,11 @@ class RepCounter {
    */
   detectState(angle) {
     const { thresholds, direction } = this.pattern;
+    // 두 임계 사이는 히스테리시스용 TRANSITION 구간 (깜빡임 완화)
     const midPoint = (thresholds.neutral + thresholds.active) / 2;
 
     if (direction === 'decrease') {
-      // 각도가 감소하면 active (스쿼트, 푸시업 등)
+      // 스쿼트류: 펴진 상태에서 굽히면 각도 감소 → ACTIVE
       if (angle >= thresholds.neutral - 10) {
         return REP_STATES.NEUTRAL;
       } else if (angle <= thresholds.active + 10) {
@@ -360,6 +370,7 @@ class RepCounter {
     const minActiveTime = this.pattern.minActiveTime || 0;
     if (this.activeTimeMs < minActiveTime) return false;
 
+    // 최소 시간/최소 ACTIVE 체류를 만족해야 "진짜 한 번"으로 인정
     return true;
   }
 
@@ -394,6 +405,7 @@ class RepCounter {
     }
 
     if (typeof this.repEvaluator === 'function') {
+      // 스쿼트 등: phase robust 통계로 breakdown·최종 점수·hard/soft fail 덧씌움
       const evaluated = this.repEvaluator(repRecord);
       if (evaluated && typeof evaluated === 'object') {
         repRecord = {
@@ -592,6 +604,7 @@ class RepCounter {
     const setupConfirmMs = this.pattern.setupConfirmMs || 800;
     const state = this.timeState;
 
+    // BREAK 직후 또는 세그먼트 시작 전이면 다시 자세 잡는 SETUP부터
     if (state.currentPhase === TIME_PHASES.BREAK || state.currentSegmentStartTime == null) {
       state.currentPhase = TIME_PHASES.SETUP;
       state.currentSegmentStartTime = now;
@@ -610,6 +623,7 @@ class RepCounter {
     this.currentPhase = state.currentPhase;
 
     if (state.currentPhase === TIME_PHASES.SETUP) {
+      // 일정 점수 이상을 setupConfirmMs 동안 유지해야 "홀드 시작"으로 본다
       if (safeScore >= holdScoreMin) {
         if (state.holdStableStartTime == null) {
           state.holdStableStartTime = now;
@@ -631,6 +645,7 @@ class RepCounter {
     }
 
     if (state.currentPhase === TIME_PHASES.HOLD) {
+      // keepHoldScoreMin 밑으로 잠시 내려가도 breakGraceMs 안에 회복하면 연속 홀드로 간주
       if (safeScore >= keepHoldScoreMin) {
         state.breakStartTime = null;
       } else if (state.breakStartTime == null) {

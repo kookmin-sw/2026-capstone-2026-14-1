@@ -1,9 +1,12 @@
 /**
- * FitPlus Pose Engine - MediaPipe 기반 포즈 감지
- * Google MediaPipe Pose를 활용한 클라이언트 사이드 AI 처리
+ * FitPlus Pose Engine — MediaPipe Pose 기반 랜드마크 추론·각도 계산·품질 지표
+ *
+ * - 비디오 프레임을 파이프라인에 넣으면 world/image 랜드마크와 `calculateAllAngles` 결과가 `onPoseDetected`로 전달됩니다.
+ * - One Euro Filter로 랜드마크 스무딩 옵션 (`useOneEuroFilter`).
+ * - `buildQualityGateInputs`(export): scoring-engine의 `evaluateQualityGate`와 맞물리는 입력 정규화.
  */
 
-// MediaPipe Pose 랜드마크 인덱스
+// MediaPipe Pose 랜드마크 인덱스 (공식 스켈레톤 순서)
 const LANDMARKS = {
   NOSE: 0,
   LEFT_EYE_INNER: 1,
@@ -51,6 +54,10 @@ const FEEDBACK_THRESHOLDS = {
   warn: 0.6
 };
 
+/**
+ * MediaPipe 초기화, 프레임 처리, 각도·품질 계산, 캔버스 오버레이까지 담당합니다.
+ * 콜백: `onPoseDetected(poseData)`, `onNoPerson()`.
+ */
 class PoseEngine {
   constructor(options = {}) {
     this.pose = null;
@@ -127,6 +134,7 @@ class PoseEngine {
    * 비디오 프레임 전송
    */
   async send(videoElement) {
+    // initialize() 전이거나 stop() 후에는 Graph가 없어 전송 생략
     if (!this.isInitialized || !this.isRunning) return;
 
     try {
@@ -152,7 +160,7 @@ class PoseEngine {
 
     const timestamp = performance.now();
 
-    // 정규화된 랜드마크 (0~1 범위) - One Euro Filter 적용
+    // 이미지 좌표계(0~1) — 지터 줄이되 내장 smoothLandmarks와 중복하지 않도록 옵션 상호 배제
     let landmarks = results.poseLandmarks;
     if (this.landmarkSmoother) {
       landmarks = this.landmarkSmoother.filter(timestamp, landmarks);
@@ -1229,8 +1237,8 @@ class PoseEngine {
 }
 
 /**
- * Build a normalized quality-gate input summary from pose data.
- * Called per frame by the session controller to feed evaluateQualityGate().
+ * pose-engine이 넘긴 raw 수치를 그대로 scoring-engine 규약 필드명으로 싣는 어댑터.
+ * (추가 변환 없음 — 타입·필드 일치만 보장)
  */
 function buildQualityGateInputs({
   frameInclusionRatio,

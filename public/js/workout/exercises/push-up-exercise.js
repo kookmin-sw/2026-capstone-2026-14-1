@@ -10,7 +10,8 @@
 }
 */
 /**
- * 푸쉬업 전용 rep 추적/채점/품질 게이트
+ * 푸시업 전용 운동 모듈 — rep 페이즈, 측면(SIDE) 기준 채점, 품질 요구사항 메타(`requirements`).
+ * manifest의 EXERCISE_MANIFEST는 정적 메타데이터입니다.
  */
 (function registerPushUpExerciseModule() {
   const registry = typeof window !== 'undefined' ? window.WorkoutExerciseRegistry : null;
@@ -191,6 +192,7 @@
       const snapshot = getSnapshot(repCounter, angles, primaryAngle);
       recordFrame(repCounter, phase, deltaMs, snapshot);
 
+      // 다운~업 구간에서만 실시간 점수를 모아 rep 종료 시 aggregate에 사용
       if (SCORING_PHASES.includes(phase) && Number.isFinite(currentScore)) {
         repCounter.currentMovementScores.push(currentScore);
       }

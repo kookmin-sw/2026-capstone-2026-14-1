@@ -10,7 +10,8 @@
 }
 */
 /**
- * 스쿼트 전용 rep 추적/채점/품질 게이트
+ * 스쿼트 전용 운동 모듈 — rep 페이즈 추적, 프레임 스냅샷/robust 통계, rep 단위 `scoreRep`, 라이브 breakdown 필터.
+ * manifest 주석의 EXERCISE_MANIFEST JSON은 빌드/메타용입니다.
  */
 (function registerSquatExerciseModule() {
   const registry = typeof window !== 'undefined' ? window.WorkoutExerciseRegistry : null;
@@ -242,6 +243,7 @@
       }
 
       const phase = detectPhase(repCounter, angles, primaryAngle);
+      // 프레임 드랍 시 큰 delta로 통계가 망가지지 않도록 상한 120ms
       const deltaMs = repCounter.repLastFrameTime != null
         ? Math.max(0, Math.min(now - repCounter.repLastFrameTime, 120))
         : 0;
@@ -252,6 +254,7 @@
       const snapshot = getSnapshot(repCounter, angles, primaryAngle);
       recordFrame(repCounter, phase, deltaMs, snapshot);
 
+      // 하강~상승 등 채점 페이즈에서만 movement 버퍼에 점수 쌓음 — finalize 시 robust 통계 입력
       if (SCORING_PHASES.includes(phase) && Number.isFinite(currentScore)) {
         repCounter.currentMovementScores.push(currentScore);
       }
@@ -293,6 +296,7 @@
       const viewConfidence =
         typeof confidence.score === 'number' && Number.isFinite(confidence.score) ? confidence.score : 0;
 
+      // 게이트 통과 후에도 운동 모듈이 "촬영 각도"로 최종 보류할 수 있음(대각·측면 불일치)
       if (requestedView === 'DIAGONAL' || dominantView === 'DIAGONAL') {
         return buildHoldRepResult(repRecord, summary, {
           status: 'HOLD_CAMERA',
