@@ -112,11 +112,36 @@ const {
   updateLearnHoldState: updateLearnHoldStateHelper,
 } = learnStepEngine;
 
+function resolveDisplayedSetCountOnPause({
+  mode,
+  displayedSetCount = 1,
+  phase,
+  nextIsPaused,
+}) {
+  const current = Math.max(1, Math.round(Number(displayedSetCount) || 1));
+  if (mode === 'FREE' && phase === 'WORKING' && nextIsPaused === true) {
+    return current + 1;
+  }
+  return current;
+}
+
+function clearPoseOverlay({ poseEngine, poseCanvas }) {
+  if (poseEngine?.clearPose) {
+    poseEngine.clearPose(poseCanvas);
+    return;
+  }
+
+  const ctx = poseCanvas?.getContext?.('2d');
+  if (!ctx || !poseCanvas) return;
+
+  ctx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+}
+
 /**
  * 운동 세션 페이지 — 포즈/점수/루틴/세션 저장 오케스트레이션
   * 아키텍처 흐름:
  *   1. initAIEngines(): MediaPipe Pose + ScoringEngine + RepCounter 초기화
- *   2. connectCameraSource(): 칩처/화면 공유 스트림 연결
+ *   2. connectCameraSource(): 선택한 카메라 소스 스트림 연결
  *   3. startPoseDetection(): requestAnimationFrame 루프 시작 → poseEngine.send(video)
  *   4. handlePoseDetected(): 품질 게이트 → 채점 → 반복 감지 → UI 업데이트
  *   5. handleRepComplete(): rep 완료 시 서버 동기화(루틴) + 피드백 표시
@@ -151,6 +176,7 @@ async function initSession(workoutData) {
     sessionId: null,
     selectedView: null,
     currentSet: 1,
+    displayedSetCount: 1,
     currentRep: 0,
     currentStepIndex: 0,
     totalTime: 0,
@@ -609,6 +635,14 @@ const ui = sessionUiFactory({
     });
   }
 
+  function syncDisplayedSetCount() {
+    if (!setCountEl || isLearnMode()) return;
+    const nextCount = workoutData.mode === "FREE"
+      ? state.displayedSetCount
+      : state.currentSet;
+    setCountEl.textContent = String(Math.max(1, Math.round(Number(nextCount) || 1)));
+  }
+
   /** 루틴 단계 프로그레스 표시 업데이트 — 현재 단계/전체, 완료 칩 하이라이트 */
   function updateRoutineStepDisplay() {
     if (
@@ -763,7 +797,7 @@ const ui = sessionUiFactory({
   let aiReady = false;
   let warmUpGeneration = 0;
   let aiInitPromise = null;
-  let selectedCameraSource = window.SESSION_CAMERA_DEFAULT_SOURCE || "screen";
+  let selectedCameraSource = window.SESSION_CAMERA_DEFAULT_SOURCE || "webcam";
   const sessionCamera = new SessionCamera(videoElement, poseCanvas);
   let wakeLock = null;
 
@@ -772,7 +806,7 @@ const ui = sessionUiFactory({
    * - webcam: 미러링 (사용자가 거울처럼 보도록)
    * - mobile_front: 미러링
    * - mobile_rear: 미러링 없음
-   * - screen: 미러링 없음
+   * - 기타 소스: 미러링 없음
    */
   function applyPreviewOrientation(sourceType) {
     if (!cameraFrame) return;
@@ -994,7 +1028,7 @@ const ui = sessionUiFactory({
   }
 
   /**
-   * 카메라/화면 공유 스트림 연결
+   * 카메라 스트림 연결
    * sourceType: 'webcam' | 'screen' | 'mobile_front' | 'mobile_rear'
    * 스트림 획득 → 비디오 요소에 바인딩 → 세션 시작 버튼 활성화
    */
@@ -1085,7 +1119,7 @@ const ui = sessionUiFactory({
   }
 
   /**
-   * 카메라 소스 선택 버튼(웹캠/화면공유/후면) 이벤트 바인딩
+   * 카메라 소스 선택 버튼 이벤트 바인딩
    * 선택 시 connectCameraSource() 호출 → 스트림 연결
    */
   function setupSourceSelectors() {
@@ -2418,7 +2452,7 @@ function showModelLoadingOverlay() {
         }
 
         state.currentSet++;
-        setCountEl.textContent = state.currentSet;
+        syncDisplayedSetCount();
         routineManager.resetSetState();
         resetRoutineSetUiState();
         showAlert("다음 세트", `${state.currentSet}세트 시작!`);
@@ -2474,13 +2508,24 @@ function showModelLoadingOverlay() {
 
   /** 일시정지/재개 토글 — 타이머/프레임 루프 정지 & Wake Lock 해제/재획득 */
   function togglePause() {
-    state.isPaused = !state.isPaused;
+    const nextIsPaused = !state.isPaused;
+    if (nextIsPaused) {
+      state.displayedSetCount = resolveDisplayedSetCountOnPause({
+        mode: workoutData.mode,
+        displayedSetCount: state.displayedSetCount,
+        phase: state.phase,
+        nextIsPaused,
+      });
+      syncDisplayedSetCount();
+    }
+    state.isPaused = nextIsPaused;
 
     if (state.isPaused) {
       state.phase = "PAUSED";
       ui.updateStatus("paused", "일시정지");
       pauseBtn.innerHTML = "계속하기";
       if (poseEngine) poseEngine.stop();
+      clearPoseOverlay({ poseEngine, poseCanvas });
       if (sessionBuffer) sessionBuffer.addEvent("PAUSE");
       releaseWakeLock();
     } else {
@@ -2504,6 +2549,7 @@ function showModelLoadingOverlay() {
     restValueEl.textContent = seconds;
 
     if (poseEngine) poseEngine.stop();
+    clearPoseOverlay({ poseEngine, poseCanvas });
     if (sessionBuffer)
       sessionBuffer.addEvent("REST_START", { duration: seconds });
 
@@ -2539,7 +2585,7 @@ function showModelLoadingOverlay() {
     }
 
     state.currentSet++;
-    setCountEl.textContent = state.currentSet;
+    syncDisplayedSetCount();
     routineManager.resetSetState();
     resetRoutineSetUiState();
 
@@ -2641,6 +2687,7 @@ function showModelLoadingOverlay() {
     if (poseEngine) {
       poseEngine.stop();
     }
+    clearPoseOverlay({ poseEngine, poseCanvas });
     sessionCamera.destroy();
     releaseWakeLock();
 
@@ -2907,6 +2954,7 @@ function showModelLoadingOverlay() {
     updateLearnModeDisplay();
   }
   updatePrimaryCounterDisplay();
+  syncDisplayedSetCount();
   updateRoutineStepDisplay();
   updatePlankRuntimeDisplay(
     repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
@@ -2924,5 +2972,7 @@ if (typeof window !== 'undefined') {
 if (typeof module !== 'undefined') {
   module.exports = {
     initSession,
+    clearPoseOverlay,
+    resolveDisplayedSetCountOnPause,
   };
 }

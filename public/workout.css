@@ -297,6 +297,10 @@
   border-radius: 8px;
 }
 
+.source-btn-label-mobile {
+  display: none;
+}
+
 .source-select .source-btn.active {
   background: rgba(91, 108, 255, 0.35);
   border-color: rgba(123, 97, 255, 0.6);
@@ -1056,6 +1060,14 @@
 }
 
 @media (max-width: 640px) {
+  .source-btn-label-desktop {
+    display: none;
+  }
+
+  .source-btn-label-mobile {
+    display: inline;
+  }
+
   .routine-progress-header,
   .routine-progress-meta {
     flex-direction: column;

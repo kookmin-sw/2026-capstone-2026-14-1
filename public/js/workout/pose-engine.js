@@ -1047,13 +1047,17 @@ class PoseEngine {
    * 캔버스에 포즈 그리기
    */
   drawPose(canvas, results) {
-    if (!results || !results.poseLandmarks) return;
+    if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext?.('2d');
+    if (!ctx) return;
+
     const width = canvas.width;
     const height = canvas.height;
 
     ctx.clearRect(0, 0, width, height);
+
+    if (!results || !results.poseLandmarks) return;
 
     // 어깨 랜드마크 시각적 보정 (실제 어깨 끝에 가깝게)
     const adjustedLandmarks = this.adjustShoulderLandmarks(results.poseLandmarks);
@@ -1155,6 +1159,13 @@ class PoseEngine {
         ctx.fill();
       }
     });
+  }
+
+  /**
+   * 마지막 포즈 오버레이를 즉시 지웁니다.
+   */
+  clearPose(canvas) {
+    this.drawPose(canvas, null);
   }
 
   /**
