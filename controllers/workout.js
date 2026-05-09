@@ -1533,7 +1533,8 @@ const persistSessionCompletionPayload = async ({
     userId,
     payload = {},
     endedAtIso,
-    fallbackFinalScore = 0
+    fallbackFinalScore = 0,
+    serverEventRows = []
 }) => {
     const sessionId = session.session_id;
     const selectedView = normalizeSelectedView(payload?.selected_view) || session.selected_view;
@@ -1558,10 +1559,30 @@ const persistSessionCompletionPayload = async ({
         throw createApiError(500, '기존 스냅샷 정리에 실패했습니다.');
     }
 
-    if (normalizedEvents.length > 0) {
+    const { error: deleteEventError } = await supabase
+        .from('session_event')
+        .delete()
+        .eq('session_id', sessionId);
+    if (deleteEventError) {
+        throw createApiError(500, '기존 이벤트 정리에 실패했습니다.');
+    }
+
+    const mergedEventRows = [
+        ...serverEventRows.filter(Boolean).map((event) => ({
+            session_id: sessionId,
+            type: toSafeText(event?.type, 50) || 'EVENT',
+            event_time: event?.event_time || endedAtIso,
+            payload: event?.payload && typeof event.payload === 'object'
+                ? event.payload
+                : {}
+        })),
+        ...normalizedEvents
+    ];
+
+    if (mergedEventRows.length > 0) {
         const { error: insertEventError } = await supabase
             .from('session_event')
-            .insert(normalizedEvents);
+            .insert(mergedEventRows);
         if (insertEventError) {
             throw createApiError(500, '세션 이벤트 저장에 실패했습니다.');
         }
@@ -2085,30 +2106,37 @@ const recordWorkoutSet = async (req, res) => {
             ? new Date(new Date(session.started_at).getTime() + Math.round(timestampMs)).toISOString()
             : new Date().toISOString();
 
-        const { data: event, error } = await supabase
-            .from('session_event')
-            .insert({
-                session_id: sessionId,
-                type: 'SET_RECORD',
-                event_time: eventTime,
-                payload: {}
-            })
-            .select()
-            .single();
-
-        if (error || !event) {
-            throw createApiError(500, '세트 기록 저장에 실패했습니다.');
-        }
-
         if (session.mode !== 'ROUTINE' || !session.set_id) {
+            const { data: event, error } = await supabase
+                .from('session_event')
+                .insert({
+                    session_id: sessionId,
+                    type: 'SET_RECORD',
+                    event_time: eventTime,
+                    payload: {}
+                })
+                .select()
+                .single();
+
+            if (error || !event) {
+                throw createApiError(500, '세트 기록 저장에 실패했습니다.');
+            }
+
             return res.json({ success: true, event, routine: null });
         }
+
+        const setRecordEvent = {
+            session_id: sessionId,
+            type: 'SET_RECORD',
+            event_time: eventTime,
+            payload: {}
+        };
 
         const context = await loadRoutineExecutionBySetId(session.set_id);
         if (!context?.workoutSet || !context?.stepInstance || !context?.routineInstance) {
             return res.json({
                 success: true,
-                event,
+                event: setRecordEvent,
                 routine: {
                     action: 'NO_CONTEXT'
                 }
@@ -2122,7 +2150,7 @@ const recordWorkoutSet = async (req, res) => {
         if (context.workoutSet.status !== 'RUNNING') {
             return res.json({
                 success: true,
-                event,
+                event: setRecordEvent,
                 routine: {
                     action: 'ALREADY_PROCESSED',
                     set_id: context.workoutSet.set_id,
@@ -2211,7 +2239,8 @@ const recordWorkoutSet = async (req, res) => {
             userId,
             payload: mergedRoutinePayload,
             endedAtIso: eventTime,
-            fallbackFinalScore: score ?? 0
+            fallbackFinalScore: score ?? 0,
+            serverEventRows: [setRecordEvent]
         });
 
         try {
@@ -2239,7 +2268,7 @@ const recordWorkoutSet = async (req, res) => {
 
         return res.json({
             success: true,
-            event,
+            event: setRecordEvent,
             routine
         });
     } catch (error) {
