@@ -614,6 +614,40 @@
   border: 1px solid rgba(59, 130, 246, 0.16);
 }
 
+.rest-focus-card {
+  padding: 18px 20px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.18), rgba(14, 165, 233, 0.18));
+  border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+.rest-focus-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rest-focus-status {
+  font-size: 13px;
+  color: #dbeafe;
+}
+
+.rest-focus-value {
+  margin-top: 10px;
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1;
+  color: #f8fafc;
+  font-variant-numeric: tabular-nums;
+}
+
+.rest-focus-label {
+  display: block;
+  margin-top: 8px;
+  color: #bfdbfe;
+  font-size: 13px;
+}
+
 /* 카운터 카드 */
 .counter-card {
   padding: 20px;
@@ -661,24 +695,6 @@
 }
 
 .timer-label {
-  color: #94a3b8;
-  font-size: 13px;
-}
-
-.rest-timer {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.rest-value {
-  font-size: 48px;
-  font-weight: 700;
-  color: #3b82f6;
-}
-
-.rest-label {
-  display: block;
   color: #94a3b8;
   font-size: 13px;
 }

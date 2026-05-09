@@ -460,16 +460,269 @@ const persistRoutineSteps = async (routineId, steps) => {
     if (error) throw error;
 };
 
-const countRunningRoutineInstances = async (userId, routineId) => {
-    const { count, error } = await supabase
+const abortRunningRoutineExecutions = async ({
+    userId,
+    routineId,
+    reason = 'ROUTINE_MUTATION'
+}) => {
+    const { data: runningInstances, error } = await supabase
         .from('routine_instance')
-        .select('routine_instance_id', { count: 'exact', head: true })
+        .select('routine_instance_id')
+        .eq('user_id', userId)
+        .eq('routine_id', routineId)
+        .eq('status', 'RUNNING');
+    if (error) throw error;
+
+    const routineInstanceIds = (runningInstances || [])
+        .map((row) => row.routine_instance_id)
+        .filter(Boolean);
+    if (routineInstanceIds.length === 0) {
+        return {
+            abortedRoutineInstanceIds: [],
+            abortedSessionIds: []
+        };
+    }
+
+    const endedAtIso = new Date().toISOString();
+
+    const { data: stepRows, error: stepError } = await supabase
+        .from('routine_step_instance')
+        .select('step_instance_id, routine_instance_id')
+        .in('routine_instance_id', routineInstanceIds);
+    if (stepError) throw stepError;
+
+    const stepIds = (stepRows || [])
+        .map((row) => row.step_instance_id)
+        .filter(Boolean);
+
+    let setRows = [];
+    if (stepIds.length > 0) {
+        const { data, error: setError } = await supabase
+            .from('workout_set')
+            .select('set_id, step_instance_id')
+            .in('step_instance_id', stepIds);
+        if (setError) throw setError;
+        setRows = data || [];
+    }
+
+    const setIds = setRows
+        .map((row) => row.set_id)
+        .filter(Boolean);
+
+    let runningSessionRows = [];
+    if (setIds.length > 0) {
+        const { data, error: sessionError } = await supabase
+            .from('workout_session')
+            .select('session_id, set_id')
+            .in('set_id', setIds)
+            .eq('status', 'RUNNING')
+            .is('ended_at', null);
+        if (sessionError) throw sessionError;
+        runningSessionRows = data || [];
+    }
+
+    const runningSessionIds = runningSessionRows
+        .map((row) => row.session_id)
+        .filter(Boolean);
+
+    if (runningSessionIds.length > 0) {
+        const { error: abortSessionError } = await supabase
+            .from('workout_session')
+            .update({
+                status: 'ABORTED',
+                ended_at: endedAtIso,
+                updated_at: endedAtIso
+            })
+            .in('session_id', runningSessionIds)
+            .eq('status', 'RUNNING');
+        if (abortSessionError) throw abortSessionError;
+
+        const sessionAbortEvents = runningSessionIds.map((sessionId) => ({
+            session_id: sessionId,
+            type: 'SESSION_ABORT',
+            event_time: endedAtIso,
+            payload: {
+                reason
+            }
+        }));
+        const { error: sessionEventError } = await supabase
+            .from('session_event')
+            .insert(sessionAbortEvents);
+        if (sessionEventError) throw sessionEventError;
+    }
+
+    if (stepIds.length > 0) {
+        const { error: abortSetError } = await supabase
+            .from('workout_set')
+            .update({
+                status: 'ABORTED',
+                ended_at: endedAtIso,
+                updated_at: endedAtIso
+            })
+            .in('step_instance_id', stepIds)
+            .eq('status', 'RUNNING');
+        if (abortSetError) throw abortSetError;
+
+        const { error: abortStepError } = await supabase
+            .from('routine_step_instance')
+            .update({
+                status: 'ABORTED',
+                ended_at: endedAtIso,
+                updated_at: endedAtIso
+            })
+            .in('step_instance_id', stepIds)
+            .in('status', ['RUNNING', 'PENDING']);
+        if (abortStepError) throw abortStepError;
+    }
+
+    const { error: abortRoutineError } = await supabase
+        .from('routine_instance')
+        .update({
+            status: 'ABORTED',
+            ended_at: endedAtIso,
+            updated_at: endedAtIso
+        })
+        .in('routine_instance_id', routineInstanceIds)
+        .eq('status', 'RUNNING');
+    if (abortRoutineError) throw abortRoutineError;
+
+    return {
+        abortedRoutineInstanceIds: routineInstanceIds,
+        abortedSessionIds: runningSessionIds
+    };
+};
+
+const countRunningRoutineInstances = async (userId, routineId) => {
+    const { data: runningInstances, error } = await supabase
+        .from('routine_instance')
+        .select('routine_instance_id')
         .eq('user_id', userId)
         .eq('routine_id', routineId)
         .eq('status', 'RUNNING');
 
     if (error) throw error;
-    return count || 0;
+    const routineInstanceIds = (runningInstances || [])
+        .map((row) => row.routine_instance_id)
+        .filter(Boolean);
+
+    if (routineInstanceIds.length === 0) {
+        return 0;
+    }
+
+    const { data: stepRows, error: stepError } = await supabase
+        .from('routine_step_instance')
+        .select('step_instance_id, routine_instance_id')
+        .in('routine_instance_id', routineInstanceIds);
+    if (stepError) throw stepError;
+
+    const stepIds = (stepRows || [])
+        .map((row) => row.step_instance_id)
+        .filter(Boolean);
+    const routineInstanceByStepId = new Map(
+        (stepRows || []).map((row) => [row.step_instance_id, row.routine_instance_id])
+    );
+
+    let setRows = [];
+    if (stepIds.length > 0) {
+        const { data, error: setError } = await supabase
+            .from('workout_set')
+            .select('set_id, step_instance_id')
+            .in('step_instance_id', stepIds);
+        if (setError) throw setError;
+        setRows = data || [];
+    }
+
+    const setIds = setRows
+        .map((row) => row.set_id)
+        .filter(Boolean);
+    const routineInstanceBySetId = new Map(
+        setRows.map((row) => [row.set_id, routineInstanceByStepId.get(row.step_instance_id) || null])
+    );
+
+    let sessionRows = [];
+    if (setIds.length > 0) {
+        const { data, error: sessionError } = await supabase
+            .from('workout_session')
+            .select('set_id, status, ended_at')
+            .in('set_id', setIds);
+        if (sessionError) throw sessionError;
+        sessionRows = data || [];
+    }
+
+    const activeRoutineInstanceIds = new Set();
+    for (const session of sessionRows) {
+        if (session?.status !== 'RUNNING' || session?.ended_at) continue;
+        const routineInstanceId = routineInstanceBySetId.get(session.set_id);
+        if (routineInstanceId) {
+            activeRoutineInstanceIds.add(routineInstanceId);
+        }
+    }
+
+    const orphanRoutineInstanceIds = routineInstanceIds.filter(
+        (routineInstanceId) => !activeRoutineInstanceIds.has(routineInstanceId)
+    );
+
+    if (orphanRoutineInstanceIds.length > 0) {
+        const endedAtIso = new Date().toISOString();
+        const orphanStepIds = (stepRows || [])
+            .filter((row) => orphanRoutineInstanceIds.includes(row.routine_instance_id))
+            .map((row) => row.step_instance_id)
+            .filter(Boolean);
+        const orphanSetIds = setRows
+            .filter((row) => orphanStepIds.includes(row.step_instance_id))
+            .map((row) => row.set_id)
+            .filter(Boolean);
+
+        const { error: abortRoutineError } = await supabase
+            .from('routine_instance')
+            .update({
+                status: 'ABORTED',
+                ended_at: endedAtIso,
+                updated_at: endedAtIso
+            })
+            .in('routine_instance_id', orphanRoutineInstanceIds)
+            .eq('status', 'RUNNING');
+        if (abortRoutineError) throw abortRoutineError;
+
+        if (orphanStepIds.length > 0) {
+            const { error: abortStepError } = await supabase
+                .from('routine_step_instance')
+                .update({
+                    status: 'ABORTED',
+                    ended_at: endedAtIso,
+                    updated_at: endedAtIso
+                })
+                .in('step_instance_id', orphanStepIds)
+                .eq('status', 'RUNNING');
+            if (abortStepError) throw abortStepError;
+
+            const { error: abortSetError } = await supabase
+                .from('workout_set')
+                .update({
+                    status: 'ABORTED',
+                    ended_at: endedAtIso,
+                    updated_at: endedAtIso
+                })
+                .in('step_instance_id', orphanStepIds)
+                .eq('status', 'RUNNING');
+            if (abortSetError) throw abortSetError;
+        }
+
+        if (orphanSetIds.length > 0) {
+            const { error: abortSessionError } = await supabase
+                .from('workout_session')
+                .update({
+                    status: 'ABORTED',
+                    ended_at: endedAtIso,
+                    updated_at: endedAtIso
+                })
+                .in('set_id', orphanSetIds)
+                .eq('status', 'RUNNING');
+            if (abortSessionError) throw abortSessionError;
+        }
+    }
+
+    return activeRoutineInstanceIds.size;
 };
 
 // 루틴 생성 API
@@ -531,6 +784,11 @@ const updateRoutine = async (req, res, next) => {
             return res.status(404).json({ error: '루틴을 찾을 수 없습니다.' });
         }
 
+        await abortRunningRoutineExecutions({
+            userId,
+            routineId,
+            reason: 'ROUTINE_UPDATE'
+        });
         const runningCount = await countRunningRoutineInstances(userId, routineId);
         if (runningCount > 0) {
             return res.status(409).json({ error: 'This routine has a running session, so it cannot be revised right now.' });
@@ -583,14 +841,12 @@ const deleteRoutine = async (req, res, next) => {
             return res.status(400).json({ error: '유효하지 않은 루틴 ID입니다.' });
         }
 
-        const { count: runningCount, error: runningError } = await supabase
-            .from('routine_instance')
-            .select('routine_instance_id', { count: 'exact', head: true })
-            .eq('user_id', userId)
-            .eq('routine_id', routineId)
-            .eq('status', 'RUNNING');
-        if (runningError) throw runningError;
-
+        await abortRunningRoutineExecutions({
+            userId,
+            routineId,
+            reason: 'ROUTINE_DELETE'
+        });
+        const runningCount = await countRunningRoutineInstances(userId, routineId);
         if ((runningCount || 0) > 0) {
             return res.status(409).json({ error: '진행 중인 루틴 실행이 있어 삭제할 수 없습니다.' });
         }

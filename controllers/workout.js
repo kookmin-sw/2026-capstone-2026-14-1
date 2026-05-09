@@ -2019,7 +2019,8 @@ const ensureRoutineContinuation = async ({
 
     const nextTargetType = normalizeTargetType(nextStep.target_type_snapshot);
     const nextTargetValue = Math.max(1, toNullableNonNegativeInt(nextStep.target_value_snapshot) || 1);
-    const nextRestSec = await getRoutineStepRestSec(nextStep.step_id);
+    const transitionRestSec = await getRoutineStepRestSec(context.stepInstance.step_id);
+    const nextStepRestSec = await getRoutineStepRestSec(nextStep.step_id);
 
     if (nextStep.status !== 'RUNNING') {
         const { error: runNextStepError } = await supabase
@@ -2040,7 +2041,7 @@ const ensureRoutineContinuation = async ({
         targetValue: nextTargetValue,
         valueUnit: getResultUnitByTargetType(nextTargetType),
         resultBasis: getResultBasisByTargetType(nextTargetType),
-        restSec: nextRestSec,
+        restSec: nextStepRestSec,
         eventTime
     });
     const nextSession = await ensureRoutineRunningSession({
@@ -2066,7 +2067,7 @@ const ensureRoutineContinuation = async ({
         next_set: firstNextStepSet,
         next_session: nextSession,
         next_exercise: nextExercise,
-        rest_sec: nextRestSec
+        rest_sec: transitionRestSec
     };
 };
 
@@ -2213,7 +2214,7 @@ const recordWorkoutSet = async (req, res) => {
         if (!completedSet) {
             return res.json({
                 success: true,
-                event,
+                event: setRecordEvent,
                 routine: {
                     action: 'ALREADY_PROCESSED',
                     set_id: context.workoutSet.set_id,

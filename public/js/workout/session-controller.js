@@ -536,6 +536,11 @@ const ui = sessionUiFactory({
     return getCurrentTargetSec() >= 10;
   };
 
+  const getPrimaryTimerLabel = () => {
+    if (isLearnMode()) return "\uD559\uC2B5 \uC2DC\uAC04";
+    return isPlankExerciseCode() ? "\uD50C\uB7AD\uD06C \uC2DC\uAC04" : "\uC6B4\uB3D9 \uC2DC\uAC04";
+  };
+
   /** 운동별 허용 뷰(FRONT/SIDE/DIAGONAL) 목록 반환 */
   function getAllowedViews(exercise = workoutData.exercise) {
     const allowed = Array.isArray(exercise?.allowed_views)
@@ -2557,7 +2562,7 @@ function showModelLoadingOverlay() {
     state.restTimeLeft = seconds;
     state.restAfterAction = afterAction;
     ui.updateStatus("rest", "휴식 중");
-    timerLabelEl.textContent = "휴식 시간";
+    timerLabelEl.textContent = getPrimaryTimerLabel();
     restTimerEl.hidden = false;
     restValueEl.textContent = seconds;
 
@@ -2582,7 +2587,7 @@ function showModelLoadingOverlay() {
   function endRest() {
     clearInterval(state.restInterval);
     restTimerEl.hidden = true;
-    timerLabelEl.textContent = "운동 시간";
+    timerLabelEl.textContent = getPrimaryTimerLabel();
     state.phase = "WORKING";
     ui.updateStatus("running", "운동 중");
     syncPlankTargetUi();
