@@ -49,6 +49,50 @@
       ? locals.activeTab
       : (typeof activeTab !== 'undefined' ? activeTab : ''); %>
     <% const tabClass = (name) => `tab${currentTab === name ? ' active' : ''}`; %>
+    <% const tabItems = [
+      {
+        name: 'home',
+        href: '/',
+        label: 'Home',
+        shortLabel: '홈',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5" /><path d="M5.5 9.5V21h13V9.5" /><path d="M9.5 21v-6h5v6" /></svg>'
+      },
+      {
+        name: 'routine',
+        href: '/routine',
+        label: '나의 루틴',
+        shortLabel: '루틴',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="3" /><path d="M8 3v4M16 3v4M8 11h8M8 15h5" /></svg>'
+      },
+      {
+        name: 'workout',
+        href: '/workout/free',
+        label: '자율 운동',
+        shortLabel: '운동',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9v6M19 9v6M8 7v10M16 7v10" /><path d="M3 11h5v2H3zM16 11h5v2h-5z" /></svg>'
+      },
+      {
+        name: 'history',
+        href: '/history',
+        label: '운동 히스토리',
+        shortLabel: '기록',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v5l3 3" /><circle cx="12" cy="12" r="8" /><path d="M12 4V2M20 12h2" /></svg>'
+      },
+      {
+        name: 'quest',
+        href: '/quest',
+        label: '퀘스트',
+        shortLabel: '퀘스트',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.75 5.58 6.16.9-4.46 4.34 1.05 6.13L12 17.07 6.5 19.95l1.05-6.13L3.1 9.48l6.15-.9Z" /></svg>'
+      },
+      {
+        name: 'learn',
+        href: '/learn',
+        label: '운동 배우기',
+        shortLabel: '배우기',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5.5A2.5 2.5 0 0 1 8.5 3H20v15.5A2.5 2.5 0 0 0 17.5 16H6Z" /><path d="M6 5.5v15A2.5 2.5 0 0 1 3.5 18H17.5" /><path d="M10 7h6M10 10h4" /></svg>'
+      }
+    ]; %>
     <div class="app">
       <header class="topbar">
         <div class="brand">
@@ -56,12 +100,18 @@
           <div class="tag">AI 홈 트레이닝</div>
         </div>
         <nav class="tabs" aria-label="주요 탭">
-          <a class="<%= tabClass('home') %>" href="/">Home</a>
-          <a class="<%= tabClass('routine') %>" href="/routine">나의 루틴</a>
-          <a class="<%= tabClass('workout') %>" href="/workout/free">자율 운동</a>
-          <a class="<%= tabClass('history') %>" href="/history">운동 히스토리</a>
-          <a class="<%= tabClass('quest') %>" href="/quest">퀘스트</a>
-          <a class="<%= tabClass('learn') %>" href="/learn">운동 배우기</a>
+          <% tabItems.forEach((item) => { %>
+            <a
+              class="<%= tabClass(item.name) %>"
+              href="<%= item.href %>"
+              aria-label="<%= item.label %>"
+              title="<%= item.label %>"
+            >
+              <span class="tab-icon" aria-hidden="true"><%- item.icon %></span>
+              <span class="tab-label tab-label-full"><%= item.label %></span>
+              <span class="tab-label tab-label-short"><%= item.shortLabel %></span>
+            </a>
+          <% }) %>
         </nav>
         <div class="profile-area">
           <% if (isLoggedIn) { %>
