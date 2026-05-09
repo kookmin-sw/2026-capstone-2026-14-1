@@ -40,8 +40,16 @@
     });
     monthMarkerKeys.add(monthKey);
   });
+
+  const isHomeAuthenticated = typeof isAuthenticated !== 'undefined'
+    && isAuthenticated
+    && typeof user !== 'undefined'
+    && user;
 %>
 
+<% if (!isHomeAuthenticated) { %>
+  <%- include('home-guest') %>
+<% } else { %>
 <div class="page active home-v2-page">
   <section class="page-header">
     <div>
@@ -708,3 +716,4 @@
     }
   })();
 </script>
+<% } %>
