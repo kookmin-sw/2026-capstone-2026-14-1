@@ -145,6 +145,86 @@ function resolveNextRoutineStepIndex({
 }
 
 /**
+ * 현재 루틴 진행률을 계산합니다.
+ * step 인덱스만 보지 않고 현재 세트/반복(또는 시간) 진행도까지 포함해
+ * 루틴 카드의 퍼센트가 실시간으로 올라가도록 돕습니다.
+ * @param {Object} params
+ * @param {Array} params.routineSetup - 루틴 설정 배열
+ * @param {number} params.currentStepIndex - 현재 step 인덱스
+ * @param {number} params.currentSet - 현재 세트 번호 (1-base)
+ * @param {number} params.currentRep - 현재 세트의 반복 수
+ * @param {number} params.currentSetWorkSec - 현재 세트 작업 시간(초)
+ * @param {number} params.bestHoldSec - 최고 유지 시간(초)
+ * @param {boolean} params.isTimeBasedExercise - 현재 운동이 시간 기반인지
+ * @param {Function} params.normalizeTargetType - target_type 정규화 함수
+ * @returns {Object} 진행률 계산 결과
+ */
+function resolveRoutineProgressState({
+  routineSetup = [],
+  currentStepIndex = 0,
+  currentSet = 1,
+  currentRep = 0,
+  currentSetWorkSec = 0,
+  bestHoldSec = 0,
+  isTimeBasedExercise = false,
+  normalizeTargetType = (value) => value,
+}) {
+  const steps = Array.isArray(routineSetup) ? routineSetup : [];
+  if (steps.length === 0) {
+    return {
+      stepIndex: 0,
+      totalSteps: 0,
+      totalSets: 0,
+      targetType: 'REPS',
+      targetValue: 0,
+      stepProgress: 0,
+      progressPercent: 0,
+    };
+  }
+
+  const stepIndex = Math.min(
+    Math.max(0, Math.round(Number(currentStepIndex) || 0)),
+    steps.length - 1,
+  );
+  const step = steps[stepIndex] || {};
+  const totalSets = Math.max(1, Number(step.sets) || 1);
+  const targetType = normalizeTargetType(step.target_type);
+  const targetValue = Math.max(1, Number(step.target_value) || 1);
+  const safeCurrentSet = Math.min(
+    totalSets,
+    Math.max(1, Math.round(Number(currentSet) || 1)),
+  );
+  const completedSets = Math.min(totalSets, Math.max(0, safeCurrentSet - 1));
+  const actualValue = targetType === 'TIME'
+    ? (
+      isTimeBasedExercise
+        ? Math.max(0, Number(bestHoldSec) || 0)
+        : Math.max(0, Number(currentSetWorkSec) || 0)
+    )
+    : Math.max(0, Number(currentRep) || 0);
+  const currentSetProgress = targetValue > 0
+    ? Math.min(1, actualValue / targetValue)
+    : 0;
+  const stepProgress = Math.min(
+    1,
+    (completedSets + currentSetProgress) / totalSets,
+  );
+  const progressPercent = Math.round(
+    ((stepIndex + stepProgress) / steps.length) * 100,
+  );
+
+  return {
+    stepIndex,
+    totalSteps: steps.length,
+    totalSets,
+    targetType,
+    targetValue,
+    stepProgress,
+    progressPercent,
+  };
+}
+
+/**
  * 루틴 세션 매니저를 생성합니다.
  * 의존성 주입(DI) 패턴을 사용하여 상태 객체, fetch 구현, 휴식 타이머, 운동 종료 콜백 등을 받습니다.
  * @param {Object} deps - 의존성 객체
@@ -329,6 +409,7 @@ function createRoutineSessionManager(deps = {}) {
     resetStepState,
     resolveNextRoutineStepIndex,
     resolveRoutineAdvanceAction,
+    resolveRoutineProgressState,
     resolveRoutineStepConfig,
   };
 }
@@ -344,6 +425,7 @@ if (typeof module !== 'undefined') {
     resetRoutineStepState,
     resolveNextRoutineStepIndex,
     resolveRoutineAdvanceAction,
+    resolveRoutineProgressState,
     resolveRoutineStepConfig,
   };
 }

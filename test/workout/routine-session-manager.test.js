@@ -7,6 +7,7 @@ const {
   resetRoutineStepState,
   resolveNextRoutineStepIndex,
   resolveRoutineAdvanceAction,
+  resolveRoutineProgressState,
   resolveRoutineStepConfig,
 } = require('../../public/js/workout/routine-session-manager.js');
 
@@ -127,6 +128,62 @@ test('resolveNextRoutineStepIndex returns null when the routine is complete', ()
     }),
     null,
   );
+});
+
+test('resolveRoutineProgressState includes current rep progress within the active step', () => {
+  const result = resolveRoutineProgressState({
+    routineSetup: [
+      { target_type: 'REPS', target_value: 3, sets: 1 },
+      { target_type: 'REPS', target_value: 10, sets: 1 },
+    ],
+    currentStepIndex: 0,
+    currentSet: 1,
+    currentRep: 2,
+    normalizeTargetType: (value) => String(value || '').toUpperCase(),
+  });
+
+  assert.deepEqual(result, {
+    stepIndex: 0,
+    totalSteps: 2,
+    totalSets: 1,
+    targetType: 'REPS',
+    targetValue: 3,
+    stepProgress: 2 / 3,
+    progressPercent: 33,
+  });
+});
+
+test('resolveRoutineProgressState carries completed sets into the current step progress', () => {
+  const result = resolveRoutineProgressState({
+    routineSetup: [
+      { target_type: 'REPS', target_value: 10, sets: 2 },
+      { target_type: 'TIME', target_value: 30, sets: 1 },
+    ],
+    currentStepIndex: 0,
+    currentSet: 2,
+    currentRep: 5,
+    normalizeTargetType: (value) => String(value || '').toUpperCase(),
+  });
+
+  assert.equal(result.progressPercent, 38);
+  assert.equal(result.stepProgress, 0.75);
+});
+
+test('resolveRoutineProgressState uses hold time for time-based routine exercises', () => {
+  const result = resolveRoutineProgressState({
+    routineSetup: [
+      { target_type: 'TIME', target_value: 20, sets: 1 },
+      { target_type: 'REPS', target_value: 10, sets: 1 },
+    ],
+    currentStepIndex: 0,
+    currentSet: 1,
+    bestHoldSec: 8,
+    isTimeBasedExercise: true,
+    normalizeTargetType: (value) => String(value || '').toUpperCase(),
+  });
+
+  assert.equal(result.stepProgress, 0.4);
+  assert.equal(result.progressPercent, 20);
 });
 
 test('checkRoutineProgress returns NONE before target is reached', async () => {

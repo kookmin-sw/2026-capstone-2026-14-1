@@ -657,19 +657,24 @@ const ui = sessionUiFactory({
     const steps = getRoutineSteps();
     if (steps.length === 0) return;
 
-    const stepIndex = Math.min(state.currentStepIndex, steps.length - 1);
+    const progressState = routineManager.resolveRoutineProgressState({
+      bestHoldSec: state.bestHoldSec,
+      currentRep: state.currentRep,
+      currentSet: state.currentSet,
+      currentSetWorkSec: state.currentSetWorkSec,
+      currentStepIndex: state.currentStepIndex,
+      isTimeBasedExercise: isTimeBasedExercise(),
+      normalizeTargetType: normalizeRoutineTargetType,
+      routineSetup: steps,
+    });
+    const stepIndex = progressState.stepIndex;
     const step = steps[stepIndex] || {};
     const targetSummary = getRoutineTargetSummary(step);
-    const completedSteps = Math.min(
-      Math.max(0, state.currentStepIndex),
-      steps.length,
-    );
-    const progressPercent = Math.round((completedSteps / steps.length) * 100);
 
     ui.updateRoutineStepDisplay({
       currentExerciseName:
         step?.exercise?.name || `${stepIndex + 1}\uBC88\uC9F8 \uC6B4\uB3D9`,
-      progressPercent,
+      progressPercent: progressState.progressPercent,
       stepIndex,
       targetSummary: targetSummary.text,
       totalSteps: steps.length,
@@ -788,6 +793,7 @@ const ui = sessionUiFactory({
       progressPercent: Math.round(progressRatio * 100),
       targetSec,
     });
+    updateRoutineStepDisplay();
   }
 
   let isEndingSession = false;
@@ -1994,6 +2000,7 @@ function showModelLoadingOverlay() {
   function handleRepComplete(repRecord) {
     state.currentRep = repRecord.repNumber;
     updatePrimaryCounterDisplay();
+    updateRoutineStepDisplay();
 
     state.lastRepMetricSummary =
       Array.isArray(repRecord.breakdown) && repRecord.breakdown.length > 0
@@ -2252,6 +2259,7 @@ function showModelLoadingOverlay() {
   function resetRoutineStepUiState() {
     setCountEl.textContent = 1;
     updatePrimaryCounterDisplay();
+    updateRoutineStepDisplay();
     liveScoreEl.textContent = "--";
     scoreBreakdownEl.innerHTML =
       '<div class="score-item"><span class="muted">rep 시작하면 표시됩니다.</span></div>';
@@ -2268,6 +2276,7 @@ function showModelLoadingOverlay() {
   function resetRoutineSetUiState() {
     resetRepCounterRuntime();
     updatePrimaryCounterDisplay();
+    updateRoutineStepDisplay();
     updatePlankRuntimeDisplay(
       repCounter?.getTimeSummary ? repCounter.getTimeSummary() : null,
     );
@@ -2469,9 +2478,12 @@ function showModelLoadingOverlay() {
       }
     } catch (error) {
       console.error("[Session] 루틴 세트 동기화 실패:", error);
+      const errorMessage =
+        String(error?.message || "").trim() ||
+        "세트 저장에 실패했습니다. 잠시 후 다시 시도됩니다.";
       showAlert(
         "루틴 저장 실패",
-        "세트 저장에 실패했습니다. 잠시 후 다시 시도됩니다.",
+        errorMessage,
       );
     } finally {
       state.routineSetSyncPending = false;
@@ -2490,6 +2502,7 @@ function showModelLoadingOverlay() {
 
         if (isRoutineTimeTarget() && !isTimeBasedExercise()) {
           updatePrimaryCounterDisplay();
+          updateRoutineStepDisplay();
         }
 
         if (workoutData.mode === "ROUTINE" && workoutData.routine) {

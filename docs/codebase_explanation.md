@@ -361,5 +361,9 @@ graph TD
   - 히스토리 구조 관련 리팩터링 문서
 - `docs/2026-04-21_루틴_수정_버전_생성_방식_적용.md`
   - 루틴 버전 생성 방식 문서
+- `docs/specs/2026-05-09_routine_progress_ui_bugfix.md`
+  - 루틴 진행 카드 퍼센트 계산 버그 수정 기록
+- `docs/specs/2026-05-09_routine_set_event_save_bugfix.md`
+  - 루틴 세트 저장 중 `session_event` 제약 충돌 및 복구 보강 기록
 
 이 문서는 현재 코드 기준으로 정리되었으며, 세부 규칙이나 스키마 변경이 있으면 함께 업데이트되어야 합니다.

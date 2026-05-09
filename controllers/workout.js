@@ -677,7 +677,8 @@ const cleanupStaleOpenSessions = async (userId) => {
     const staleEventRows = staleIds.map((sessionId) => ({
         session_id: sessionId,
         type: 'SESSION_ABORT_STALE',
-        event_time: endedAtIso
+        event_time: endedAtIso,
+        payload: {}
     }));
 
     await supabase.from('session_event').insert(staleEventRows);
@@ -779,12 +780,9 @@ const normalizeEvents = (events, sessionId, startedAtIso) => {
             const row = {
                 session_id: sessionId,
                 type: type.slice(0, 50),
-                event_time: eventTime
+                event_time: eventTime,
+                payload: payload || {}
             };
-
-            if (payload) {
-                row.payload = payload;
-            }
 
             return row;
         })
@@ -1504,7 +1502,8 @@ const abortWorkoutSession = async (req, res) => {
         await supabase.from('session_event').insert({
             session_id: sessionId,
             type: 'SESSION_ABORT',
-            event_time: endedAtIso
+            event_time: endedAtIso,
+            payload: {}
         });
 
         return res.json({
@@ -1550,6 +1549,14 @@ const persistSessionCompletionPayload = async ({
     const normalizedInterimSnapshots = normalizeInterimSnapshots(payload || {}, session.started_at);
     const normalizedFinalMetrics = normalizeFinalMetricResults(payload?.metric_results || []);
     const normalizedEvents = normalizeEvents(payload?.events || [], sessionId, session.started_at);
+
+    const { error: deleteSnapshotError } = await supabase
+        .from('session_snapshot')
+        .delete()
+        .eq('session_id', sessionId);
+    if (deleteSnapshotError) {
+        throw createApiError(500, '기존 스냅샷 정리에 실패했습니다.');
+    }
 
     if (normalizedEvents.length > 0) {
         const { error: insertEventError } = await supabase
@@ -1757,11 +1764,320 @@ const createRoutineRunningSession = async ({
     return nextSession;
 };
 
+const getWorkoutSetByStepAndSetNo = async (stepInstanceId, setNo) => {
+    const { data, error } = await supabase
+        .from('workout_set')
+        .select('set_id, step_instance_id, set_no, target_type, target_value, status')
+        .eq('step_instance_id', stepInstanceId)
+        .eq('set_no', setNo)
+        .maybeSingle();
+    if (error) throw error;
+    return data || null;
+};
+
+const ensureWorkoutSetForStep = async ({
+    stepInstanceId,
+    setNo,
+    targetType,
+    targetValue,
+    valueUnit,
+    resultBasis,
+    restSec,
+    eventTime
+}) => {
+    const existing = await getWorkoutSetByStepAndSetNo(stepInstanceId, setNo);
+    if (existing) return existing;
+
+    const { data, error } = await supabase
+        .from('workout_set')
+        .insert({
+            step_instance_id: stepInstanceId,
+            set_no: setNo,
+            target_type: targetType,
+            target_value: targetValue,
+            value_unit: valueUnit,
+            result_basis: resultBasis,
+            rest_sec_after: restSec,
+            status: 'RUNNING',
+            started_at: eventTime,
+            updated_at: eventTime
+        })
+        .select('set_id, step_instance_id, set_no, target_type, target_value, status')
+        .single();
+
+    if (error || !data) {
+        if (error?.code === '23505') {
+            const conflicted = await getWorkoutSetByStepAndSetNo(stepInstanceId, setNo);
+            if (conflicted) return conflicted;
+        }
+        throw error || new Error('다음 세트 생성에 실패했습니다.');
+    }
+
+    return data;
+};
+
+const getRunningRoutineSessionBySetId = async (userId, setId) => {
+    const { data, error } = await supabase
+        .from('workout_session')
+        .select(`
+            session_id,
+            user_id,
+            exercise_id,
+            set_id,
+            mode,
+            status,
+            selected_view,
+            started_at,
+            exercise:exercise_id (
+                exercise_id,
+                code,
+                name
+            )
+        `)
+        .eq('user_id', userId)
+        .eq('set_id', setId)
+        .eq('mode', 'ROUTINE')
+        .eq('status', 'RUNNING')
+        .order('started_at', { ascending: false })
+        .limit(1);
+
+    if (error) throw error;
+    return Array.isArray(data) && data.length > 0 ? data[0] : null;
+};
+
+const ensureRoutineRunningSession = async ({
+    userId,
+    exerciseId,
+    setId,
+    selectedView,
+    startedAtIso
+}) => {
+    const existing = await getRunningRoutineSessionBySetId(userId, setId);
+    if (existing) return existing;
+    return createRoutineRunningSession({
+        userId,
+        exerciseId,
+        setId,
+        selectedView,
+        startedAtIso
+    });
+};
+
+const getNextRoutineStepInstance = async (routineInstanceId, orderNo) => {
+    const { data, error } = await supabase
+        .from('routine_step_instance')
+        .select(`
+            step_instance_id,
+            routine_instance_id,
+            step_id,
+            exercise_id,
+            order_no,
+            target_type_snapshot,
+            target_value_snapshot,
+            planned_sets,
+            completed_sets,
+            status,
+            started_at,
+            ended_at
+        `)
+        .eq('routine_instance_id', routineInstanceId)
+        .gt('order_no', orderNo || 0)
+        .order('order_no', { ascending: true });
+    if (error) throw error;
+
+    const rows = Array.isArray(data) ? data : [];
+    return rows.find((row) => row?.status !== 'DONE') || null;
+};
+
+const ensureRoutineContinuation = async ({
+    context,
+    session,
+    userId,
+    eventTime,
+    finalScore = null
+}) => {
+    if (!context?.workoutSet || !context?.stepInstance || !context?.routineInstance) {
+        return { action: 'NO_CONTEXT' };
+    }
+
+    const targetType = normalizeTargetType(
+        context.workoutSet.target_type || context.stepInstance.target_type_snapshot
+    );
+    const targetValue = Math.max(
+        1,
+        toNullableNonNegativeInt(
+            context.workoutSet.target_value || context.stepInstance.target_value_snapshot
+        ) || 1
+    );
+    const valueUnit = getResultUnitByTargetType(targetType);
+    const resultBasis = getResultBasisByTargetType(targetType);
+    const plannedSets = Math.max(1, toNullableNonNegativeInt(context.stepInstance.planned_sets) || 1);
+    const currentSetNo = Math.max(1, toNullableNonNegativeInt(context.workoutSet.set_no) || 1);
+    const existingCompletedSets = Math.max(0, toNullableNonNegativeInt(context.stepInstance.completed_sets) || 0);
+    const resolvedCompletedSets = Math.min(
+        plannedSets,
+        Math.max(existingCompletedSets, currentSetNo)
+    );
+    const isCurrentStepDone = resolvedCompletedSets >= plannedSets;
+
+    const stepUpdatePayload = {
+        completed_sets: resolvedCompletedSets,
+        status: isCurrentStepDone ? 'DONE' : 'RUNNING',
+        updated_at: eventTime
+    };
+    if (!context.stepInstance.started_at) {
+        stepUpdatePayload.started_at = eventTime;
+    }
+    if (isCurrentStepDone) {
+        stepUpdatePayload.ended_at = eventTime;
+    } else if (context.stepInstance.ended_at) {
+        stepUpdatePayload.ended_at = null;
+    }
+
+    const { error: updateStepError } = await supabase
+        .from('routine_step_instance')
+        .update(stepUpdatePayload)
+        .eq('step_instance_id', context.stepInstance.step_instance_id);
+    if (updateStepError) throw updateStepError;
+
+    if (!isCurrentStepDone) {
+        const restSec = await getRoutineStepRestSec(context.stepInstance.step_id);
+        const nextSetNo = Math.min(plannedSets, resolvedCompletedSets + 1);
+        const nextSet = await ensureWorkoutSetForStep({
+            stepInstanceId: context.stepInstance.step_instance_id,
+            setNo: nextSetNo,
+            targetType,
+            targetValue,
+            valueUnit,
+            resultBasis,
+            restSec,
+            eventTime
+        });
+        const nextSession = await ensureRoutineRunningSession({
+            userId,
+            exerciseId: session.exercise_id,
+            setId: nextSet.set_id,
+            selectedView: session.selected_view,
+            startedAtIso: eventTime
+        });
+
+        return {
+            action: 'NEXT_SET',
+            completed_set_no: currentSetNo,
+            next_set: nextSet,
+            rest_sec: restSec,
+            next_session: nextSession
+        };
+    }
+
+    const nextStep = await getNextRoutineStepInstance(
+        context.stepInstance.routine_instance_id,
+        context.stepInstance.order_no || 0
+    );
+
+    if (!nextStep) {
+        if (context.routineInstance.status !== 'DONE') {
+            const { error: completeRoutineError } = await supabase
+                .from('routine_instance')
+                .update({
+                    status: 'DONE',
+                    ended_at: eventTime,
+                    total_score: finalScore,
+                    updated_at: eventTime
+                })
+                .eq('routine_instance_id', context.routineInstance.routine_instance_id)
+                .neq('status', 'ABORTED');
+            if (completeRoutineError) throw completeRoutineError;
+        }
+
+        return {
+            action: 'ROUTINE_COMPLETE',
+            completed_set_no: currentSetNo
+        };
+    }
+
+    const nextTargetType = normalizeTargetType(nextStep.target_type_snapshot);
+    const nextTargetValue = Math.max(1, toNullableNonNegativeInt(nextStep.target_value_snapshot) || 1);
+    const nextRestSec = await getRoutineStepRestSec(nextStep.step_id);
+
+    if (nextStep.status !== 'RUNNING') {
+        const { error: runNextStepError } = await supabase
+            .from('routine_step_instance')
+            .update({
+                status: 'RUNNING',
+                started_at: nextStep.started_at || eventTime,
+                updated_at: eventTime
+            })
+            .eq('step_instance_id', nextStep.step_instance_id);
+        if (runNextStepError) throw runNextStepError;
+    }
+
+    const firstNextStepSet = await ensureWorkoutSetForStep({
+        stepInstanceId: nextStep.step_instance_id,
+        setNo: 1,
+        targetType: nextTargetType,
+        targetValue: nextTargetValue,
+        valueUnit: getResultUnitByTargetType(nextTargetType),
+        resultBasis: getResultBasisByTargetType(nextTargetType),
+        restSec: nextRestSec,
+        eventTime
+    });
+    const nextSession = await ensureRoutineRunningSession({
+        userId,
+        exerciseId: nextStep.exercise_id,
+        setId: firstNextStepSet.set_id,
+        selectedView: session.selected_view,
+        startedAtIso: eventTime
+    });
+    const nextExercise = await getExerciseByIdWithViews(nextStep.exercise_id);
+
+    return {
+        action: 'NEXT_STEP',
+        completed_set_no: currentSetNo,
+        next_step: {
+            step_instance_id: nextStep.step_instance_id,
+            order_no: nextStep.order_no,
+            planned_sets: nextStep.planned_sets,
+            completed_sets: nextStep.completed_sets,
+            target_type: nextTargetType,
+            target_value: nextTargetValue
+        },
+        next_set: firstNextStepSet,
+        next_session: nextSession,
+        next_exercise: nextExercise,
+        rest_sec: nextRestSec
+    };
+};
+
 const recordWorkoutSet = async (req, res) => {
     try {
         const { sessionId } = req.params;
         const userId = req.user.user_id;
-        const session = await assertSessionWritable(sessionId, userId);
+        const session = await getOwnedSession(sessionId, userId);
+
+        if (session.ended_at || session.status !== 'RUNNING') {
+            if (session.mode === 'ROUTINE' && session.set_id) {
+                const context = await loadRoutineExecutionBySetId(session.set_id);
+                const recoveredRoutine = await ensureRoutineContinuation({
+                    context,
+                    session,
+                    userId,
+                    eventTime: new Date().toISOString(),
+                    finalScore: Number.isFinite(Number(session.final_score))
+                        ? toBoundedScore(session.final_score, 0)
+                        : null
+                });
+
+                return res.json({
+                    success: true,
+                    recovered: true,
+                    event: null,
+                    routine: recoveredRoutine
+                });
+            }
+
+            throw createApiError(409, '이미 종료된 세션입니다.');
+        }
 
         const timestampMs = Number(req.body?.timestamp);
         const hasRelativeTimestamp = Number.isFinite(timestampMs) && timestampMs >= 0;
@@ -1774,7 +2090,8 @@ const recordWorkoutSet = async (req, res) => {
             .insert({
                 session_id: sessionId,
                 type: 'SET_RECORD',
-                event_time: eventTime
+                event_time: eventTime,
+                payload: {}
             })
             .select()
             .single();
@@ -1909,188 +2226,21 @@ const recordWorkoutSet = async (req, res) => {
             console.error('Quest progress update failed:', questError);
         }
 
-        const plannedSets = Math.max(1, toNullableNonNegativeInt(context.stepInstance.planned_sets) || 1);
-        const currentSetNo = Math.max(1, toNullableNonNegativeInt(completedSet.set_no) || 1);
-        const existingCompletedSets = Math.max(0, toNullableNonNegativeInt(context.stepInstance.completed_sets) || 0);
-        const resolvedCompletedSets = Math.min(
-            plannedSets,
-            Math.max(existingCompletedSets, currentSetNo)
-        );
-        const isCurrentStepDone = resolvedCompletedSets >= plannedSets;
-
-        const stepUpdatePayload = {
-            completed_sets: resolvedCompletedSets,
-            status: isCurrentStepDone ? 'DONE' : 'RUNNING',
-            updated_at: eventTime
-        };
-        if (!context.stepInstance.started_at) {
-            stepUpdatePayload.started_at = eventTime;
-        }
-        if (isCurrentStepDone) {
-            stepUpdatePayload.ended_at = eventTime;
-        } else if (context.stepInstance.ended_at) {
-            stepUpdatePayload.ended_at = null;
-        }
-
-        const { error: updateCurrentStepError } = await supabase
-            .from('routine_step_instance')
-            .update(stepUpdatePayload)
-            .eq('step_instance_id', context.stepInstance.step_instance_id);
-        if (updateCurrentStepError) throw updateCurrentStepError;
-
-        if (!isCurrentStepDone) {
-            const restSec = await getRoutineStepRestSec(context.stepInstance.step_id);
-            const nextSetNo = currentSetNo + 1;
-
-            const { data: nextSet, error: insertNextSetError } = await supabase
-                .from('workout_set')
-                .insert({
-                    step_instance_id: context.stepInstance.step_instance_id,
-                    set_no: nextSetNo,
-                    target_type: targetType,
-                    target_value: targetValue,
-                    value_unit: resultUnit,
-                    result_basis: resultBasis,
-                    rest_sec_after: restSec,
-                    status: 'RUNNING',
-                    started_at: eventTime,
-                    updated_at: eventTime
-                })
-                .select('set_id, set_no, target_type, target_value, status')
-                .single();
-            if (insertNextSetError || !nextSet) {
-                throw insertNextSetError || new Error('다음 세트 생성에 실패했습니다.');
-            }
-
-            const nextSession = await createRoutineRunningSession({
-                userId,
-                exerciseId: session.exercise_id,
-                setId: nextSet.set_id,
-                selectedView: updatedSession.selected_view || session.selected_view,
-                startedAtIso: eventTime
-            });
-
-            return res.json({
-                success: true,
-                event,
-                routine: {
-                    action: 'NEXT_SET',
-                    completed_set_no: currentSetNo,
-                    next_set: nextSet,
-                    rest_sec: restSec,
-                    next_session: nextSession
-                }
-            });
-        }
-
-        const { data: nextStep, error: nextStepError } = await supabase
-            .from('routine_step_instance')
-            .select(`
-                step_instance_id,
-                routine_instance_id,
-                step_id,
-                exercise_id,
-                order_no,
-                target_type_snapshot,
-                target_value_snapshot,
-                planned_sets,
-                completed_sets,
-                status,
-                started_at
-            `)
-            .eq('routine_instance_id', context.stepInstance.routine_instance_id)
-            .gt('order_no', context.stepInstance.order_no || 0)
-            .order('order_no', { ascending: true })
-            .limit(1)
-            .maybeSingle();
-        if (nextStepError) throw nextStepError;
-
-        if (!nextStep) {
-            const { error: completeRoutineError } = await supabase
-                .from('routine_instance')
-                .update({
-                    status: 'DONE',
-                    ended_at: eventTime,
-                    total_score: finalScore,
-                    updated_at: eventTime
-                })
-                .eq('routine_instance_id', context.routineInstance.routine_instance_id)
-                .neq('status', 'ABORTED');
-            if (completeRoutineError) throw completeRoutineError;
-
-            return res.json({
-                success: true,
-                event,
-                routine: {
-                    action: 'ROUTINE_COMPLETE',
-                    completed_set_no: currentSetNo
-                }
-            });
-        }
-
-        const nextTargetType = normalizeTargetType(nextStep.target_type_snapshot);
-        const nextTargetValue = Math.max(1, toNullableNonNegativeInt(nextStep.target_value_snapshot) || 1);
-        const nextRestSec = await getRoutineStepRestSec(nextStep.step_id);
-
-        const { error: runNextStepError } = await supabase
-            .from('routine_step_instance')
-            .update({
-                status: 'RUNNING',
-                started_at: nextStep.started_at || eventTime,
-                updated_at: eventTime
-            })
-            .eq('step_instance_id', nextStep.step_instance_id);
-        if (runNextStepError) throw runNextStepError;
-
-        const { data: firstNextStepSet, error: createFirstSetError } = await supabase
-            .from('workout_set')
-            .insert({
-                step_instance_id: nextStep.step_instance_id,
-                set_no: 1,
-                target_type: nextTargetType,
-                target_value: nextTargetValue,
-                value_unit: getResultUnitByTargetType(nextTargetType),
-                result_basis: getResultBasisByTargetType(nextTargetType),
-                rest_sec_after: nextRestSec,
-                status: 'RUNNING',
-                started_at: eventTime,
-                updated_at: eventTime
-            })
-            .select('set_id, set_no, target_type, target_value, status')
-            .single();
-        if (createFirstSetError || !firstNextStepSet) {
-            throw createFirstSetError || new Error('다음 단계 첫 세트 생성에 실패했습니다.');
-        }
-
-        const nextSession = await createRoutineRunningSession({
+        const routine = await ensureRoutineContinuation({
+            context,
+            session: {
+                ...session,
+                selected_view: updatedSession.selected_view || session.selected_view
+            },
             userId,
-            exerciseId: nextStep.exercise_id,
-            setId: firstNextStepSet.set_id,
-            selectedView: updatedSession.selected_view || session.selected_view,
-            startedAtIso: eventTime
+            eventTime,
+            finalScore
         });
-
-        const nextExercise = await getExerciseByIdWithViews(nextStep.exercise_id);
 
         return res.json({
             success: true,
             event,
-            routine: {
-                action: 'NEXT_STEP',
-                completed_set_no: currentSetNo,
-                next_step: {
-                    step_instance_id: nextStep.step_instance_id,
-                    order_no: nextStep.order_no,
-                    planned_sets: nextStep.planned_sets,
-                    completed_sets: nextStep.completed_sets,
-                    target_type: nextTargetType,
-                    target_value: nextTargetValue
-                },
-                next_set: firstNextStepSet,
-                next_session: nextSession,
-                next_exercise: nextExercise,
-                rest_sec: nextRestSec
-            }
+            routine
         });
     } catch (error) {
         return sendApiError(res, error, '세트 기록 저장에 실패했습니다.');
@@ -2119,7 +2269,8 @@ const recordSessionEvent = async (req, res) => {
             .insert({
                 session_id: sessionId,
                 type,
-                event_time: eventTime
+                event_time: eventTime,
+                payload: {}
             })
             .select()
             .single();
