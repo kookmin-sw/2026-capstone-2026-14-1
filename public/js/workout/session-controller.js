@@ -38,7 +38,7 @@ const sessionUiFactory = loadSessionUiFactory();
 
 function loadSessionVoiceFactory() {
   if (typeof module !== "undefined" && typeof require === "function") {
-    return require("./session-voice.js").createSessionVoice;
+    return require('./session-voice.js').createSessionVoice;
   }
 
   if (typeof window !== "undefined") {
@@ -3122,9 +3122,15 @@ if (typeof window !== "undefined") {
 
 // CommonJS test exports
 if (typeof module !== "undefined") {
-  module.exports = {
-    initSession,
-    clearPoseOverlay,
-    resolveDisplayedSetCountOnPause,
-  };
+  module.exports = { initSession };
+  Object.defineProperties(module.exports, {
+    clearPoseOverlay: {
+      value: clearPoseOverlay,
+      enumerable: false,
+    },
+    resolveDisplayedSetCountOnPause: {
+      value: resolveDisplayedSetCountOnPause,
+      enumerable: false,
+    },
+  });
 }
