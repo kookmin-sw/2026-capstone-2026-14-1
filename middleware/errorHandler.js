@@ -50,14 +50,17 @@ const errorHandler = (err, req, res, next) => {
     }
 
     // API 요청인 경우 JSON 응답
-    if (req.xhr || req.headers.accept?.includes('application/json')) {
+    // API 요청인 경우 JSON 응답
+    const isApiRequest = req.xhr
+        || req.headers.accept?.includes('application/json')
+        || req.originalUrl?.startsWith('/api/');
+    if (isApiRequest) {
         return res.status(statusCode).json({
             success: false,
             error: errorInfo.message,
             message: errorInfo.message
         });
     }
-
     // 일반 요청인 경우 에러 페이지 렌더링
     res.status(statusCode).render('error', {
         title: `오류 ${statusCode}`,

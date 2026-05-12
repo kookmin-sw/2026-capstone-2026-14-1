@@ -38,7 +38,7 @@ function createAiGrowthReportController({ service = createAiGrowthReportService(
 }
 
 function normalizePeriod(period) {
-  return ['recent_5', 'recent_10', 'last_7_days', 'last_30_days'].includes(period) ? period : 'recent_5';
+  return ['recent_3', 'recent_5', 'recent_10', 'last_7_days', 'last_30_days'].includes(period) ? period : 'recent_5';
 }
 
 function normalizeExercise(exercise) {

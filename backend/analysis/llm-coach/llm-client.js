@@ -1,7 +1,7 @@
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 
 function createLlmClient({ fetchImpl = fetch, apiKey = process.env.OPENROUTER_API_KEY, model = process.env.OPENROUTER_LLM_MODEL || 'openai/gpt-4o-mini' } = {}) {
-  async function generateJson({ systemPrompt, userPrompt, timeoutMs = 12000 } = {}) {
+  async function generateJson({ systemPrompt, userPrompt, timeoutMs = 30000 } = {}) {
     if (!apiKey) throw new Error('OPENROUTER_API_KEY not set');
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;

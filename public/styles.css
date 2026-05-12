@@ -907,7 +907,7 @@ body {
     z-index: 60;
     width: min(680px, calc(100% - 24px));
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 6px;
     padding: 8px;
     background: var(--mobile-nav-bg);
@@ -1293,5 +1293,478 @@ body {
 @media (max-width: 600px) {
   .theme-options {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   AI 리포트 페이지
+   ============================================================ */
+.report-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px 120px;
+}
+
+.report-header {
+  margin-bottom: 28px;
+}
+
+.report-title {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  background: linear-gradient(135deg, var(--primary), #7c5cfc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.report-subtitle {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* 필터 */
+.report-filters {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.filter-group select {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  min-width: 120px;
+}
+
+.filter-group select:focus {
+  border-color: var(--primary);
+}
+
+.report-generate-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+
+.report-generate-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--card-bg));
+}
+
+.report-generate-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 로딩 */
+.report-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 60px 20px;
+  color: var(--muted);
+}
+
+.loading-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* 에러 */
+.report-error {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted);
+}
+
+.report-error p {
+  margin: 0 0 16px;
+  font-size: 15px;
+}
+
+.report-retry-btn {
+  padding: 10px 24px;
+  border-radius: 12px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.report-retry-btn:hover {
+  opacity: 0.9;
+}
+
+/* 메타 정보 */
+.report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.meta-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--ghost-bg);
+  color: var(--muted);
+}
+
+.source-badge.ai {
+  background: rgba(91, 108, 255, 0.12);
+  color: var(--primary);
+}
+
+.source-badge.fallback {
+  background: rgba(255, 193, 7, 0.12);
+  color: #b8860b;
+}
+
+[data-theme="dark"] .source-badge.fallback {
+  color: #fbbf24;
+}
+
+/* 빈 상태 */
+.report-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 80px 20px 60px;
+  text-align: center;
+}
+
+.empty-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ghost-bg);
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+.empty-icon svg {
+  width: 36px;
+  height: 36px;
+}
+
+.empty-text {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* 리포트 카드 */
+.report-card {
+  display: flex;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.card-icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(91, 108, 255, 0.1);
+  color: var(--primary);
+}
+
+.card-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-body h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.card-body p {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+  color: var(--muted);
+}
+
+/* 요약 카드 */
+.summary-card .card-icon {
+  background: rgba(91, 108, 255, 0.1);
+  color: var(--primary);
+}
+
+/* 미션 카드 */
+.mission-card .mission-icon {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+
+.mission-title {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: var(--text) !important;
+  margin-bottom: 4px !important;
+}
+
+.mission-action {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* 코치 카드 */
+.coach-card .coach-icon {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.coach-comment {
+  font-size: 15px !important;
+  line-height: 1.7 !important;
+  color: var(--text) !important;
+  font-style: italic;
+}
+
+/* 섹션 (개선/보완) */
+.report-section {
+  margin-bottom: 20px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+
+.section-title.positive {
+  color: #10b981;
+}
+
+.section-title.negative {
+  color: #ef4444;
+}
+
+.section-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-item {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.item-num {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--ghost-bg);
+  color: var(--muted);
+}
+
+.section-title.positive ~ .section-items .item-num {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+
+.section-title.negative ~ .section-items .item-num {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.item-text,
+.item-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 2px;
+  color: var(--text);
+}
+
+.item-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+  color: var(--muted);
+}
+
+/* 데이터 품질 */
+.report-quality {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--ghost-bg);
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.quality-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.quality-badge.high {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
+.quality-badge.medium {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+}
+
+.quality-badge.low {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+/* 유틸리티 */
+.hidden {
+  display: none !important;
+}
+
+/* 반응형 */
+@media (max-width: 600px) {
+  .report-page {
+    padding: 24px 16px 130px;
+  }
+
+  .report-title {
+    font-size: 22px;
+  }
+
+  .report-card {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .card-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .card-icon svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .report-filters {
+    gap: 8px;
+  }
+
+  .filter-group select {
+    min-width: 100px;
+    font-size: 13px;
+    padding: 7px 10px;
+  }
+
+  .report-generate-btn {
+    font-size: 12px;
+    padding: 7px 12px;
+  }
+
+  .section-item {
+    padding: 12px 14px;
   }
 }

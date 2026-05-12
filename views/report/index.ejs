@@ -1,0 +1,138 @@
+<div class="page active report-page">
+  <!-- 헤더 -->
+  <div class="report-header">
+    <h1 class="report-title">AI 성장 리포트</h1>
+    <p class="report-subtitle">최근 운동 기록을 분석한 맞춤 코칭 리포트입니다</p>
+  </div>
+
+  <!-- 운동 선택 필터 -->
+  <div class="report-filters">
+    <div class="filter-group">
+      <label for="report-exercise">운동</label>
+      <select id="report-exercise">
+        <option value="squat">스쿼트</option>
+        <option value="push_up">푸쉬업</option>
+        <option value="plank">플랭크</option>
+        <option value="all">전체</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label for="report-period">분석 범위</label>
+      <select id="report-period">
+        <option value="recent_3">최근 3회</option>
+        <option value="recent_5" selected>최근 5회</option>
+        <option value="recent_10">최근 10회</option>
+        <option value="last_7_days">최근 7일</option>
+        <option value="last_30_days">최근 30일</option>
+      </select>
+    </div>
+    <button class="report-generate-btn" id="report-generate-btn" title="리포트 생성">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+      </svg>
+      분석 시작
+    </button>
+  </div>
+
+  <!-- 빈 상태 (초기 진입 시) -->
+  <div class="report-empty" id="report-empty">
+    <div class="empty-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+      </svg>
+    </div>
+    <p class="empty-text">운동 종목과 분석 범위를 선택하고<br>리포트를 생성해보세요</p>
+  </div>
+
+  <!-- 로딩 상태 -->
+  <div class="report-loading" id="report-loading">
+    <div class="loading-spinner"></div>
+    <p>리포트를 불러오는 중입니다...</p>
+  </div>
+
+  <!-- 에러 상태 -->
+  <div class="report-error hidden" id="report-error">
+    <p id="report-error-msg">리포트를 불러올 수 없습니다.</p>
+    <button class="report-retry-btn" id="report-retry-btn">다시 시도</button>
+  </div>
+
+  <!-- 리포트 내용 -->
+  <div class="report-content hidden" id="report-content">
+    <!-- 메타 정보 -->
+    <div class="report-meta" id="report-meta">
+      <span class="meta-badge" id="report-date"></span>
+      <span class="meta-badge source-badge" id="report-source"></span>
+      <span class="meta-badge" id="report-range"></span>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="report-card summary-card" id="report-summary-card">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20V10M18 20V4M6 20v-4"/>
+        </svg>
+      </div>
+      <div class="card-body">
+        <h3>요약</h3>
+        <p id="report-summary"></p>
+      </div>
+    </div>
+
+    <!-- 개선된 점 -->
+    <div class="report-section" id="report-improvements-section">
+      <h2 class="section-title positive">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+          <path d="M18 15 12 9 6 15"/>
+        </svg>
+        개선된 점
+      </h2>
+      <div class="section-items" id="report-improvements"></div>
+    </div>
+
+    <!-- 보완할 점 -->
+    <div class="report-section" id="report-weakpoints-section">
+      <h2 class="section-title negative">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+          <path d="M6 9 12 15 18 9"/>
+        </svg>
+        보완할 점
+      </h2>
+      <div class="section-items" id="report-weakpoints"></div>
+    </div>
+
+    <!-- 다음 미션 -->
+    <div class="report-card mission-card" id="report-mission-card">
+      <div class="card-icon mission-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+        </svg>
+      </div>
+      <div class="card-body">
+        <h3>다음 운동 미션</h3>
+        <p class="mission-title" id="report-mission-title"></p>
+        <p class="mission-action" id="report-mission-action"></p>
+      </div>
+    </div>
+
+    <!-- 데이터 품질 -->
+    <div class="report-quality" id="report-quality">
+      <span class="quality-badge" id="report-quality-badge"></span>
+      <span id="report-quality-msg"></span>
+    </div>
+
+    <!-- 코치 한마디 -->
+    <div class="report-card coach-card" id="report-coach-card">
+      <div class="card-icon coach-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a8 8 0 1 0 4.5 14.5L20 20l-3.5-3.5A8 8 0 0 0 12 2Z"/>
+        </svg>
+      </div>
+      <div class="card-body">
+        <h3>코치 한마디</h3>
+        <p class="coach-comment" id="report-coach-comment"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/report/report-page.js"></script>

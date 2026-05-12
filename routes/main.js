@@ -4,6 +4,7 @@ const { getLoginPage, handleLogin } = require('../controllers/login');
 const { requireGuest, requireAuth, handleLogout } = require('../middleware/auth');
 const { getQuestPage, completeQuest, claimQuestReward, assignDailyQuests, assignWeeklyQuests } = require('../controllers/quest');
 const { getHistoryPage, getSessionDetail, getRoutineHistoryDetail, getHistoryStats, deleteSession } = require('../controllers/history');
+const { getReportPage } = require('../controllers/report');
 const { getHomePage } = require('../controllers/home');
 const { getSettingsPage, updateNickname, updatePassword, updateTheme } = require('../controllers/settings');
 const { createAiGrowthReportController } = require('../backend/analysis/controller/ai-growth-report.controller');
@@ -66,6 +67,9 @@ router.get('/settings', requireAuth, getSettingsPage);
 router.post('/settings/nickname', requireAuth, updateNickname);
 router.post('/settings/password', requireAuth, updatePassword);
 router.post('/settings/theme', requireAuth, updateTheme);
+
+// AI 성장 리포트 페이지 (로그인 필요)
+router.get('/report', requireAuth, getReportPage);
 
 // AI 성장 리포트 API (로그인 필요)
 router.get('/api/users/me/coach-report', requireAuth, aiGrowthReportController.getCoachReport);
