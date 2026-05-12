@@ -299,10 +299,10 @@ class PoseEngine {
         : null,
 
       // 무릎 정렬 proxy (정면 기준으로 무릎이 발 라인을 따라가는지)
-      kneeAlignment: this.getKneeAlignment(landmarks),
+      kneeAlignment: view === 'SIDE' ? null : this.getKneeAlignment(landmarks),
 
-      // 무릎 valgus (정면 뷰에서 무릎이 안쪽으로 굽는 정도)
-      kneeValgus: this.getKneeValgus(landmarks),
+      // 무릎 valgus (정면 뷰에서 무릎이 안쪽으로 굽는 정도 — 측면에서는 X축이 앞뒤이므로 무의미)
+      kneeValgus: view === 'SIDE' ? null : this.getKneeValgus(landmarks),
 
       // 스쿼트 보조 signal
       heelContact: this.getHeelContact(landmarks, { view, visibleSide: selectedSideChain }),

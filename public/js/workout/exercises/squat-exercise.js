@@ -1567,6 +1567,8 @@
     if (view === 'FRONT' && category === 'hip') return false;
     if (view === 'SIDE' && category === 'symmetry') return false;
     if (view === 'FRONT' && metricKey === 'knee_alignment') return false;
+    if (view === 'SIDE' && metricKey === 'knee_valgus') return false;
+    if (view === 'SIDE' && metricKey === 'knee_alignment') return false;
     if (metricKey === 'heel_contact') {
       return view === 'SIDE' &&
         (phase === REP_PHASES.BOTTOM || phase === REP_PHASES.ASCENT);
