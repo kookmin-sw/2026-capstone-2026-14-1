@@ -57,3 +57,52 @@ test('analyzeHistoryTrend scopes completed/aborted counts and events to recent s
   assert.equal(feature.overall.completed_sessions, 5);
   assert.equal(feature.data_quality.camera_issue_count, 0);
 });
+
+test('analyzeHistoryTrend does not mark stable completed sessions low quality only because metrics are absent', () => {
+  const sessions = Array.from({ length: 5 }, (_, index) => ({
+    session_id: `s${index + 1}`,
+    final_score: 92,
+    status: 'done',
+    ended_at: `2026-01-0${index + 1}T00:00:00Z`,
+  }));
+
+  const feature = analyzeHistoryTrend({
+    userId: 'u1',
+    period: 'recent_5',
+    exerciseKey: 'squat',
+    exerciseName: 'squat',
+    sessions,
+    metrics: [],
+    events: [],
+  });
+
+  assert.equal(feature.is_doing_well, true);
+  assert.equal(feature.overall.completed_sessions, 5);
+  assert.notEqual(feature.data_quality.confidence_label, 'low');
+  assert.match(feature.data_quality.note, /session|세션|점수/i);
+});
+
+test('analyzeHistoryTrend uses all supplied sessions for date range periods', () => {
+  const sessions = Array.from({ length: 8 }, (_, index) => ({
+    session_id: `s${index + 1}`,
+    final_score: 80 + index,
+    status: 'done',
+    ended_at: `2026-04-${String(index + 1).padStart(2, '0')}T00:00:00Z`,
+  }));
+
+  const feature = analyzeHistoryTrend({
+    userId: 'u1',
+    period: 'last_30_days',
+    exerciseKey: 'squat',
+    exerciseName: 'squat',
+    sessions,
+    metrics: [],
+    events: [],
+  });
+
+  assert.equal(feature.user_scope.period_type, 'date_range');
+  assert.equal(feature.user_scope.period_label, '최근 30일');
+  assert.equal(feature.user_scope.session_count, 8);
+  assert.equal(feature.overall.completed_sessions, 8);
+  assert.equal(feature.overall.recent_avg_score, 83.5);
+});

@@ -11,9 +11,14 @@ function analyzeHistoryTrend({ userId, period = 'recent_5', exerciseKey, exercis
   const normalizedExerciseKey = normalizeExerciseKey(exerciseKey);
   const metricGuide = loadMetricGuide(normalizedExerciseKey);
   const orderedSessions = [...sessions].sort((a, b) => String(a.ended_at || '').localeCompare(String(b.ended_at || '')));
-  const recentCount = parsePeriodCount(period);
-  const recentSessions = orderedSessions.slice(-recentCount);
-  const previousSessions = orderedSessions.slice(Math.max(0, orderedSessions.length - recentCount * 2), Math.max(0, orderedSessions.length - recentCount));
+  const periodDescriptor = describeAnalysisPeriod(period, orderedSessions.length);
+  const recentCount = periodDescriptor.count;
+  const recentSessions = periodDescriptor.type === 'date_range'
+    ? orderedSessions
+    : orderedSessions.slice(-recentCount);
+  const previousSessions = periodDescriptor.type === 'date_range'
+    ? []
+    : orderedSessions.slice(Math.max(0, orderedSessions.length - recentCount * 2), Math.max(0, orderedSessions.length - recentCount));
   const recentAvgScore = average(recentSessions.map((session) => session.final_score));
   const previousAvgScore = average(previousSessions.map((session) => session.final_score));
   const scoreDelta = recentAvgScore !== null && previousAvgScore !== null ? Number((recentAvgScore - previousAvgScore).toFixed(1)) : null;
@@ -23,13 +28,24 @@ function analyzeHistoryTrend({ userId, period = 'recent_5', exerciseKey, exercis
   const regressions = detectRegressions(trends);
   const recentSessionIds = new Set(recentSessions.map((session) => session.session_id));
   const filteredEvents = events.filter((event) => !event.session_id || recentSessionIds.has(event.session_id));
-  const dataQuality = buildDataQuality({ events: filteredEvents, trends });
+  const completedSessions = recentSessions.filter((session) => String(session.status || '').toLowerCase() === 'done');
+  const abortedSessions = recentSessions.filter((session) => String(session.status || '').toLowerCase() === 'aborted');
+  const dataQuality = buildDataQuality({
+    events: filteredEvents,
+    trends,
+    completedSessionCount: completedSessions.length,
+  });
+  const nextFocusCandidates = buildNextFocusCandidates({ weakPoints, regressions, metricGuide });
+  const isDoingWell = improvements.length === 0 && weakPoints.length === 0 && regressions.length === 0
+    && Number.isFinite(recentAvgScore) && recentAvgScore >= 75;
 
   return {
     feature_version: 'htf_v1',
     user_scope: {
       user_id: userId,
-      period_type: 'recent_sessions',
+      period_type: periodDescriptor.type,
+      period_key: periodDescriptor.key,
+      period_label: periodDescriptor.label,
       session_count: recentSessions.length,
       exercise_key: normalizedExerciseKey,
       exercise_name: exerciseName || normalizedExerciseKey,
@@ -39,20 +55,44 @@ function analyzeHistoryTrend({ userId, period = 'recent_5', exerciseKey, exercis
       previous_avg_score: previousAvgScore,
       score_delta: scoreDelta,
       trend: classifyTrend(scoreDelta),
-      completed_sessions: recentSessions.filter((session) => String(session.status || '').toLowerCase() === 'done').length,
-      aborted_sessions: recentSessions.filter((session) => String(session.status || '').toLowerCase() === 'aborted').length,
+      completed_sessions: completedSessions.length,
+      aborted_sessions: abortedSessions.length,
     },
     improvements,
     weak_points: weakPoints,
     regressions,
     data_quality: dataQuality,
-    next_focus_candidates: buildNextFocusCandidates({ weakPoints, regressions, metricGuide }),
+    next_focus_candidates: nextFocusCandidates,
+    is_doing_well: isDoingWell,
   };
 }
 
 function parsePeriodCount(period) {
-  if (period === 'recent_10') return 10;
-  return 5;
+  const map = { recent_3: 3, recent_5: 5, recent_10: 10 };
+  return map[period] || 5;
+}
+
+function describeAnalysisPeriod(period, sessionCount = 0) {
+  const dateRangeMap = {
+    last_7_days: '최근 7일',
+    last_30_days: '최근 30일',
+  };
+  if (dateRangeMap[period]) {
+    return {
+      type: 'date_range',
+      key: period,
+      label: dateRangeMap[period],
+      count: Math.max(0, Number(sessionCount || 0)),
+    };
+  }
+
+  const count = parsePeriodCount(period);
+  return {
+    type: 'recent_sessions',
+    key: ['recent_3', 'recent_5', 'recent_10'].includes(period) ? period : 'recent_5',
+    label: `최근 ${count}회`,
+    count,
+  };
 }
 
 function classifyTrend(delta) {
@@ -62,4 +102,4 @@ function classifyTrend(delta) {
   return 'stable';
 }
 
-module.exports = { analyzeHistoryTrend, parsePeriodCount, classifyTrend };
+module.exports = { analyzeHistoryTrend, parsePeriodCount, classifyTrend, describeAnalysisPeriod };

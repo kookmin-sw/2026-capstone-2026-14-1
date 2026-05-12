@@ -36,7 +36,7 @@ test('validateGrowthReportOutput rejects improvements exceeding maxItems', () =>
   assert.ok(result.errors.includes('improvements must contain at most 2 items'));
 });
 
-test('validateGrowthReportOutput rejects invalid data_quality_note label', () => {
+test('validateGrowthReportOutput auto-fixes invalid data_quality_note label to medium', () => {
   const output = {
     summary: 's',
     improvements: [],
@@ -46,11 +46,11 @@ test('validateGrowthReportOutput rejects invalid data_quality_note label', () =>
     coach_comment: 'c',
   };
   const result = validateGrowthReportOutput(output);
-  assert.equal(result.valid, false);
-  assert.ok(result.errors.includes('data_quality_note.label must be high, medium, or low'));
+  assert.equal(result.valid, true);
+  assert.equal(output.data_quality_note.label, 'medium');
 });
 
-test('validateGrowthReportOutput rejects missing next_mission.metric_key', () => {
+test('validateGrowthReportOutput defaults missing next_mission.metric_key', () => {
   const output = {
     summary: 's',
     improvements: [],
@@ -60,6 +60,31 @@ test('validateGrowthReportOutput rejects missing next_mission.metric_key', () =>
     coach_comment: 'c',
   };
   const result = validateGrowthReportOutput(output);
-  assert.equal(result.valid, false);
-  assert.ok(result.errors.includes('next_mission.metric_key is required'));
+  assert.equal(result.valid, true);
+  assert.equal(output.next_mission.metric_key, 'general_maintenance');
+});
+
+test('validateGrowthReportOutput normalizes common LLM field variants', () => {
+  const output = {
+    summary: 's',
+    improvements: [],
+    weak_points: [],
+    next_mission: {
+      title: 'current form',
+      description: 'keep the same posture next time',
+    },
+    data_quality_note: {
+      confidence_label: 'low',
+      note: 'history quality was sufficient',
+    },
+    coach_comment: 'c',
+  };
+
+  const result = validateGrowthReportOutput(output);
+
+  assert.equal(result.valid, true);
+  assert.equal(output.next_mission.action, 'keep the same posture next time');
+  assert.equal(output.next_mission.metric_key, 'general_maintenance');
+  assert.equal(output.data_quality_note.label, 'low');
+  assert.equal(output.data_quality_note.message, 'history quality was sufficient');
 });

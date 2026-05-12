@@ -5,8 +5,24 @@
     "summary": { "type": "string" },
     "improvements": { "type": "array", "maxItems": 2 },
     "weak_points": { "type": "array", "maxItems": 2 },
-    "next_mission": { "type": "object" },
-    "data_quality_note": { "type": "object" },
+    "next_mission": {
+      "type": "object",
+      "required": ["title", "action", "reason", "metric_key"],
+      "properties": {
+        "title": { "type": "string" },
+        "action": { "type": "string" },
+        "reason": { "type": "string" },
+        "metric_key": { "type": "string" }
+      }
+    },
+    "data_quality_note": {
+      "type": "object",
+      "required": ["label", "message"],
+      "properties": {
+        "label": { "type": "string", "enum": ["high", "medium", "low"] },
+        "message": { "type": "string" }
+      }
+    },
     "coach_comment": { "type": "string" }
   }
 }

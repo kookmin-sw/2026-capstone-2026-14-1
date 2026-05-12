@@ -5,11 +5,15 @@ const { createWorkoutHistoryRepository } = require('../../../backend/analysis/re
 
 function createFakeSupabase({ sessions = [], snapshots = [], metrics = [], events = [] } = {}) {
   const calls = [];
+  const queries = [];
   return {
     calls,
+    queries,
     from(table) {
       calls.push(table);
-      return createQueryChain(table, { sessions, snapshots, metrics, events });
+      const chain = createQueryChain(table, { sessions, snapshots, metrics, events });
+      queries.push(chain);
+      return chain;
     },
   };
 }
@@ -18,14 +22,19 @@ function createQueryChain(table, data) {
   const chain = {
     _table: table,
     _filters: [],
+    _singleResult: null,
     select() { return chain; },
     eq(field, value) { chain._filters.push({ field, value }); return chain; },
+    gte(field, value) { chain._filters.push({ field, value, operator: 'gte' }); return chain; },
     in(field, values) { chain._filters.push({ field, values }); return chain; },
     order() { return chain; },
     limit(n) { chain._limit = n; return chain; },
+    maybeSingle() { chain._singleResult = true; return chain; },
     then(resolve) {
       let result;
-      if (table === 'workout_session') {
+      if (table === 'exercise') {
+        result = [{ exercise_id: 'ex1' }];        // 운동 코드 조회 모의
+      } else if (table === 'workout_session') {
         result = data.sessions;
       } else if (table === 'session_snapshot') {
         result = data.snapshots;
@@ -36,8 +45,13 @@ function createQueryChain(table, data) {
       } else {
         result = [];
       }
-      if (chain._limit && result) result = result.slice(0, chain._limit);
-      resolve({ data: result, error: null });
+      if (chain._singleResult && Array.isArray(result)) {
+        result = result[0] || null;
+        resolve({ data: result, error: null });
+      } else {
+        if (chain._limit && result) result = result.slice(0, chain._limit);
+        resolve({ data: result, error: null });
+      }
     },
   };
   return chain;
@@ -103,4 +117,31 @@ test('getRecentHistory filters by exercise code', async () => {
 
   assert.equal(result.sessions.length, 1);
   assert.equal(result.sessions[0].exercise_key, 'squat');
+});
+
+test('getRecentHistory applies endedAfter date filter to workout sessions', async () => {
+  const fakeSupabase = createFakeSupabase({
+    sessions: [
+      { session_id: 's1', user_id: 'u1', ended_at: '2026-05-01', exercise: { code: 'squat', name: 'squat' } },
+    ],
+    snapshots: [],
+    metrics: [],
+    events: [],
+  });
+  const repo = createWorkoutHistoryRepository({ supabase: fakeSupabase });
+
+  await repo.getRecentHistory({
+    userId: 'u1',
+    exercise: 'all',
+    limit: 50,
+    endedAfter: '2026-04-12T00:00:00.000Z',
+  });
+
+  const sessionQuery = fakeSupabase.queries.find((query) => query._table === 'workout_session');
+  assert.ok(sessionQuery._filters.some((filter) => (
+    filter.operator === 'gte'
+    && filter.field === 'ended_at'
+    && filter.value === '2026-04-12T00:00:00.000Z'
+  )));
+  assert.equal(sessionQuery._limit, 50);
 });

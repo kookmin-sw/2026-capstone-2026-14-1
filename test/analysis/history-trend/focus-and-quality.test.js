@@ -20,6 +20,21 @@ test('buildDataQuality counts camera and low sample issues', () => {
   assert.equal(result.confidence_label, 'medium');
 });
 
+test('buildDataQuality keeps enough completed sessions out of low quality for transient camera events', () => {
+  const result = buildDataQuality({
+    events: Array.from({ length: 5 }, (_, index) => ({
+      session_id: `s${index + 1}`,
+      type: 'NO_PERSON',
+    })),
+    trends: [],
+    completedSessionCount: 5,
+  });
+
+  assert.equal(result.camera_issue_count, 5);
+  assert.equal(result.no_person_count, 5);
+  assert.equal(result.confidence_label, 'medium');
+});
+
 test('buildNextFocusCandidates prioritizes weak metric with guide cues', () => {
   const candidates = buildNextFocusCandidates({
     weakPoints: [{ metric_key: 'knee_alignment', metric_name: '무릎 정렬', recent_avg: 55, confidence: 0.68, occurrence_count: 4 }],
