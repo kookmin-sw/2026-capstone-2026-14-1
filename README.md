@@ -12,7 +12,7 @@
 
 ### 소개 영상
 
-- [FitPlus의 소개 영상은 제작중에 있어요!]()
+- [FitPlus의 소개 영상을 시청해 보세요!](https://youtu.be/xbDgkcoHDvs)
 
 ### 상세 소개 페이지
 
