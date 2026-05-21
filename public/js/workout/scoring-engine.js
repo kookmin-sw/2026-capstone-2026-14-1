@@ -336,7 +336,8 @@ class ScoringEngine {
         if (!Number.isFinite(angles.kneeAlignment.left) || !Number.isFinite(angles.kneeAlignment.right)) {
           return null;
         }
-        return angles.kneeAlignment.isAligned ? 100 : 50;
+        return (Math.abs(angles.kneeAlignment.left || 0) +
+          Math.abs(angles.kneeAlignment.right || 0)) / 2;
       },
       'heel_contact': () => {
         if (angles.heelContact != null) return angles.heelContact ? 100 : 0;

@@ -139,7 +139,7 @@ test('squat live feedback removes heel contact cue for front view', () => {
   assert.deepEqual(filtered.breakdown.map((item) => item.key), ['depth']);
 });
 
-test('squat live feedback removes knee alignment cue for front view', () => {
+test('squat live feedback keeps knee alignment cue for front view', () => {
   const squatModule = window.WorkoutExerciseRegistry.get('squat');
   const filtered = squatModule.filterLiveFeedback({
     score: 82,
@@ -158,7 +158,46 @@ test('squat live feedback removes knee alignment cue for front view', () => {
     },
   });
 
-  assert.deepEqual(filtered.breakdown.map((item) => item.key), ['knee_valgus', 'depth']);
+  assert.deepEqual(filtered.breakdown.map((item) => item.key), ['knee_alignment', 'knee_valgus', 'depth']);
+});
+
+test('squat live knee alignment uses continuous alignment curve instead of binary flag', () => {
+  const squatModule = window.WorkoutExerciseRegistry.get('squat');
+  const kneeAlignmentMetric = squatModule.getDefaultProfileMetrics()
+    .find((item) => item.metric.key === 'knee_alignment');
+  const scoringEngine = new ScoringEngine({ scoring_profile_metric: [kneeAlignmentMetric] }, {
+    exerciseCode: 'squat',
+    selectedView: 'FRONT',
+  });
+
+  const mild = scoringEngine.calculate({
+    view: 'FRONT',
+    kneeAlignment: { left: 0.04, right: 0.04, isAligned: true },
+  }).breakdown.find((item) => item.key === 'knee_alignment');
+
+  const poor = scoringEngine.calculate({
+    view: 'FRONT',
+    kneeAlignment: { left: 0.09, right: 0.09, isAligned: false },
+  }).breakdown.find((item) => item.key === 'knee_alignment');
+
+  assert.ok(mild, 'knee_alignment must be scored live');
+  assert.equal(mild.actualValue, 0.04);
+  assert.ok(mild.normalizedScore < 100, 'mild deviation must not stay at 100');
+  assert.ok(mild.normalizedScore > 80, 'mild deviation should remain a warning-level score');
+  assert.ok(poor.normalizedScore < 40, 'poor alignment should follow the strict alignment curve');
+});
+
+test('PoseEngine visual feedback maps squat trunk metrics to upper body', () => {
+  const engine = new PoseEngine();
+
+  engine.setVisualFeedback([
+    { key: 'trunk_tibia_angle', score: 4, maxScore: 15 },
+    { key: 'trunk_stability', score: 4, maxScore: 15 },
+  ]);
+
+  assert.equal(engine.getLandmarkSeverity(LANDMARKS.LEFT_SHOULDER), 2);
+  assert.equal(engine.getLandmarkSeverity(LANDMARKS.RIGHT_HIP), 2);
+  assert.equal(engine.getConnectionSeverity(LANDMARKS.LEFT_SHOULDER, LANDMARKS.LEFT_HIP), 2);
 });
 
 test('squat rep scoring uses averaged heel contact instead of single-frame min', () => {

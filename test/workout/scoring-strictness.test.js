@@ -147,7 +147,7 @@ test('frame scoring uses metric weights instead of max score as final weighting'
   assert.equal(result.score, 90);
 });
 
-test('squat live depth scoring uses knee-angle depth curve instead of lenient depth percent', () => {
+test('squat live depth scoring uses softened knee-angle depth curve', () => {
   const squatModule = window.WorkoutExerciseRegistry.get('squat');
   const depthMetric = {
     ...squatModule.getDefaultProfileMetrics().find((item) => item.metric.key === 'depth'),
@@ -159,17 +159,25 @@ test('squat live depth scoring uses knee-angle depth curve instead of lenient de
     selectedView: 'SIDE',
   });
 
-  const result = scoringEngine.calculate({
+  const acceptable = scoringEngine.calculate({
+    view: 'SIDE',
+    leftKnee: 100,
+    rightKnee: 100,
+  }).breakdown.find((item) => item.key === 'depth');
+
+  const shallow = scoringEngine.calculate({
     view: 'SIDE',
     leftKnee: 120,
     rightKnee: 120,
   });
-  const depth = result.breakdown.find((item) => item.key === 'depth');
+  const shallowDepth = shallow.breakdown.find((item) => item.key === 'depth');
 
-  assert.ok(depth, 'depth must be scored live');
-  assert.equal(depth.actualValue, 120);
-  assert.equal(depth.normalizedScore, 0);
-  assert.equal(result.score, 0);
+  assert.ok(acceptable, 'depth must be scored live');
+  assert.equal(acceptable.actualValue, 100);
+  assert.equal(acceptable.normalizedScore, 85);
+  assert.equal(shallowDepth.actualValue, 120);
+  assert.equal(shallowDepth.normalizedScore, 25);
+  assert.equal(shallow.score, 25);
 });
 
 test('push-up rep score is capped when multiple soft failures are present', () => {
@@ -266,7 +274,7 @@ test('squat rep score is capped when a soft failure is present', () => {
   });
 
   assert.deepEqual(result.softFails, ['knee_symmetry']);
-  assert.equal(result.score, 79);
+  assert.equal(result.score, 80);
 });
 
 test('squat rep score ignores capture confidence when posture metrics match', () => {

@@ -55,7 +55,7 @@
     }
   };
   const CURVES = {
-    kneeDepth: [[85, 100], [90, 95], [95, 80], [100, 60], [108, 25], [115, 0]],
+    kneeDepth: [[85, 100], [95, 95], [100, 85], [110, 60], [120, 25], [130, 0]],
     kneeValgus: [[0.015, 100], [0.025, 85], [0.04, 60], [0.06, 30], [0.08, 10], [0.10, 0]],
     trunkLean: [[15, 100], [25, 85], [35, 60], [45, 30], [60, 0]],
     hipDepth: [[110, 100], [120, 80], [140, 40], [155, 10], [170, 0]],
@@ -146,7 +146,10 @@
           weight: 0.1,
           max_score: 10,
           rule: {
-            type: 'position'
+            type: 'curve',
+            curve: CURVES.alignment,
+            feedback_low: '무릎이 발끝 방향을 유지하도록 해주세요',
+            feedback_high: '무릎이 발끝 방향을 유지하도록 해주세요'
           },
           metric: {
             metric_id: 'squat_knee_alignment',
@@ -1701,7 +1704,6 @@
     // 시점(View)에 따른 유효성 필터링: 화면 각도상 정확한 측정이 불가능한 항목 제외
     if (view === 'FRONT' && category === 'hip') return false;
     if (view === 'SIDE' && category === 'symmetry') return false;
-    if (view === 'FRONT' && metricKey === 'knee_alignment') return false;
     if (view === 'SIDE' && metricKey === 'knee_valgus') return false;
     if (view === 'SIDE' && metricKey === 'knee_alignment') return false;
     if (metricKey === 'heel_contact') {
