@@ -45,23 +45,23 @@
     },
     SIDE: {
       metrics: [
-        { key: 'depth', weight: 0.36, scorer: 'kneeDepth' },
-        { key: 'trunk_tibia_angle', weight: 0.22, scorer: 'angleDiff' },
-        { key: 'hip_angle', weight: 0.18, scorer: 'hipDepth' },
-        { key: 'trunk_stability', weight: 0.16, scorer: 'trunkLean' },
-        { key: 'heel_contact', weight: 0.08, scorer: 'heelContact' }
+        { key: 'depth', weight: 0.34, scorer: 'kneeDepth' },
+        { key: 'trunk_tibia_angle', weight: 0.26, scorer: 'angleDiff' },
+        { key: 'hip_angle', weight: 0.16, scorer: 'hipDepth' },
+        { key: 'trunk_stability', weight: 0.14, scorer: 'trunkLean' },
+        { key: 'heel_contact', weight: 0.10, scorer: 'heelContact' }
       ]
     }
   };
   const CURVES = {
-    kneeDepth: [[90, 100], [100, 85], [115, 50], [130, 15], [150, 0]],
-    kneeValgus: [[0.03, 100], [0.06, 70], [0.10, 30], [0.15, 5], [0.20, 0]],
+    kneeDepth: [[90, 100], [100, 75], [110, 40], [120, 15], [130, 0]],
+    kneeValgus: [[0.03, 100], [0.05, 60], [0.08, 25], [0.10, 10], [0.12, 0]],
     trunkLean: [[25, 100], [40, 75], [55, 40], [70, 10], [85, 0]],
     hipDepth: [[110, 100], [120, 80], [140, 40], [155, 10], [170, 0]],
     symmetry: [[10, 100], [18, 70], [28, 25], [40, 0]],
-    angleDiff: [[10, 100], [20, 70], [35, 30], [50, 5], [65, 0]],
+    angleDiff: [[10, 100], [15, 75], [25, 35], [35, 10], [50, 0]],
     alignment: [[0.03, 100], [0.05, 75], [0.08, 30], [0.12, 5], [0.16, 0]],
-    heelContact: [[0.85, 100], [0.70, 75], [0.55, 45], [0.40, 15], [0, 0]]
+    heelContact: [[0.90, 100], [0.80, 70], [0.65, 35], [0.50, 10], [0, 0]]
   };
 
   const squatExercise = {
@@ -452,6 +452,9 @@
       if (!isLockoutComplete(summary, lockoutKnee, lockoutHip)) {
         hardFails.push('lockout_incomplete');
       }
+      if (view === 'FRONT' && Number.isFinite(avgKneeValgus) && avgKneeValgus >= 0.10) {
+        hardFails.push('severe_knee_valgus');
+      }
       const metricPlan = getMetricPlan(view, {
         bottomKnee,
         bottomHip,
@@ -488,7 +491,7 @@
           maxScore: dynamicMaxScore,
           weight: normalizedWeight,
           configuredWeight: item.weight,
-          feedback: normalizedScore < 70 ? item.feedback : null
+          feedback: normalizedScore < 85 ? item.feedback : null
         });
 
         weightedScore += normalizedScore * normalizedWeight;
@@ -498,9 +501,12 @@
       const baseScore = totalWeight > 0 ? (weightedScore / totalWeight) : (repRecord.score || 0);
       let finalScore = baseScore;
 
-      finalScore = applyDepthCap(finalScore, bottomKnee, bottomHipBelowKnee);
+      finalScore = applyDepthCap(finalScore, bottomKnee, bottomHipBelowKnee, bottomHipNearKnee);
       if (hardFails.includes('lockout_incomplete')) {
         finalScore = Math.min(finalScore, 65);
+      }
+      if (hardFails.includes('severe_knee_valgus')) {
+        finalScore = Math.min(finalScore, 50);
       }
 
       let softFails = breakdown
@@ -510,6 +516,19 @@
       if (view === 'SIDE' && Number.isFinite(heelContactBreakFrames) && heelContactBreakFrames >= 3) {
         if (!softFails.includes('heel_contact')) {
           softFails = [...softFails, 'heel_contact'];
+        }
+      }
+      if (view === 'FRONT' && Number.isFinite(avgKneeValgus) && avgKneeValgus >= 0.08) {
+        if (!softFails.includes('knee_valgus')) {
+          softFails = [...softFails, 'knee_valgus'];
+        }
+      }
+
+      if (view === 'SIDE' && Number.isFinite(heelContactBreakFrames)) {
+        if (heelContactBreakFrames >= 5) {
+          finalScore = Math.min(finalScore, 70);
+        } else if (heelContactBreakFrames >= 3) {
+          finalScore = Math.min(finalScore, 80);
         }
       }
 
@@ -1256,9 +1275,9 @@
 
   function applySoftFailCap(score, softFailCount) {
     if (!Number.isFinite(score)) return score;
-    if (softFailCount >= 3) return Math.min(score, 65);
-    if (softFailCount >= 2) return Math.min(score, 75);
-    if (softFailCount >= 1) return Math.min(score, 85);
+    if (softFailCount >= 3) return Math.min(score, 50);
+    if (softFailCount >= 2) return Math.min(score, 65);
+    if (softFailCount >= 1) return Math.min(score, 80);
     return score;
   }
 
@@ -1285,19 +1304,19 @@
     return outMin + ((outMax - outMin) * ratio);
   }
 
-  function applyDepthCap(score, bottomKnee, hipBelowKnee) {
+  function applyDepthCap(score, bottomKnee, hipBelowKnee, hipNearKnee) {
     if (!Number.isFinite(score)) return score;
-    if (!Number.isFinite(bottomKnee)) return Math.min(score, 60);
+    if (!Number.isFinite(bottomKnee)) return score;
     if (isDepthGood(bottomKnee, hipBelowKnee)) return score;
-    if (bottomKnee <= 130) {
-      return Math.min(score, interpolate(bottomKnee, 100, 130, 85, 55));
+    if (bottomKnee <= 115 || hipNearKnee === 1) {
+      return Math.min(score, 70);
     }
-    return Math.min(score, 55);
+    return Math.min(score, 45);
   }
 
   function classifyDepth(bottomKnee, hipBelowKnee, hipNearKnee) {
     if (isDepthGood(bottomKnee, hipBelowKnee)) return 'depth_good';
-    if (Number.isFinite(bottomKnee) && bottomKnee <= 130) return 'depth_partial';
+    if (Number.isFinite(bottomKnee) && bottomKnee <= 115) return 'depth_partial';
     if (hipNearKnee === 1) return 'depth_partial';
     return 'depth_fail';
   }
@@ -1305,12 +1324,16 @@
   function isDepthGood(bottomKnee, hipBelowKnee) {
     return Number.isFinite(bottomKnee) && (
       bottomKnee <= 100 ||
-      (bottomKnee <= 110 && hipBelowKnee === 1)
+      (bottomKnee <= 105 && hipBelowKnee === 1)
     );
   }
 
   function resolveRepStatus(hardFails, confidence, finalScore) {
-    if (hardFails.includes('depth_not_reached') || hardFails.includes('lockout_incomplete')) {
+    if (
+      hardFails.includes('depth_not_reached') ||
+      hardFails.includes('lockout_incomplete') ||
+      hardFails.includes('severe_knee_valgus')
+    ) {
       return 'PARTIAL_REP';
     }
     if (confidence?.level === 'LOW' && finalScore <= 60) {

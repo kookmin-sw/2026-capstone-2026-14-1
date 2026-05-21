@@ -204,8 +204,8 @@ test('squat rep scoring uses averaged heel contact instead of single-frame min',
   const heelBreakdown = scored.breakdown.find((item) => item.key === 'heel_contact');
 
   assert.ok(heelBreakdown, 'heel_contact must be part of side-view scoring');
-  assert.ok(heelBreakdown.normalizedScore >= 75, 'averaged heel contact should not collapse to zero');
-  assert.notEqual(scored.feedback, '뒤꿈치가 떨어지지 않도록 유지해주세요');
+  assert.ok(heelBreakdown.normalizedScore >= 70, 'averaged heel contact should not collapse to zero');
+  assert.equal(scored.feedback, '뒤꿈치가 떨어지지 않도록 유지해주세요');
 });
 
 test('squat side heel scoring weights bottom contact over a noisy ascent phase', () => {
@@ -256,7 +256,7 @@ test('squat side heel scoring weights bottom contact over a noisy ascent phase',
 
   assert.ok(heelBreakdown, 'heel_contact must be part of side-view scoring');
   assert.equal(heelBreakdown.rawValue, 0.865);
-  assert.equal(heelBreakdown.normalizedScore, 100);
+  assert.equal(heelBreakdown.normalizedScore, 89.5);
   assert.notEqual(scored.feedback, '뒤꿈치가 떨어지지 않도록 유지해주세요');
 });
 
@@ -286,14 +286,14 @@ test('squat rep scoring does not cap to 55 when depth angle is sufficient but bo
       confidence: { score: 0.92, level: 'HIGH', factor: 1 },
       flags: { bottomReached: false, lockoutReached: true },
       metricStats: {
-        kneeAngle: { min: 118, max: 170 },
+        kneeAngle: { min: 104, max: 170 },
         hipAngle: { min: 108 },
         spineAngle: { max: 16 },
         kneeSymmetry: { avg: 3 },
         kneeAlignment: { avg: 0.02 },
         trunkTibiaAngle: { max: 12 },
         heelContact: { avg: 0.9 },
-        hipBelowKnee: { min: 0 },
+        hipBelowKnee: { min: 1 },
         kneeValgus: { avg: 0.02 },
       },
     },
@@ -305,7 +305,7 @@ test('squat rep scoring does not cap to 55 when depth angle is sufficient but bo
   assert.equal(scored.hardFails.includes('depth_not_reached'), false);
 });
 
-test('squat rep scoring still caps clearly shallow reps to 55', () => {
+test('squat rep scoring still caps clearly shallow reps to 45', () => {
   const squatModule = window.WorkoutExerciseRegistry.get('squat');
   const scoringEngine = {
     pickMetric(summary, phases, metricKey, statKey) {
@@ -347,7 +347,7 @@ test('squat rep scoring still caps clearly shallow reps to 55', () => {
   const scored = squatModule.scoreRep(scoringEngine, repRecord);
 
   assert.equal(scored.hardFails.includes('depth_not_reached'), true);
-  assert.equal(scored.score, 55);
+  assert.equal(scored.score, 45);
 });
 
 test('squat robust summary computes phase series statistics without serializing internal buffers', () => {

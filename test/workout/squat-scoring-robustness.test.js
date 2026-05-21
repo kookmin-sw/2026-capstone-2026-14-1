@@ -131,6 +131,44 @@ test('SQ-03 shallow squat is capped or marked partial even when other metrics ar
   assert.ok(result.rawMetrics.bottomKnee >= 120);
 });
 
+test('Phase 1 shallow squat at 112 degrees is capped to 70 even with otherwise strong side metrics', () => {
+  const result = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 112, max: 170 },
+      hipAngle: { min: 105, max: 165 },
+      spineAngle: { max: 10 },
+      trunkTibiaAngle: { max: 7 },
+      heelContact: { avg: 0.96 },
+      hipBelowKnee: { min: 0 },
+    }),
+  });
+
+  assertRepResultContract(result);
+  assert.equal(result.status, 'VALID_REP');
+  assert.ok(result.softFails.includes('depth'));
+  assert.ok(result.score <= 70);
+});
+
+test('Phase 1 shallow squat past partial range is hard failed and capped to 45', () => {
+  const result = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 121, max: 170 },
+      hipAngle: { min: 105, max: 165 },
+      spineAngle: { max: 10 },
+      trunkTibiaAngle: { max: 7 },
+      heelContact: { avg: 0.96 },
+      hipBelowKnee: { min: 0 },
+    }),
+  });
+
+  assertRepResultContract(result);
+  assert.equal(result.status, 'PARTIAL_REP');
+  assert.ok(result.hardFails.includes('depth_not_reached'));
+  assert.ok(result.score <= 45);
+});
+
 test('SQ-04 front knee valgus gets primary feedback priority', () => {
   const result = scoreSquatRep({
     view: 'FRONT',
@@ -143,9 +181,46 @@ test('SQ-04 front knee valgus gets primary feedback priority', () => {
   });
 
   assertRepResultContract(result);
-  assert.equal(result.status, 'VALID_REP');
+  assert.equal(result.status, 'PARTIAL_REP');
+  assert.ok(result.hardFails.includes('severe_knee_valgus'));
+  assert.ok(result.score <= 50);
   assert.match(result.primaryFeedback, /무릎|knee/i);
   assert.match(result.primaryFeedback, /안쪽|valgus/i);
+});
+
+test('Phase 1 severe front knee valgus is hard failed and capped to 50', () => {
+  const result = scoreSquatRep({
+    view: 'FRONT',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 94, max: 170 },
+      kneeSymmetry: { avg: 4 },
+      kneeValgus: { avg: 0.10 },
+      hipBelowKnee: { min: 1 },
+    }),
+  });
+
+  assertRepResultContract(result);
+  assert.equal(result.status, 'PARTIAL_REP');
+  assert.ok(result.hardFails.includes('severe_knee_valgus'));
+  assert.ok(result.score <= 50);
+  assert.match(result.primaryFeedback, /무릎|knee/i);
+});
+
+test('Phase 1 moderate front knee valgus is a soft fail and capped to 80', () => {
+  const result = scoreSquatRep({
+    view: 'FRONT',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 94, max: 170 },
+      kneeSymmetry: { avg: 4 },
+      kneeValgus: { avg: 0.08 },
+      hipBelowKnee: { min: 1 },
+    }),
+  });
+
+  assertRepResultContract(result);
+  assert.equal(result.status, 'VALID_REP');
+  assert.ok(result.softFails.includes('knee_valgus'));
+  assert.ok(result.score <= 80);
 });
 
 test('SQ-05 incomplete lockout becomes a partial rep or receives the lockout cap', () => {
@@ -177,6 +252,33 @@ test('SQ-06 raised heel gets heel-contact primary feedback in side view', () => 
   assertRepResultContract(result);
   assert.equal(result.status, 'VALID_REP');
   assert.match(result.primaryFeedback, /뒤꿈치|heel/i);
+});
+
+test('Phase 1 repeated heel lift caps side squat score by break-frame severity', () => {
+  const result = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 94, max: 170 },
+      hipAngle: { min: 106, max: 165 },
+      trunkTibiaAngle: { max: 8 },
+      heelContact: { avg: 0.92 },
+    }),
+    extraSummary: {
+      phases: {
+        BOTTOM: {
+          robust: {
+            heelContactAvg: 0.92,
+            heelContactBreakFrames: 5,
+          },
+        },
+      },
+    },
+  });
+
+  assertRepResultContract(result);
+  assert.equal(result.status, 'VALID_REP');
+  assert.ok(result.softFails.includes('heel_contact'));
+  assert.ok(result.score <= 70);
 });
 
 test('SQ-07 excessive trunk imbalance gets trunk feedback in side view', () => {
@@ -384,14 +486,33 @@ test('Phase 2 front and side scoring weights follow the config contract', () => 
   assert.equal(front.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.25);
   assert.equal(front.breakdown.find((item) => item.key === 'knee_symmetry').configuredWeight, 0.20);
   assert.equal(front.breakdown.find((item) => item.key === 'trunk_stability').configuredWeight, 0.15);
-  assert.equal(side.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.36);
-  assert.equal(side.breakdown.find((item) => item.key === 'trunk_tibia_angle').configuredWeight, 0.22);
-  assert.equal(side.breakdown.find((item) => item.key === 'hip_angle').configuredWeight, 0.18);
-  assert.equal(side.breakdown.find((item) => item.key === 'trunk_stability').configuredWeight, 0.16);
-  assert.equal(side.breakdown.find((item) => item.key === 'heel_contact').configuredWeight, 0.08);
+  assert.equal(side.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.34);
+  assert.equal(side.breakdown.find((item) => item.key === 'trunk_tibia_angle').configuredWeight, 0.26);
+  assert.equal(side.breakdown.find((item) => item.key === 'hip_angle').configuredWeight, 0.16);
+  assert.equal(side.breakdown.find((item) => item.key === 'trunk_stability').configuredWeight, 0.14);
+  assert.equal(side.breakdown.find((item) => item.key === 'heel_contact').configuredWeight, 0.10);
   assert.equal(side.breakdown.some((item) => item.key === 'knee_alignment'), false);
   const sideWeightSum = side.breakdown.reduce((s, item) => s + item.configuredWeight, 0);
   assert.ok(Math.abs(sideWeightSum - 1) < 1e-6, 'SIDE metric weights must sum to 1');
+});
+
+test('Phase 1 side trunk-tibia mismatch below 85 receives feedback and stronger penalty', () => {
+  const result = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 94, max: 170 },
+      hipAngle: { min: 108, max: 165 },
+      trunkTibiaAngle: { max: 15 },
+      spineAngle: { max: 12 },
+      heelContact: { avg: 0.92 },
+    }),
+  });
+
+  const trunkTibia = result.breakdown.find((item) => item.key === 'trunk_tibia_angle');
+
+  assert.ok(trunkTibia, 'trunk_tibia_angle metric should be present');
+  assert.equal(trunkTibia.normalizedScore, 75);
+  assert.match(trunkTibia.feedback, /상체|평행|다리/);
 });
 
 test('Phase 2 trunk stability uses the relaxed trunk lean curve', () => {

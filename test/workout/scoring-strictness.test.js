@@ -241,7 +241,7 @@ test('squat rep score is capped when a soft failure is present', () => {
   });
 
   assert.deepEqual(result.softFails, ['knee_symmetry']);
-  assert.equal(result.score, 85);
+  assert.equal(result.score, 80);
 });
 
 test('squat rep score ignores capture confidence when posture metrics match', () => {
