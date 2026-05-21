@@ -63,6 +63,10 @@
     alignment: [[0.03, 100], [0.05, 75], [0.08, 30], [0.12, 5], [0.16, 0]],
     heelContact: [[0.90, 100], [0.80, 70], [0.65, 35], [0.50, 10], [0, 0]]
   };
+  const KNEE_VALGUS_THRESHOLDS = {
+    soft: { avg: 0.08, p90: 0.08, badRatio: 0.20 },
+    severe: { avg: 0.10, p90: 0.10, badRatio: 0.35 }
+  };
 
   const squatExercise = {
     code: 'squat',
@@ -405,6 +409,15 @@
       const depthGoodRatio = bottomRobust?.depthGoodRatio ?? null;
       const depthPartialRatio = bottomRobust?.depthPartialRatio ?? null;
       const avgKneeValgus = firstFinite(robustSources.scoring?.valgusAvg, robustSources.overall?.valgusAvg, fallbackAvgKneeValgus);
+      const kneeValgusP90 = firstFinite(
+        maxFiniteAcrossPhases(summary, (r) => r?.valgusP90),
+        robustSources.overall?.valgusP90
+      ) ?? null;
+      const kneeValgusBadRatio = firstFinite(
+        maxFiniteAcrossPhases(summary, (r) => r?.valgusBadRatio),
+        robustSources.overall?.valgusBadRatio
+      ) ?? null;
+      const kneeValgusScoreValue = maxFinite(avgKneeValgus, kneeValgusP90);
 
       const depthClass = classifyDepth(bottomKnee, bottomHipBelowKnee, bottomHipNearKnee);
       const rawMetrics = buildRawMetrics({
@@ -422,6 +435,9 @@
         depthPartialRatio,
         depthClass,
         avgKneeValgus,
+        kneeValgusP90,
+        kneeValgusBadRatio,
+        kneeValgusScoreValue,
         lockoutKnee,
         lockoutHip,
         confidence
@@ -459,7 +475,7 @@
       if (!isLockoutComplete(summary, lockoutKnee, lockoutHip)) {
         hardFails.push('lockout_incomplete');
       }
-      if (view === 'FRONT' && Number.isFinite(avgKneeValgus) && avgKneeValgus >= 0.10) {
+      if (view === 'FRONT' && isKneeValgusSevere(avgKneeValgus, kneeValgusP90, kneeValgusBadRatio)) {
         hardFails.push('severe_knee_valgus');
       }
       const metricPlan = getMetricPlan(view, {
@@ -472,10 +488,11 @@
         bottomHipNearKnee,
         depthClass,
         avgKneeValgus,
+        kneeValgusScoreValue,
         kneeSymmetry,
         kneeAlignment
       });
-      const breakdown = [];
+      let breakdown = [];
       let weightedScore = 0;
       let totalWeight = 0;
 
@@ -528,7 +545,7 @@
           softFails = [...softFails, 'heel_contact'];
         }
       }
-      if (view === 'FRONT' && Number.isFinite(avgKneeValgus) && avgKneeValgus >= 0.08) {
+      if (view === 'FRONT' && hasKneeValgusIssue(avgKneeValgus, kneeValgusP90, kneeValgusBadRatio)) {
         if (!softFails.includes('knee_valgus')) {
           softFails = [...softFails, 'knee_valgus'];
         }
@@ -544,6 +561,7 @@
 
       finalScore = applySoftFailCap(finalScore, softFails.length);
       finalScore = Math.max(0, Math.min(100, Math.round(finalScore)));
+      breakdown = applyMetricIssueCaps(breakdown, { hardFails, softFails });
 
       const feedback = pickFeedback({
         hardFails,
@@ -574,6 +592,9 @@
         lockoutHip,
         depthGoodRatio,
         depthPartialRatio,
+        kneeValgusP90,
+        kneeValgusBadRatio,
+        kneeValgusScoreValue,
         hardFails,
         softFails,
         depthClass,
@@ -1240,8 +1261,8 @@
       },
       knee_valgus: {
         title: '무릎 안쪽 무너짐',
-        scorer: () => scoreKneeValgus(values.avgKneeValgus),
-        rawValue: () => values.avgKneeValgus,
+        scorer: () => scoreKneeValgus(firstFinite(values.kneeValgusScoreValue, values.avgKneeValgus)),
+        rawValue: () => firstFinite(values.kneeValgusScoreValue, values.avgKneeValgus),
         feedback: '무릎이 안쪽으로 무너지지 않도록 바깥쪽 힘으로 밀어주세요'
       }
     };
@@ -1293,6 +1314,20 @@
     return scoreCurve(value, CURVES.kneeValgus);
   }
 
+  function isKneeValgusSevere(avg, p90, badRatio) {
+    const thresholds = KNEE_VALGUS_THRESHOLDS.severe;
+    return (Number.isFinite(avg) && avg >= thresholds.avg) ||
+      (Number.isFinite(p90) && p90 >= thresholds.p90) ||
+      (Number.isFinite(badRatio) && badRatio >= thresholds.badRatio);
+  }
+
+  function hasKneeValgusIssue(avg, p90, badRatio) {
+    const thresholds = KNEE_VALGUS_THRESHOLDS.soft;
+    return (Number.isFinite(avg) && avg >= thresholds.avg) ||
+      (Number.isFinite(p90) && p90 >= thresholds.p90) ||
+      (Number.isFinite(badRatio) && badRatio >= thresholds.badRatio);
+  }
+
   function applySoftFailCap(score, softFailCount) {
     if (!Number.isFinite(score)) return score;
     if (softFailCount >= 3) return Math.min(score, 50);
@@ -1332,6 +1367,47 @@
       return Math.min(score, 70);
     }
     return Math.min(score, 45);
+  }
+
+  function applyMetricIssueCaps(breakdown, { hardFails = [], softFails = [] } = {}) {
+    let capped = Array.isArray(breakdown) ? breakdown : [];
+
+    if (hardFails.includes('depth_not_reached')) {
+      capped = capMetricScore(capped, 'depth', 45, '조금 더 깊이 앉아주세요');
+    }
+    if (hardFails.includes('depth_not_held')) {
+      capped = capMetricScore(capped, 'depth', 55, '조금 더 깊이 앉아주세요');
+    }
+    if (softFails.includes('depth')) {
+      capped = capMetricScore(capped, 'depth', 70, '조금 더 깊이 앉아주세요');
+    }
+    if (hardFails.includes('severe_knee_valgus')) {
+      capped = capMetricScore(capped, 'knee_valgus', 50, '무릎이 안쪽으로 무너지지 않도록 바깥쪽 힘으로 밀어주세요');
+    }
+    if (softFails.includes('knee_valgus')) {
+      capped = capMetricScore(capped, 'knee_valgus', 80, '무릎이 안쪽으로 무너지지 않도록 바깥쪽 힘으로 밀어주세요');
+    }
+
+    return capped;
+  }
+
+  function capMetricScore(breakdown, key, cap, feedback) {
+    return breakdown.map((item) => {
+      if (item.key !== key || !Number.isFinite(item.normalizedScore)) {
+        return item;
+      }
+
+      const normalizedScore = Math.min(item.normalizedScore, cap);
+      const maxScore = Number(item.maxScore);
+      return {
+        ...item,
+        normalizedScore: Math.round(normalizedScore * 100) / 100,
+        score: Number.isFinite(maxScore) && maxScore > 0
+          ? Math.round((normalizedScore / 100) * maxScore)
+          : item.score,
+        feedback: item.feedback || feedback || null
+      };
+    });
   }
 
   function classifyDepth(bottomKnee, hipBelowKnee, hipNearKnee) {
@@ -1378,6 +1454,9 @@
     depthPartialRatio,
     depthClass,
     avgKneeValgus,
+    kneeValgusP90,
+    kneeValgusBadRatio,
+    kneeValgusScoreValue,
     lockoutKnee,
     lockoutHip,
     confidence
@@ -1397,6 +1476,9 @@
       depthPartialRatio,
       depthClass,
       avgKneeValgus,
+      kneeValgusP90,
+      kneeValgusBadRatio,
+      kneeValgusScoreValue,
       lockoutKnee,
       lockoutHip,
       confidence: confidence?.level || null

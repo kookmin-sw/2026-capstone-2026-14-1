@@ -77,6 +77,12 @@ function assertRepResultContract(result) {
   assert.ok(result.rawMetrics && typeof result.rawMetrics === 'object', 'result must include rawMetrics object');
 }
 
+function findMetric(result, key) {
+  const metric = result.breakdown.find((item) => item.key === key);
+  assert.ok(metric, `${key} must be present in breakdown`);
+  return metric;
+}
+
 test('SQ-01 normal front squat returns a valid high-scoring rep', () => {
   const result = scoreSquatRep({
     view: 'FRONT',
@@ -236,6 +242,7 @@ test('Phase 2 squat is capped when good depth is only a brief moment', () => {
   assert.equal(result.status, 'PARTIAL_REP');
   assert.ok(result.hardFails.includes('depth_not_held'));
   assert.ok(result.score <= 55);
+  assert.equal(findMetric(result, 'depth').normalizedScore, 55);
 });
 
 test('SQ-04 front knee valgus gets primary feedback priority', () => {
@@ -273,6 +280,35 @@ test('Phase 1 severe front knee valgus is hard failed and capped to 50', () => {
   assert.ok(result.hardFails.includes('severe_knee_valgus'));
   assert.ok(result.score <= 50);
   assert.match(result.primaryFeedback, /무릎|knee/i);
+});
+
+test('Phase 2 front knee valgus uses bad-frame severity for fail and card score', () => {
+  const result = scoreSquatRep({
+    view: 'FRONT',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 94, max: 170 },
+      kneeSymmetry: { avg: 4 },
+      kneeValgus: { avg: 0.02 },
+      hipBelowKnee: { min: 1 },
+    }),
+    extraSummary: {
+      phases: {
+        BOTTOM: {
+          robust: {
+            valgusAvg: 0.02,
+            valgusP90: 0.10,
+            valgusBadRatio: 0.4,
+          },
+        },
+      },
+    },
+  });
+
+  assertRepResultContract(result);
+  assert.equal(result.status, 'PARTIAL_REP');
+  assert.ok(result.hardFails.includes('severe_knee_valgus'));
+  assert.ok(result.score <= 50);
+  assert.ok(findMetric(result, 'knee_valgus').normalizedScore <= 50);
 });
 
 test('Phase 1 moderate front knee valgus is a soft fail and capped to 80', () => {
