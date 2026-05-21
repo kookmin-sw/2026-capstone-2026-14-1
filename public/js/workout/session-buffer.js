@@ -332,6 +332,37 @@ class SessionBuffer {
     return Math.round(sum / scores.length);
   }
 
+  calculateWithholdRatio(withholdEvents = []) {
+    const withholdCount = Array.isArray(withholdEvents) ? withholdEvents.length : 0;
+    if (withholdCount <= 0) return 0;
+
+    const nonWithheldRepResults = (this.repResults || []).filter((item) => {
+      const result = item?.repResult || item?.rep_result || item?.result;
+      return result && result !== 'withheld';
+    }).length;
+    const scoredSampleCount = Math.max(
+      this.scoreTimeline.length,
+      this.repRecords.length,
+      nonWithheldRepResults
+    );
+    const totalObserved = scoredSampleCount + withholdCount;
+
+    return totalObserved > 0 ? withholdCount / totalObserved : 0;
+  }
+
+  getWithholdScoreCap(withholdRatio) {
+    if (withholdRatio > 0.5) return 60;
+    if (withholdRatio > 0.3) return 75;
+    return null;
+  }
+
+  applyWithholdScoreCap(score, withholdRatio) {
+    const normalizedScore = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
+    const cap = this.getWithholdScoreCap(withholdRatio);
+
+    return cap == null ? normalizedScore : Math.min(normalizedScore, cap);
+  }
+
   /**
    * 총 횟수 계산
    */
@@ -523,9 +554,22 @@ class SessionBuffer {
     const normalizedPostureScore = this.normalizeNonNegativeInt(options.bestHoldPostureScore);
     const postureScore = normalizedPostureScore != null ? normalizedPostureScore : this.calculateFinalScore();
     const timeScore = isTimeBased ? this.calculateTimeScore(bestHoldSec, targetSec) : 0;
-    const finalScore = isTimeBased
+
+    // MVP export: withhold 이벤트 집계
+    const withholdEvents = (this.events || []).filter(
+      (event) => event.type === 'QUALITY_GATE_WITHHOLD',
+    );
+    const withholdReasonCounts = withholdEvents.reduce((acc, event) => {
+      const reason = event.withhold_reason || 'unknown';
+      acc[reason] = (acc[reason] || 0) + 1;
+      return acc;
+    }, {});
+    const withholdRatio = this.calculateWithholdRatio(withholdEvents);
+    const rawFinalScore = isTimeBased
       ? Math.max(0, Math.min(100, Math.round((postureScore * 0.8) + (timeScore * 0.2))))
       : this.calculateFinalScore();
+    const finalScore = this.applyWithholdScoreCap(rawFinalScore, withholdRatio);
+    const withholdScoreCap = this.getWithholdScoreCap(withholdRatio);
     const resultPayload = isTimeBased
       ? {
           result_basis: 'DURATION',
@@ -537,16 +581,6 @@ class SessionBuffer {
       : this.getResultPayload();
 
     const interimSnapshots = this.generateInterimSnapshots();
-
-    // MVP export: withhold 이벤트 집계
-    const withholdEvents = (this.events || []).filter(
-      (event) => event.type === 'QUALITY_GATE_WITHHOLD',
-    );
-    const withholdReasonCounts = withholdEvents.reduce((acc, event) => {
-      const reason = event.withhold_reason || 'unknown';
-      acc[reason] = (acc[reason] || 0) + 1;
-      return acc;
-    }, {});
 
     return {
       // 기본 세션 정보
@@ -572,7 +606,9 @@ class SessionBuffer {
 
       // MVP export: withhold 및 rep 결과 필드
       withhold_count: withholdEvents.length,
+      withhold_ratio: Math.round(withholdRatio * 100) / 100,
       withhold_reason_counts: withholdReasonCounts,
+      score_cap_applied: withholdScoreCap,
       rep_results: this.repResults || []
     };
   }

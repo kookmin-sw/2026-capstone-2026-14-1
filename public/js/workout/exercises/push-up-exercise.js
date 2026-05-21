@@ -50,6 +50,7 @@
         {
           weight: 0.35,
           max_score: 35,
+          required: true,
           rule: {
             ideal_min: 70,
             ideal_max: 100,
@@ -84,6 +85,7 @@
         {
           weight: 0.25,
           max_score: 25,
+          required: true,
           rule: {
             ideal_min: 155,
             ideal_max: 180,
@@ -300,11 +302,12 @@
         finalScore = Math.min(finalScore, 60);
       }
 
-      finalScore = Math.max(0, Math.min(100, Math.round(finalScore)));
-
       const softFails = breakdown
         .filter((item) => item.maxScore > 0 && (item.score / item.maxScore) < 0.7)
         .map((item) => item.key);
+
+      finalScore = applySoftFailCap(finalScore, softFails.length);
+      finalScore = Math.max(0, Math.min(100, Math.round(finalScore)));
 
       const feedback = pickFeedback({
         hardFails,
@@ -700,6 +703,14 @@
     if (value >= 500 && value < 700) return interpolate(value, 500, 700, 35, 70);
     if (value > 3500 && value <= 5000) return interpolate(value, 3500, 5000, 70, 35);
     return 20;
+  }
+
+  function applySoftFailCap(score, softFailCount) {
+    if (!Number.isFinite(score)) return score;
+    if (softFailCount >= 3) return Math.min(score, 65);
+    if (softFailCount >= 2) return Math.min(score, 75);
+    if (softFailCount >= 1) return Math.min(score, 85);
+    return score;
   }
 
   function interpolate(value, inMin, inMax, outMin, outMax) {

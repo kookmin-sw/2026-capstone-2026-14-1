@@ -1,12 +1,18 @@
 /**
  * FitPlus Scoring Engine — 프레임 단위 자세 채점 및 공통 품질 게이트
  *
- * - `calculate(angles)`: DB `scoring_profile_metric` 규칙으로 각 메트릭 점수·가중 합산 (실시간 UI용).
+ * - `calculate(angles)`: DB `scoring_profile_metric` 규칙으로 각 메트릭 점수·weight 가중 합산 (실시간 UI용).
  * - `scoreRep(repRecord)`: 운동 모듈에 위임해 rep 단위 최종 채점(없으면 repRecord 그대로 반환).
  * - 파일 하단 `evaluateQualityGate` / `applyRepOutcome`: 세션·스펙 공통 게이트/결과 전이 (운동 모듈 밖).
  *
  * 전역: window.ScoringEngine, evaluateQualityGate, QUALITY_GATE_THRESHOLDS, …
  */
+
+const REQUIRED_METRIC_KEYS_BY_EXERCISE = {
+  squat: new Set(['depth', 'knee_valgus']),
+  push_up: new Set(['elbow_depth', 'hip_angle']),
+  pushup: new Set(['elbow_depth', 'hip_angle'])
+};
 
 class ScoringEngine {
   /**
@@ -55,6 +61,36 @@ class ScoringEngine {
       .replace(/-/g, '_');
   }
 
+  isTruthyFlag(value) {
+    return value === true || value === 1 || value === '1' || value === 'true';
+  }
+
+  isRequiredMetric(profileMetric) {
+    const metricKey = profileMetric?.metric?.key;
+    const requiredKeys = REQUIRED_METRIC_KEYS_BY_EXERCISE[this.exerciseCode];
+
+    return this.isTruthyFlag(profileMetric?.required)
+      || this.isTruthyFlag(profileMetric?.is_required)
+      || this.isTruthyFlag(profileMetric?.metric?.required)
+      || this.isTruthyFlag(profileMetric?.metric?.is_required)
+      || this.isTruthyFlag(profileMetric?.rule?.required)
+      || Boolean(metricKey && requiredKeys?.has(metricKey));
+  }
+
+  getMetricWeight(profileMetric) {
+    const explicitWeight = Number(profileMetric?.weight);
+    if (Number.isFinite(explicitWeight) && explicitWeight > 0) {
+      return explicitWeight;
+    }
+
+    const fallbackMaxScore = Number(profileMetric?.max_score);
+    if (Number.isFinite(fallbackMaxScore) && fallbackMaxScore > 0) {
+      return fallbackMaxScore;
+    }
+
+    return 1;
+  }
+
   /**
    * 현재 포즈에 대한 점수 계산
    * @param {Object} angles - PoseEngine에서 계산된 각도들
@@ -66,27 +102,48 @@ class ScoringEngine {
     }
 
     const breakdown = [];
-    let totalScore = 0;
+    let weightedScore = 0;
     let totalWeight = 0;
+    const missingRequiredMetrics = [];
 
     for (const pm of this.metrics) {
       const metric = pm.metric;
       const rule = pm.rule || {};
+      const maxScore = Number.isFinite(Number(pm.max_score)) && Number(pm.max_score) > 0
+        ? Number(pm.max_score)
+        : 100;
+      const metricWeight = this.getMetricWeight(pm);
 
       // DB metric.key ↔ PoseEngine angles 키 — 측면뷰면 visibleSide 등으로 좌/우 선택
       const actualValue = this.getMetricValue(angles, metric.key);
 
       if (actualValue === null) {
-        continue; // 각도 소스 없음(가려짐·뷰 불일치 등) — 해당 메트릭은 합산에서 제외
+        if (!this.isRequiredMetric(pm)) {
+          continue; // 선택 메트릭은 각도 소스 없음(가려짐·뷰 불일치 등)일 때 합산에서 제외
+        }
+
+        missingRequiredMetrics.push(metric.key);
+        breakdown.push({
+          metric_id: metric.metric_id,
+          key: metric.key,
+          title: metric.title,
+          unit: metric.unit,
+          actualValue: null,
+          score: 0,
+          normalizedScore: 0,
+          maxScore,
+          weight: metricWeight,
+          feedback: '필수 자세 지표가 측정되지 않았습니다'
+        });
+        totalWeight += metricWeight;
+        continue;
       }
 
-      // rule.type: threshold | optimal | … → 0 ~ pm.max_score 사이 원시 점수
-      const metricScore = this.evaluateMetric(actualValue, rule, pm.max_score);
+      // rule.type: threshold | optimal | … → 0 ~ maxScore 사이 원시 점수
+      const metricScore = this.evaluateMetric(actualValue, rule, maxScore);
 
       // UI/로그용 0~100 스케일 (메트릭별 max가 다를 수 있음)
-      const normalizedScore = Number.isFinite(Number(pm.max_score)) && Number(pm.max_score) > 0
-        ? Math.max(0, Math.min(100, (metricScore / Number(pm.max_score)) * 100))
-        : null;
+      const normalizedScore = Math.max(0, Math.min(100, (metricScore / maxScore) * 100));
 
       breakdown.push({
         metric_id: metric.metric_id,
@@ -96,21 +153,24 @@ class ScoringEngine {
         actualValue,
         score: metricScore,
         normalizedScore,
-        maxScore: pm.max_score,
-        weight: pm.weight,
+        maxScore,
+        weight: metricWeight,
         // max의 70% 미만일 때만 교정 힌트를 달아 checkFeedback 후보로 쓸 수 있게 함
-        feedback: metricScore < pm.max_score * 0.7 ?
+        feedback: normalizedScore < 70 ?
           this.generateFeedback(metric.key, actualValue, rule) : null
       });
 
-      // 가중 합이 아니라 max_score 비율로 최종 0~100 환산하기 위한 분모 누적
-      totalScore += metricScore;
-      totalWeight += pm.max_score;
+      weightedScore += normalizedScore * metricWeight;
+      totalWeight += metricWeight;
     }
 
-    const finalScore = totalWeight > 0
-      ? Math.round((totalScore / totalWeight) * 100)
+    let finalScore = totalWeight > 0
+      ? Math.round(weightedScore / totalWeight)
       : 0;
+
+    if (missingRequiredMetrics.length > 0) {
+      finalScore = Math.min(finalScore, 60);
+    }
 
     // 히스토리에 추가
     this.scoreHistory.push(finalScore);
@@ -121,6 +181,7 @@ class ScoringEngine {
     return {
       score: finalScore,
       breakdown,
+      missingRequiredMetrics,
       timestamp: Date.now()
     };
   }

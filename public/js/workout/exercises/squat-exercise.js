@@ -72,6 +72,7 @@
         {
           weight: 0.35,
           max_score: 35,
+          required: true,
           rule: {
             ideal_min: 90,
             ideal_max: 100,
@@ -166,6 +167,7 @@
         {
           weight: 0.10,
           max_score: 10,
+          required: true,
           rule: {
             ideal_min: 0,
             ideal_max: 0.03,
@@ -508,8 +510,6 @@
         finalScore = Math.min(finalScore, 60);
       }
 
-      finalScore = Math.max(0, Math.min(100, Math.round(finalScore)));
-
       let softFails = breakdown
         .filter((item) => item.maxScore > 0 && (item.score / item.maxScore) < 0.7)
         .map((item) => item.key);
@@ -519,6 +519,9 @@
           softFails = [...softFails, 'heel_contact'];
         }
       }
+
+      finalScore = applySoftFailCap(finalScore, softFails.length);
+      finalScore = Math.max(0, Math.min(100, Math.round(finalScore)));
 
       const feedback = pickFeedback({
         hardFails,
@@ -1256,6 +1259,14 @@
 
   function scoreKneeValgus(value) {
     return scoreCurve(value, CURVES.kneeValgus);
+  }
+
+  function applySoftFailCap(score, softFailCount) {
+    if (!Number.isFinite(score)) return score;
+    if (softFailCount >= 3) return Math.min(score, 65);
+    if (softFailCount >= 2) return Math.min(score, 75);
+    if (softFailCount >= 1) return Math.min(score, 85);
+    return score;
   }
 
   function scoreCurve(value, curve) {
