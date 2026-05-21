@@ -729,7 +729,10 @@ class ScoringEngine {
       'knee_over_toe': {
         default: '무릎과 발 방향이 어긋나지 않도록 맞춰주세요'
       },
-      'trunk_tibia_angle': { low: '상체와 다리가 평행하도록 자세를 유지해주세요', high: '상체가 너무 누워있습니다' },
+      'trunk_tibia_angle': {
+        low: '상체와 다리가 평행하도록 자세를 유지해주세요',
+        // high: '상체가 너무 누워있습니다' // 추후 상체 과도 기울기 피드백 재활성화 시 사용
+      },
       'tibia_angle': { low: '무릎을 조금 더 굽혀주세요', high: '무릎이 너무 앞으로 나갔습니다' },
       'heel_contact': { default: '뒤꿈치가 떨어지지 않도록 유지해주세요' },
       'lumbar_angle': { low: '요추를 중립으로 유지해주세요', high: '엉덩이가 뒤로 말리고 있습니다' },

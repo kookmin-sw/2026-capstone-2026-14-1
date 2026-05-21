@@ -927,7 +927,7 @@ class PoseEngine {
     const key = (metricKey || '').toString().toLowerCase();
     if (!key) return null;
 
-    if (key.includes('spine') || key.includes('torso') || key.includes('back') || key.includes('trunk')) {
+    if (key.includes('spine') || key.includes('torso') || key.includes('back')) {
       return this.getSpineVisualMap();
     }
 
