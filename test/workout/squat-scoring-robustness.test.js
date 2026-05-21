@@ -101,6 +101,27 @@ test('SQ-01 normal front squat returns a valid high-scoring rep', () => {
   assert.equal(Number.isFinite(result.rawMetrics.bottomKnee), true);
 });
 
+test('front squat with borderline depth does not receive inflated perfect metric cards', () => {
+  const result = scoreSquatRep({
+    view: 'FRONT',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 98, max: 170 },
+      spineAngle: { max: 20 },
+      kneeSymmetry: { avg: 8 },
+      kneeAlignment: { avg: 0.02 },
+      kneeValgus: { avg: 0.02 },
+      hipBelowKnee: { min: 0 },
+    }),
+  });
+
+  assertRepResultContract(result);
+  assert.equal(result.rawMetrics.depthClass, 'depth_partial');
+  assert.ok(result.score <= 80);
+  assert.ok(findMetric(result, 'knee_valgus').normalizedScore < 100);
+  assert.ok(findMetric(result, 'knee_symmetry').normalizedScore < 100);
+  assert.ok(findMetric(result, 'trunk_stability').normalizedScore < 100);
+});
+
 test('SQ-02 normal side squat returns a valid high-scoring rep', () => {
   const result = scoreSquatRep({
     view: 'SIDE',
@@ -137,7 +158,7 @@ test('SQ-03 shallow squat is capped or marked partial even when other metrics ar
   assert.ok(result.rawMetrics.bottomKnee >= 120);
 });
 
-test('Phase 1 shallow squat at 112 degrees is capped to 70 even with otherwise strong side metrics', () => {
+test('Phase 1 shallow squat at 112 degrees is now a depth failure and capped to 55', () => {
   const result = scoreSquatRep({
     view: 'SIDE',
     metricStats: baseMetrics({
@@ -151,12 +172,12 @@ test('Phase 1 shallow squat at 112 degrees is capped to 70 even with otherwise s
   });
 
   assertRepResultContract(result);
-  assert.equal(result.status, 'VALID_REP');
-  assert.ok(result.softFails.includes('depth'));
-  assert.ok(result.score <= 70);
+  assert.equal(result.status, 'PARTIAL_REP');
+  assert.ok(result.hardFails.includes('depth_not_reached'));
+  assert.ok(result.score <= 55);
 });
 
-test('Phase 1 shallow squat past partial range is hard failed and capped to 45', () => {
+test('Phase 1 shallow squat past partial range is hard failed and capped to 55', () => {
   const result = scoreSquatRep({
     view: 'SIDE',
     metricStats: baseMetrics({
@@ -172,7 +193,7 @@ test('Phase 1 shallow squat past partial range is hard failed and capped to 45',
   assertRepResultContract(result);
   assert.equal(result.status, 'PARTIAL_REP');
   assert.ok(result.hardFails.includes('depth_not_reached'));
-  assert.ok(result.score <= 45);
+  assert.ok(result.score <= 55);
 });
 
 test('Phase 2 final squat depth uses bottom median before brief deepest frames', () => {
@@ -206,7 +227,7 @@ test('Phase 2 final squat depth uses bottom median before brief deepest frames',
   assert.equal(result.rawMetrics.bottomKnee, 118);
   assert.equal(result.status, 'PARTIAL_REP');
   assert.ok(result.hardFails.includes('depth_not_reached'));
-  assert.ok(result.score <= 45);
+  assert.ok(result.score <= 55);
 });
 
 test('Phase 2 squat is capped when good depth is only a brief moment', () => {
@@ -317,7 +338,7 @@ test('Phase 1 moderate front knee valgus is a soft fail and capped to 80', () =>
     metricStats: baseMetrics({
       kneeAngle: { min: 94, max: 170 },
       kneeSymmetry: { avg: 4 },
-      kneeValgus: { avg: 0.08 },
+      kneeValgus: { avg: 0.05 },
       hipBelowKnee: { min: 1 },
     }),
   });
@@ -587,17 +608,20 @@ test('Phase 2 front and side scoring weights follow the config contract', () => 
     }),
   });
 
-  assert.equal(front.breakdown.find((item) => item.key === 'knee_valgus').configuredWeight, 0.40);
-  assert.equal(front.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.25);
-  assert.equal(front.breakdown.find((item) => item.key === 'knee_symmetry').configuredWeight, 0.20);
-  assert.equal(front.breakdown.find((item) => item.key === 'trunk_stability').configuredWeight, 0.15);
+  assert.equal(front.breakdown.find((item) => item.key === 'knee_valgus').configuredWeight, 0.30);
+  assert.equal(front.breakdown.find((item) => item.key === 'knee_symmetry').configuredWeight, 0.30);
+  assert.equal(front.breakdown.find((item) => item.key === 'knee_alignment').configuredWeight, 0.20);
+  assert.equal(front.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.10);
+  assert.equal(front.breakdown.find((item) => item.key === 'trunk_stability').configuredWeight, 0.10);
   assert.equal(side.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.34);
   assert.equal(side.breakdown.find((item) => item.key === 'trunk_tibia_angle').configuredWeight, 0.26);
   assert.equal(side.breakdown.find((item) => item.key === 'hip_angle').configuredWeight, 0.16);
   assert.equal(side.breakdown.find((item) => item.key === 'trunk_stability').configuredWeight, 0.14);
   assert.equal(side.breakdown.find((item) => item.key === 'heel_contact').configuredWeight, 0.10);
   assert.equal(side.breakdown.some((item) => item.key === 'knee_alignment'), false);
+  const frontWeightSum = front.breakdown.reduce((s, item) => s + item.configuredWeight, 0);
   const sideWeightSum = side.breakdown.reduce((s, item) => s + item.configuredWeight, 0);
+  assert.ok(Math.abs(frontWeightSum - 1) < 1e-6, 'FRONT metric weights must sum to 1');
   assert.ok(Math.abs(sideWeightSum - 1) < 1e-6, 'SIDE metric weights must sum to 1');
 });
 
@@ -620,7 +644,7 @@ test('Phase 1 side trunk-tibia mismatch below 85 receives feedback and stronger 
   assert.match(trunkTibia.feedback, /상체|평행|다리/);
 });
 
-test('Phase 2 trunk stability uses the relaxed trunk lean curve', () => {
+test('Phase 2 trunk stability uses the stricter trunk lean curve', () => {
   const result = scoreSquatRep({
     view: 'SIDE',
     metricStats: baseMetrics({
@@ -633,7 +657,7 @@ test('Phase 2 trunk stability uses the relaxed trunk lean curve', () => {
 
   const trunk = result.breakdown.find((item) => item.key === 'trunk_stability');
   assert.ok(trunk, 'trunk_stability metric should be present');
-  assert.equal(trunk.normalizedScore, 100);
+  assert.equal(trunk.normalizedScore, 86.5);
 });
 
 test('Phase 2 trunk stability curve penalizes forward lean more aggressively', () => {
@@ -654,7 +678,7 @@ test('Phase 2 trunk stability curve penalizes forward lean more aggressively', (
     return trunk.normalizedScore;
   };
 
-  assert.equal(scoreForSpine(35), 70);
-  assert.equal(scoreForSpine(45), 35);
-  assert.equal(scoreForSpine(60), 10);
+  assert.equal(scoreForSpine(35), 60);
+  assert.equal(scoreForSpine(45), 30);
+  assert.equal(scoreForSpine(60), 0);
 });

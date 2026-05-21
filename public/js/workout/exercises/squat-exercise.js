@@ -37,10 +37,11 @@
   const SQUAT_SCORING_CONFIG = {
     FRONT: {
       metrics: [
-        { key: 'knee_valgus', weight: 0.40, scorer: 'kneeValgus' },
-        { key: 'depth', weight: 0.25, scorer: 'kneeDepth' },
-        { key: 'knee_symmetry', weight: 0.20, scorer: 'symmetry' },
-        { key: 'trunk_stability', weight: 0.15, scorer: 'trunkLean' }
+        { key: 'knee_valgus', weight: 0.30, scorer: 'kneeValgus' },
+        { key: 'knee_symmetry', weight: 0.30, scorer: 'symmetry' },
+        { key: 'knee_alignment', weight: 0.20, scorer: 'alignment' },
+        { key: 'depth', weight: 0.10, scorer: 'kneeDepth' },
+        { key: 'trunk_stability', weight: 0.10, scorer: 'trunkLean' }
       ]
     },
     SIDE: {
@@ -54,18 +55,18 @@
     }
   };
   const CURVES = {
-    kneeDepth: [[90, 100], [100, 75], [110, 40], [120, 15], [130, 0]],
-    kneeValgus: [[0.03, 100], [0.05, 60], [0.08, 25], [0.10, 10], [0.12, 0]],
-    trunkLean: [[25, 100], [35, 70], [45, 35], [60, 10], [70, 0]],
+    kneeDepth: [[85, 100], [90, 95], [95, 80], [100, 60], [108, 25], [115, 0]],
+    kneeValgus: [[0.015, 100], [0.025, 85], [0.04, 60], [0.06, 30], [0.08, 10], [0.10, 0]],
+    trunkLean: [[15, 100], [25, 85], [35, 60], [45, 30], [60, 0]],
     hipDepth: [[110, 100], [120, 80], [140, 40], [155, 10], [170, 0]],
-    symmetry: [[10, 100], [18, 70], [28, 25], [40, 0]],
+    symmetry: [[4, 100], [8, 85], [15, 60], [25, 25], [35, 0]],
     angleDiff: [[10, 100], [15, 75], [25, 35], [35, 10], [50, 0]],
     alignment: [[0.03, 100], [0.05, 75], [0.08, 30], [0.12, 5], [0.16, 0]],
     heelContact: [[0.90, 100], [0.80, 70], [0.65, 35], [0.50, 10], [0, 0]]
   };
   const KNEE_VALGUS_THRESHOLDS = {
-    soft: { avg: 0.08, p90: 0.08, badRatio: 0.20 },
-    severe: { avg: 0.10, p90: 0.10, badRatio: 0.35 }
+    soft: { avg: 0.04, p90: 0.04, badRatio: 0.20 },
+    severe: { avg: 0.08, p90: 0.08, badRatio: 0.35 }
   };
 
   const squatExercise = {
@@ -1024,8 +1025,8 @@
     return {
       bottomKneeMedian: median(kneeAngles),
       bottomKneeLow10Avg: lowPercentileAverage(kneeAngles, 0.10),
-      depthGoodRatio: goodFrameRatio(kneeAngles, (value) => value <= 100),
-      depthPartialRatio: goodFrameRatio(kneeAngles, (value) => value <= 115),
+      depthGoodRatio: goodFrameRatio(kneeAngles, (value) => value <= 92),
+      depthPartialRatio: goodFrameRatio(kneeAngles, (value) => value <= 108),
       bottomHipMedian: median(hipAngles),
       bottomHipLow10Avg: lowPercentileAverage(hipAngles, 0.10),
       sampleCounts: {
@@ -1041,7 +1042,7 @@
       signedTrunkTibiaP90: percentile(series?.signedTrunkTibia || [], 0.9),
       valgusAvg: average(series?.kneeValgus || []),
       valgusP90: percentile(series?.kneeValgus || [], 0.9),
-      valgusBadRatio: badFrameRatio(series?.kneeValgus || [], (value) => value > 0.10),
+      valgusBadRatio: badFrameRatio(series?.kneeValgus || [], (value) => value > 0.08),
       heelContactAvg: average(series?.heelContact || []),
       heelContactBreakFrames: maxConsecutive(series?.heelContact || [], (value) => value === 0)
     };
@@ -1363,23 +1364,23 @@
     if (!Number.isFinite(score)) return score;
     if (!Number.isFinite(bottomKnee)) return score;
     if (isDepthGood(bottomKnee, hipBelowKnee)) return score;
-    if (bottomKnee <= 115 || hipNearKnee === 1) {
-      return Math.min(score, 70);
+    if (bottomKnee <= 108 || hipNearKnee === 1) {
+      return Math.min(score, 80);
     }
-    return Math.min(score, 45);
+    return Math.min(score, 55);
   }
 
   function applyMetricIssueCaps(breakdown, { hardFails = [], softFails = [] } = {}) {
     let capped = Array.isArray(breakdown) ? breakdown : [];
 
     if (hardFails.includes('depth_not_reached')) {
-      capped = capMetricScore(capped, 'depth', 45, '조금 더 깊이 앉아주세요');
+      capped = capMetricScore(capped, 'depth', 55, '조금 더 깊이 앉아주세요');
     }
     if (hardFails.includes('depth_not_held')) {
       capped = capMetricScore(capped, 'depth', 55, '조금 더 깊이 앉아주세요');
     }
     if (softFails.includes('depth')) {
-      capped = capMetricScore(capped, 'depth', 70, '조금 더 깊이 앉아주세요');
+      capped = capMetricScore(capped, 'depth', 80, '조금 더 깊이 앉아주세요');
     }
     if (hardFails.includes('severe_knee_valgus')) {
       capped = capMetricScore(capped, 'knee_valgus', 50, '무릎이 안쪽으로 무너지지 않도록 바깥쪽 힘으로 밀어주세요');
@@ -1412,15 +1413,15 @@
 
   function classifyDepth(bottomKnee, hipBelowKnee, hipNearKnee) {
     if (isDepthGood(bottomKnee, hipBelowKnee)) return 'depth_good';
-    if (Number.isFinite(bottomKnee) && bottomKnee <= 115) return 'depth_partial';
+    if (Number.isFinite(bottomKnee) && bottomKnee <= 108) return 'depth_partial';
     if (hipNearKnee === 1) return 'depth_partial';
     return 'depth_fail';
   }
 
   function isDepthGood(bottomKnee, hipBelowKnee) {
     return Number.isFinite(bottomKnee) && (
-      bottomKnee <= 100 ||
-      (bottomKnee <= 105 && hipBelowKnee === 1)
+      bottomKnee <= 92 ||
+      (bottomKnee <= 95 && hipBelowKnee === 1)
     );
   }
 

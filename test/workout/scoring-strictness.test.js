@@ -168,8 +168,8 @@ test('squat live depth scoring uses knee-angle depth curve instead of lenient de
 
   assert.ok(depth, 'depth must be scored live');
   assert.equal(depth.actualValue, 120);
-  assert.equal(depth.normalizedScore, 15);
-  assert.equal(result.score, 15);
+  assert.equal(depth.normalizedScore, 0);
+  assert.equal(result.score, 0);
 });
 
 test('push-up rep score is capped when multiple soft failures are present', () => {
@@ -266,7 +266,7 @@ test('squat rep score is capped when a soft failure is present', () => {
   });
 
   assert.deepEqual(result.softFails, ['knee_symmetry']);
-  assert.equal(result.score, 80);
+  assert.equal(result.score, 79);
 });
 
 test('squat rep score ignores capture confidence when posture metrics match', () => {
