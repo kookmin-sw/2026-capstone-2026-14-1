@@ -169,6 +169,75 @@ test('Phase 1 shallow squat past partial range is hard failed and capped to 45',
   assert.ok(result.score <= 45);
 });
 
+test('Phase 2 final squat depth uses bottom median before brief deepest frames', () => {
+  const result = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 96, max: 170 },
+      hipAngle: { min: 105, max: 165 },
+      spineAngle: { max: 10 },
+      trunkTibiaAngle: { max: 7 },
+      heelContact: { avg: 0.96 },
+      hipBelowKnee: { min: 0 },
+    }),
+    extraSummary: {
+      phases: {
+        BOTTOM: {
+          robust: {
+            bottomKneeMedian: 118,
+            bottomKneeLow10Avg: 96,
+            sampleCounts: { kneeAngle: 10 },
+            hipBelowKnee: 0,
+            hipNearKnee: 0,
+            heelContactAvg: 0.96,
+          },
+        },
+      },
+    },
+  });
+
+  assertRepResultContract(result);
+  assert.equal(result.rawMetrics.bottomKnee, 118);
+  assert.equal(result.status, 'PARTIAL_REP');
+  assert.ok(result.hardFails.includes('depth_not_reached'));
+  assert.ok(result.score <= 45);
+});
+
+test('Phase 2 squat is capped when good depth is only a brief moment', () => {
+  const result = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 94, max: 170 },
+      hipAngle: { min: 105, max: 165 },
+      spineAngle: { max: 10 },
+      trunkTibiaAngle: { max: 7 },
+      heelContact: { avg: 0.96 },
+      hipBelowKnee: { min: 1 },
+    }),
+    extraSummary: {
+      phases: {
+        BOTTOM: {
+          robust: {
+            bottomKneeMedian: 100,
+            bottomKneeLow10Avg: 94,
+            depthGoodRatio: 0.25,
+            depthPartialRatio: 0.75,
+            sampleCounts: { kneeAngle: 12 },
+            hipBelowKnee: 1,
+            hipNearKnee: 1,
+            heelContactAvg: 0.96,
+          },
+        },
+      },
+    },
+  });
+
+  assertRepResultContract(result);
+  assert.equal(result.status, 'PARTIAL_REP');
+  assert.ok(result.hardFails.includes('depth_not_held'));
+  assert.ok(result.score <= 55);
+});
+
 test('SQ-04 front knee valgus gets primary feedback priority', () => {
   const result = scoreSquatRep({
     view: 'FRONT',

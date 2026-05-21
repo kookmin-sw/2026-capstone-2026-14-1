@@ -74,11 +74,10 @@
           max_score: 35,
           required: true,
           rule: {
-            ideal_min: 90,
-            ideal_max: 100,
-            acceptable_min: 50,
-            acceptable_max: 100,
-            feedback_low: '더 깊이 앉아주세요'
+            type: 'curve',
+            curve: CURVES.kneeDepth,
+            feedback_low: '더 깊이 앉아주세요',
+            feedback_high: '더 깊이 앉아주세요'
           },
           metric: {
             metric_id: 'squat_depth',
@@ -347,11 +346,12 @@
 
       const phases = summary.phases || {};
       const bottomRobust = phases.BOTTOM?.robust;
-      const kneeN = bottomRobust?.sampleCounts?.kneeAngle ?? 0;
-      const hasEnoughBottomSamples = kneeN >= 5;
-      const bottomKnee = hasEnoughBottomSamples
-        ? firstFinite(bottomRobust?.bottomKneeLow10Avg, bottomRobust?.bottomKneeMedian, fallbackBottomKnee)
-        : firstFinite(bottomRobust?.bottomKneeMedian, fallbackBottomKnee);
+      const kneeN = bottomRobust?.sampleCounts?.kneeAngle;
+      const bottomKnee = firstFinite(
+        bottomRobust?.bottomKneeMedian,
+        bottomRobust?.bottomKneeLow10Avg,
+        fallbackBottomKnee
+      );
 
       const bottomHip = firstFinite(
         bottomRobust?.bottomHipLow10Avg,
@@ -402,6 +402,8 @@
       );
       const bottomHipBelowKnee = firstFinite(robustSources.bottom?.hipBelowKnee, fallbackBottomHipBelowKnee);
       const bottomHipNearKnee = robustSources.bottom?.hipNearKnee ?? null;
+      const depthGoodRatio = bottomRobust?.depthGoodRatio ?? null;
+      const depthPartialRatio = bottomRobust?.depthPartialRatio ?? null;
       const avgKneeValgus = firstFinite(robustSources.scoring?.valgusAvg, robustSources.overall?.valgusAvg, fallbackAvgKneeValgus);
 
       const depthClass = classifyDepth(bottomKnee, bottomHipBelowKnee, bottomHipNearKnee);
@@ -416,6 +418,8 @@
         heelContactBreakFrames,
         bottomHipBelowKnee,
         bottomHipNearKnee,
+        depthGoodRatio,
+        depthPartialRatio,
         depthClass,
         avgKneeValgus,
         lockoutKnee,
@@ -448,6 +452,9 @@
       const hardFails = [];
       if (depthClass === 'depth_fail') {
         hardFails.push('depth_not_reached');
+      }
+      if (bottomRobust && Number.isFinite(kneeN) && (kneeN < 8 || (Number.isFinite(depthGoodRatio) && depthGoodRatio < 0.4))) {
+        hardFails.push('depth_not_held');
       }
       if (!isLockoutComplete(summary, lockoutKnee, lockoutHip)) {
         hardFails.push('lockout_incomplete');
@@ -508,6 +515,9 @@
       if (hardFails.includes('severe_knee_valgus')) {
         finalScore = Math.min(finalScore, 50);
       }
+      if (hardFails.includes('depth_not_held')) {
+        finalScore = Math.min(finalScore, 55);
+      }
 
       let softFails = breakdown
         .filter((item) => item.maxScore > 0 && (item.score / item.maxScore) < 0.7)
@@ -562,6 +572,8 @@
         kneeAlignment,
         lockoutKnee,
         lockoutHip,
+        depthGoodRatio,
+        depthPartialRatio,
         hardFails,
         softFails,
         depthClass,
@@ -991,6 +1003,8 @@
     return {
       bottomKneeMedian: median(kneeAngles),
       bottomKneeLow10Avg: lowPercentileAverage(kneeAngles, 0.10),
+      depthGoodRatio: goodFrameRatio(kneeAngles, (value) => value <= 100),
+      depthPartialRatio: goodFrameRatio(kneeAngles, (value) => value <= 115),
       bottomHipMedian: median(hipAngles),
       bottomHipLow10Avg: lowPercentileAverage(hipAngles, 0.10),
       sampleCounts: {
@@ -1075,6 +1089,12 @@
   }
 
   function badFrameRatio(values, predicate) {
+    const arr = finiteValues(values);
+    if (!arr.length) return null;
+    return roundMetric(arr.filter(predicate).length / arr.length, 3);
+  }
+
+  function goodFrameRatio(values, predicate) {
     const arr = finiteValues(values);
     if (!arr.length) return null;
     return roundMetric(arr.filter(predicate).length / arr.length, 3);
@@ -1331,6 +1351,7 @@
   function resolveRepStatus(hardFails, confidence, finalScore) {
     if (
       hardFails.includes('depth_not_reached') ||
+      hardFails.includes('depth_not_held') ||
       hardFails.includes('lockout_incomplete') ||
       hardFails.includes('severe_knee_valgus')
     ) {
@@ -1353,6 +1374,8 @@
     heelContactBreakFrames,
     bottomHipBelowKnee,
     bottomHipNearKnee,
+    depthGoodRatio,
+    depthPartialRatio,
     depthClass,
     avgKneeValgus,
     lockoutKnee,
@@ -1370,6 +1393,8 @@
       heelContactBreakFrames: Number.isFinite(heelContactBreakFrames) ? heelContactBreakFrames : null,
       bottomHipBelowKnee,
       bottomHipNearKnee,
+      depthGoodRatio,
+      depthPartialRatio,
       depthClass,
       avgKneeValgus,
       lockoutKnee,
@@ -1531,7 +1556,7 @@
     if (hardFails.includes('low_confidence') || confidence.level === 'LOW') {
       return '카메라에 전신이 잘 보이도록 위치를 다시 맞춰주세요';
     }
-    if (hardFails.includes('depth_not_reached')) {
+    if (hardFails.includes('depth_not_reached') || hardFails.includes('depth_not_held')) {
       return '조금 더 깊이 앉아주세요';
     }
     if (hardFails.includes('lockout_incomplete')) {

@@ -147,6 +147,31 @@ test('frame scoring uses metric weights instead of max score as final weighting'
   assert.equal(result.score, 90);
 });
 
+test('squat live depth scoring uses knee-angle depth curve instead of lenient depth percent', () => {
+  const squatModule = window.WorkoutExerciseRegistry.get('squat');
+  const depthMetric = {
+    ...squatModule.getDefaultProfileMetrics().find((item) => item.metric.key === 'depth'),
+    weight: 1,
+    max_score: 100,
+  };
+  const scoringEngine = new ScoringEngine({ scoring_profile_metric: [depthMetric] }, {
+    exerciseCode: 'squat',
+    selectedView: 'SIDE',
+  });
+
+  const result = scoringEngine.calculate({
+    view: 'SIDE',
+    leftKnee: 120,
+    rightKnee: 120,
+  });
+  const depth = result.breakdown.find((item) => item.key === 'depth');
+
+  assert.ok(depth, 'depth must be scored live');
+  assert.equal(depth.actualValue, 120);
+  assert.equal(depth.normalizedScore, 15);
+  assert.equal(result.score, 15);
+});
+
 test('push-up rep score is capped when multiple soft failures are present', () => {
   const pushUpModule = window.WorkoutExerciseRegistry.get('push_up');
   assert.ok(pushUpModule, 'push-up module must be registered');

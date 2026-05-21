@@ -369,10 +369,14 @@ class ScoringEngine {
 
       // 깊이/시간 관련
       'depth': () => {
-        // 스쿼트 깊이를 무릎 각도로 환산 (180도=0%, 90도=100%)
-        const knee = angles.leftKnee != null ? angles.leftKnee : angles.rightKnee;
-        if (knee == null) return null;
-        return Math.max(0, Math.min(100, (180 - knee) / 0.9));
+        return pickSideAwareAngle(angles.leftKnee, angles.rightKnee, {
+          defaultPicker: (left, right) => {
+            if (left == null && right == null) return null;
+            if (left == null) return right;
+            if (right == null) return left;
+            return (left + right) / 2;
+          }
+        });
       },
       'hold_time': () => null, // 시간 기반은 별도 처리
       'tempo': () => null // 템포는 별도 처리

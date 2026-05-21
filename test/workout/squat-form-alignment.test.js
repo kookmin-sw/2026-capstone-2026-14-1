@@ -396,6 +396,8 @@ test('squat robust summary computes phase series statistics without serializing 
   assert.equal(Object.hasOwn(finalized.phases.BOTTOM, '_series'), false);
   assert.equal(bottomRobust.bottomKneeMedian, 99);
   assert.equal(bottomRobust.bottomKneeLow10Avg, 96);
+  assert.equal(bottomRobust.depthGoodRatio, 0.5);
+  assert.equal(bottomRobust.depthPartialRatio, 1);
   assert.equal(bottomRobust.hipBelowKnee, 0);
   assert.equal(bottomRobust.hipNearKnee, 1);
   assert.equal(overallRobust.trunkLeanP90, 22);
