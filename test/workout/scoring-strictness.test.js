@@ -180,6 +180,37 @@ test('push-up rep score is capped when multiple soft failures are present', () =
   assert.equal(result.score, 75);
 });
 
+test('push-up rep score ignores capture confidence when posture metrics match', () => {
+  const pushUpModule = window.WorkoutExerciseRegistry.get('push_up');
+  assert.ok(pushUpModule, 'push-up module must be registered');
+
+  const makeRep = (confidence) => pushUpModule.scoreRep(createScoringEngineStub(), {
+    repNumber: 1,
+    selectedView: 'SIDE',
+    duration: 1200,
+    score: 95,
+    summary: {
+      dominantView: 'SIDE',
+      confidence,
+      flags: {
+        bottomReached: true,
+        lockoutReached: true,
+      },
+      metricStats: {
+        elbowAngle: { min: 80, max: 160 },
+        hipAngle: { min: 170 },
+        spineAngle: { min: 8, max: 12 },
+      },
+      phases: {},
+    },
+  });
+
+  const highQuality = makeRep({ score: 0.95, level: 'HIGH', factor: 1 });
+  const lowQuality = makeRep({ score: 0.35, level: 'LOW', factor: 0.7 });
+
+  assert.equal(lowQuality.score, highQuality.score);
+});
+
 test('squat rep score is capped when a soft failure is present', () => {
   const squatModule = window.WorkoutExerciseRegistry.get('squat');
   assert.ok(squatModule, 'squat module must be registered');
@@ -213,7 +244,42 @@ test('squat rep score is capped when a soft failure is present', () => {
   assert.equal(result.score, 85);
 });
 
-test('session export caps final score when quality-gate withhold ratio is high', () => {
+test('squat rep score ignores capture confidence when posture metrics match', () => {
+  const squatModule = window.WorkoutExerciseRegistry.get('squat');
+  assert.ok(squatModule, 'squat module must be registered');
+
+  const makeRep = (confidence) => squatModule.scoreRep(createScoringEngineStub(), {
+    repNumber: 1,
+    selectedView: 'FRONT',
+    duration: 1200,
+    score: 95,
+    summary: {
+      dominantView: 'FRONT',
+      confidence,
+      flags: {
+        bottomReached: true,
+        lockoutReached: true,
+      },
+      metricStats: {
+        kneeAngle: { min: 92, max: 170 },
+        hipAngle: { min: 105, max: 165 },
+        spineAngle: { max: 8 },
+        kneeSymmetry: { avg: 5 },
+        kneeAlignment: { avg: 0.01 },
+        hipBelowKnee: { min: 1 },
+        kneeValgus: { avg: 0.01 },
+      },
+      phases: {},
+    },
+  });
+
+  const highQuality = makeRep({ score: 0.95, level: 'HIGH', factor: 1 });
+  const lowQuality = makeRep({ score: 0.35, level: 'LOW', factor: 0.7 });
+
+  assert.equal(lowQuality.score, highQuality.score);
+});
+
+test('session export keeps final score posture-based when quality-gate withhold ratio is high', () => {
   const buffer = new window.SessionBuffer('strict-withhold-cap', {
     resultBasis: 'REPS',
   });
@@ -227,5 +293,7 @@ test('session export caps final score when quality-gate withhold ratio is high',
   const exported = buffer.export();
 
   assert.equal(exported.withhold_count, 3);
-  assert.equal(exported.final_score, 60);
+  assert.equal(exported.withhold_ratio, 0.6);
+  assert.equal(exported.score_cap_applied, null);
+  assert.equal(exported.final_score, 95);
 });

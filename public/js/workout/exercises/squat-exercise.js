@@ -452,10 +452,6 @@
       if (!isLockoutComplete(summary, lockoutKnee, lockoutHip)) {
         hardFails.push('lockout_incomplete');
       }
-      if (confidence.level === 'LOW') {
-        hardFails.push('low_confidence');
-      }
-
       const metricPlan = getMetricPlan(view, {
         bottomKnee,
         bottomHip,
@@ -500,14 +496,11 @@
       }
 
       const baseScore = totalWeight > 0 ? (weightedScore / totalWeight) : (repRecord.score || 0);
-      let finalScore = baseScore * (confidence.factor || 0.7);
+      let finalScore = baseScore;
 
       finalScore = applyDepthCap(finalScore, bottomKnee, bottomHipBelowKnee);
       if (hardFails.includes('lockout_incomplete')) {
         finalScore = Math.min(finalScore, 65);
-      }
-      if (hardFails.includes('low_confidence')) {
-        finalScore = Math.min(finalScore, 60);
       }
 
       let softFails = breakdown

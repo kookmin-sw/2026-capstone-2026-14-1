@@ -350,17 +350,9 @@ class SessionBuffer {
     return totalObserved > 0 ? withholdCount / totalObserved : 0;
   }
 
-  getWithholdScoreCap(withholdRatio) {
-    if (withholdRatio > 0.5) return 60;
-    if (withholdRatio > 0.3) return 75;
-    return null;
-  }
-
-  applyWithholdScoreCap(score, withholdRatio) {
+  normalizeFinalScore(score) {
     const normalizedScore = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
-    const cap = this.getWithholdScoreCap(withholdRatio);
-
-    return cap == null ? normalizedScore : Math.min(normalizedScore, cap);
+    return normalizedScore;
   }
 
   /**
@@ -568,8 +560,8 @@ class SessionBuffer {
     const rawFinalScore = isTimeBased
       ? Math.max(0, Math.min(100, Math.round((postureScore * 0.8) + (timeScore * 0.2))))
       : this.calculateFinalScore();
-    const finalScore = this.applyWithholdScoreCap(rawFinalScore, withholdRatio);
-    const withholdScoreCap = this.getWithholdScoreCap(withholdRatio);
+    const finalScore = this.normalizeFinalScore(rawFinalScore);
+    const withholdScoreCap = null;
     const resultPayload = isTimeBased
       ? {
           result_basis: 'DURATION',

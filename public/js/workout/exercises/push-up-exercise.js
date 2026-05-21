@@ -290,7 +290,7 @@
       }
 
       const baseScore = totalWeight > 0 ? (weightedScore / totalWeight) : (repRecord.score || 0);
-      let finalScore = baseScore * (confidence.factor || 0.7);
+      let finalScore = baseScore;
 
       if (hardFails.includes('depth_not_reached')) {
         finalScore = Math.min(finalScore, 55);
