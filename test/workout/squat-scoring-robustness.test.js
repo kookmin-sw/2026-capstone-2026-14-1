@@ -531,3 +531,25 @@ test('Phase 2 trunk stability uses the relaxed trunk lean curve', () => {
   assert.equal(trunk.normalizedScore, 100);
 });
 
+test('Phase 2 trunk stability curve penalizes forward lean more aggressively', () => {
+  const scoreForSpine = (maxSpine) => {
+    const result = scoreSquatRep({
+      view: 'SIDE',
+      metricStats: baseMetrics({
+        kneeAngle: { min: 95, max: 170 },
+        hipAngle: { min: 108, max: 165 },
+        spineAngle: { max: maxSpine },
+        trunkTibiaAngle: { max: 9 },
+        heelContact: { avg: 0.92 },
+      }),
+    });
+
+    const trunk = result.breakdown.find((item) => item.key === 'trunk_stability');
+    assert.ok(trunk, 'trunk_stability metric should be present');
+    return trunk.normalizedScore;
+  };
+
+  assert.equal(scoreForSpine(35), 70);
+  assert.equal(scoreForSpine(45), 35);
+  assert.equal(scoreForSpine(60), 10);
+});
