@@ -1623,14 +1623,17 @@ async function initSession(workoutData) {
       if (poseEngine && poseEngine.setVisualFeedback) {
         poseEngine.setVisualFeedback([]);
       }
+      const message = mapGateWithholdReasonToMessage(suppression.reason, {
+        allowedViews: getAllowedViews(),
+        selectedView: state.selectedView,
+      });
       updateScoreDisplay({
         score: 0,
         breakdown: [],
         gated: true,
         displayText: "측정 불안정",
-        message: mapGateWithholdReasonToMessage(suppression.reason),
+        message,
       });
-      const message = mapGateWithholdReasonToMessage(suppression.reason);
       const event = createFeedbackEvent({
         type: "QUALITY_GATE_WITHHOLD",
         message,

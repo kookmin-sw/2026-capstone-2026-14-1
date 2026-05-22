@@ -31,10 +31,18 @@ function makePoseData(qualityLevel, viewStability, view = 'FRONT') {
   };
 }
 
-test('mapWithholdReasonToMessage returns the view mismatch guidance', () => {
+test('mapWithholdReasonToMessage returns contextual view mismatch guidance', () => {
   assert.equal(
     mapWithholdReasonToMessage('view_mismatch'),
-    '현재 운동은 옆면 시점이 필요합니다.',
+    '선택한 촬영 시점과 현재 인식된 몸 방향이 맞지 않습니다.',
+  );
+  assert.equal(
+    mapWithholdReasonToMessage('view_mismatch', { selectedView: 'FRONT' }),
+    '정면 시점으로 몸을 맞춘 뒤 잠시 그대로 유지해주세요.',
+  );
+  assert.equal(
+    mapWithholdReasonToMessage('view_mismatch', { selectedView: 'SIDE' }),
+    '측면 시점으로 몸을 맞춘 뒤 잠시 그대로 유지해주세요.',
   );
 });
 

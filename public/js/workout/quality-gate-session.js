@@ -9,15 +9,55 @@
 /**
  * 품질 게이트 유보 사유를 사용자에게 보여줄 안내 메시지로 변환합니다.
  * @param {string} reason - 유보 사유 키 (out_of_frame, joints_missing, 등)
+ * @param {Object} [context] - 현재 세션 맥락
+ * @param {string} [context.selectedView] - 사용자가 선택한 시점(FRONT/SIDE/DIAGONAL)
+ * @param {string[]} [context.allowedViews] - 현재 운동이 허용하는 시점 목록
  * @returns {string} 안내 메시지
  */
-function mapWithholdReasonToMessage(reason) {
+function mapWithholdReasonToMessage(reason, context = {}) {
+  const selectedView = (context?.selectedView || '').toString().trim().toUpperCase();
+  const allowedViews = Array.isArray(context?.allowedViews)
+    ? context.allowedViews.map((view) => (view || '').toString().trim().toUpperCase())
+    : [];
+
+  const getViewLabel = (view) => {
+    if (view === 'FRONT') return '정면';
+    if (view === 'SIDE') return '측면';
+    if (view === 'DIAGONAL') return '대각선';
+    return null;
+  };
+
+  const buildViewMismatchMessage = () => {
+    const selectedLabel = getViewLabel(selectedView);
+    if (selectedLabel) {
+      return `${selectedLabel} 시점으로 몸을 맞춘 뒤 잠시 그대로 유지해주세요.`;
+    }
+
+    if (allowedViews.length === 1) {
+      const allowedLabel = getViewLabel(allowedViews[0]);
+      if (allowedLabel) {
+        return `${allowedLabel} 시점으로 몸을 맞춘 뒤 잠시 그대로 유지해주세요.`;
+      }
+    }
+
+    return '선택한 촬영 시점과 현재 인식된 몸 방향이 맞지 않습니다.';
+  };
+
+  const buildViewUnstableMessage = () => {
+    const selectedLabel = getViewLabel(selectedView);
+    if (selectedLabel) {
+      return `${selectedLabel} 시점이 흔들리고 있습니다. 몸 방향을 잠시 유지해주세요.`;
+    }
+
+    return '몸 방향이 흔들리고 있습니다. 촬영 시점을 잠시 유지해주세요.';
+  };
+
   const messages = {
     out_of_frame: '머리부터 발끝까지 프레임 안에 들어오도록 위치를 조정해주세요.',
     joints_missing: '어깨부터 손목, 골반과 하체까지 전신이 보이도록 카메라를 맞춰주세요.',
     tracked_joints_low: '팔과 하체가 모두 보이도록 카메라를 조금 더 멀리 두세요.',
-    view_unstable: '몸 방향이 흔들리고 있습니다. 측면 자세를 유지해주세요.',
-    view_mismatch: '현재 운동은 옆면 시점이 필요합니다.',
+    view_unstable: buildViewUnstableMessage(),
+    view_mismatch: buildViewMismatchMessage(),
     side_low_confidence: '측면이 안정적으로 인식되도록 조명과 거리를 맞춰주세요.',
     low_confidence: '카메라 위치와 조명을 조정한 뒤 다시 자세를 잡아주세요.',
   };
