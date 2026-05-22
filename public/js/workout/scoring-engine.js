@@ -731,7 +731,7 @@ class ScoringEngine {
       },
       'trunk_tibia_angle': {
         low: '상체와 다리가 평행하도록 자세를 유지해주세요',
-        // high: '상체가 너무 누워있습니다' // 추후 상체 과도 기울기 피드백 재활성화 시 사용
+        high: '상체와 다리가 평행하도록 자세를 유지해주세요'
       },
       'tibia_angle': { low: '무릎을 조금 더 굽혀주세요', high: '무릎이 너무 앞으로 나갔습니다' },
       'heel_contact': { default: '뒤꿈치가 떨어지지 않도록 유지해주세요' },

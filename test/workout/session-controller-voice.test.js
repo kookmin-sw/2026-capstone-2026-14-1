@@ -50,6 +50,15 @@ test('showRepFeedback routes rep completion feedback through structured delivery
   assert.doesNotMatch(body, /ui\.showToast\(`\$\{repRecord\.repNumber\}회 \$\{msg\}`\)/);
 });
 
+test('showRepFeedback speaks correction feedback as a low-score hint without duplicate visual toast', () => {
+  const body = extractFunctionBody(controllerSource, 'showRepFeedback');
+
+  assert.match(body, /repRecord\.feedback/);
+  assert.match(body, /type:\s*["']LOW_SCORE_HINT["']/);
+  assert.match(body, /message:\s*repRecord\.feedback/);
+  assert.match(body, /visual:\s*false/);
+});
+
 test('handlePoseDetected records quality-gate feedback events before returning', () => {
   const body = extractFunctionBody(controllerSource, 'handlePoseDetected');
 

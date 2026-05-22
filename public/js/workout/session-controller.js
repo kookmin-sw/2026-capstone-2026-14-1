@@ -2188,17 +2188,11 @@ async function initSession(workoutData) {
       ? repCounter.isInProgress()
       : false;
 
-    // 헤더 큰 숫자: 플랭크=실시간 자세 점수, 횟수 운동=진행 중 rep 누적(아직 rep 없으면 0/대시)
-    const displayScore = isTimeBased
-      ? scoreResult.score
-      : (hasAnyRep || isRepInProgress) && repCounter?.getCurrentRepScore
-        ? repCounter.getCurrentRepScore()
-        : 0;
+    // 헤더 상태는 rep 누적 점수가 아니라 현재 프레임의 자세 점수로 즉시 반응한다.
+    const displayScore = Math.max(0, Math.min(100, Number(scoreResult?.score) || 0));
     const displayText =
       scoreResult.displayText ||
-      (!isTimeBased && !hasAnyRep && !isRepInProgress
-        ? "--"
-        : String(displayScore));
+      String(displayScore);
 
     state.liveScore = displayScore;
     let color = "#94a3b8";
@@ -2374,6 +2368,20 @@ async function initSession(workoutData) {
     deliverFeedbackEvent(event, {
       toast: true,
     });
+
+    if (repRecord.feedback) {
+      const correctionEvent = createFeedbackEvent({
+        type: "LOW_SCORE_HINT",
+        message: repRecord.feedback,
+        repRecord,
+        severity: "warning",
+        source: "rep_complete",
+      });
+
+      deliverFeedbackEvent(correctionEvent, {
+        visual: false,
+      });
+    }
   }
 
   /** RepCounter 런타임 상태 리셋 + 목표 시간 재주입 */

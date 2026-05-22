@@ -10,6 +10,30 @@ const uiPath = require.resolve('../../public/js/workout/session-ui.js');
 const routineManagerPath = require.resolve('../../public/js/workout/routine-session-manager.js');
 const learnStepEnginePath = require.resolve('../../public/js/workout/learn-step-engine.js');
 
+function extractFunctionBody(source, fnSignature) {
+  const fnStart = source.indexOf(fnSignature);
+  assert.notEqual(fnStart, -1, `${fnSignature} should exist`);
+
+  let i = fnStart + fnSignature.length;
+  let parenDepth = 0;
+  for (; i < source.length; i += 1) {
+    if (source[i] === '(') parenDepth += 1;
+    if (source[i] === ')') parenDepth -= 1;
+    if (parenDepth === 0 && source[i] === '{') break;
+  }
+
+  const bodyStart = i;
+  let braceDepth = 0;
+  let bodyEnd = bodyStart;
+  for (let j = bodyStart; j < source.length; j += 1) {
+    if (source[j] === '{') braceDepth += 1;
+    if (source[j] === '}') braceDepth -= 1;
+    if (braceDepth === 0) { bodyEnd = j; break; }
+  }
+
+  return source.slice(bodyStart, bodyEnd + 1);
+}
+
 test('session-controller loads the adjacent quality-gate module without ambient globals', () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'SessionQualityGate');
 
@@ -149,12 +173,21 @@ test('browser script loading does not throw when helper scripts load first', () 
 
 test('session-controller workout score display requests grade mode', () => {
   const source = fs.readFileSync(controllerPath, 'utf8');
+  const body = extractFunctionBody(source, 'function updateScoreDisplay');
 
   assert.match(
-    source,
+    body,
     /ui\.updateScoreDisplay\(\{[\s\S]*displayAsGrade:\s*true[\s\S]*score:\s*displayScore/,
     'workout updateScoreDisplay should pass displayAsGrade: true with the numeric score still supplied',
   );
+});
+
+test('session-controller workout score display uses live frame score instead of current rep score', () => {
+  const source = fs.readFileSync(controllerPath, 'utf8');
+  const body = extractFunctionBody(source, 'function updateScoreDisplay');
+
+  assert.match(body, /const displayScore = Math\.max\(0,\s*Math\.min\(100,\s*Number\(scoreResult\?\.score\) \|\| 0\)\)/);
+  assert.doesNotMatch(body, /getCurrentRepScore/);
 });
 
 test('session-controller learn score display keeps percentage text instead of workout grades', () => {
@@ -162,27 +195,7 @@ test('session-controller learn score display keeps percentage text instead of wo
 
   // Extract renderLearnScoreDisplay function body
   // Handle destructured params: function renderLearnScoreDisplay({ ... } = {}) {
-  const fnSignature = 'function renderLearnScoreDisplay';
-  const fnStart = source.indexOf(fnSignature);
-  assert.notEqual(fnStart, -1, 'renderLearnScoreDisplay should exist');
-
-  // Skip past parameter destructuring to find body brace
-  let i = fnStart + fnSignature.length;
-  let parenDepth = 0;
-  for (; i < source.length; i += 1) {
-    if (source[i] === '(') parenDepth += 1;
-    if (source[i] === ')') parenDepth -= 1;
-    if (parenDepth === 0 && source[i] === '{') break;
-  }
-  const bodyStart = i;
-  let braceDepth = 0;
-  let bodyEnd = bodyStart;
-  for (let j = bodyStart; j < source.length; j += 1) {
-    if (source[j] === '{') braceDepth += 1;
-    if (source[j] === '}') braceDepth -= 1;
-    if (braceDepth === 0) { bodyEnd = j; break; }
-  }
-  const body = source.slice(bodyStart, bodyEnd + 1);
+  const body = extractFunctionBody(source, 'function renderLearnScoreDisplay');
 
   assert.match(body, /displayText:\s*`\$\{displayScore\}%`/);
   assert.doesNotMatch(
@@ -194,28 +207,7 @@ test('session-controller learn score display keeps percentage text instead of wo
 
 test('learn step evaluation is guarded so one exercise error does not kill frame handling', () => {
   const source = fs.readFileSync(controllerPath, 'utf8');
-  const fnSignature = 'function handleLearnPoseDetected';
-  const fnStart = source.indexOf(fnSignature);
-  assert.notEqual(fnStart, -1, 'handleLearnPoseDetected should exist');
-
-  let i = fnStart + fnSignature.length;
-  let parenDepth = 0;
-  for (; i < source.length; i += 1) {
-    if (source[i] === '(') parenDepth += 1;
-    if (source[i] === ')') parenDepth -= 1;
-    if (parenDepth === 0 && source[i] === '{') break;
-  }
-
-  const bodyStart = i;
-  let braceDepth = 0;
-  let bodyEnd = bodyStart;
-  for (let j = bodyStart; j < source.length; j += 1) {
-    if (source[j] === '{') braceDepth += 1;
-    if (source[j] === '}') braceDepth -= 1;
-    if (braceDepth === 0) { bodyEnd = j; break; }
-  }
-
-  const body = source.slice(bodyStart, bodyEnd + 1);
+  const body = extractFunctionBody(source, 'function handleLearnPoseDetected');
   assert.match(body, /try\s*\{[\s\S]*step\.evaluate/);
   assert.match(body, /catch\s*\(error\)/);
   assert.match(body, /normalizeLearnStepEvaluationHelper\(stepEvaluationResult\)/);

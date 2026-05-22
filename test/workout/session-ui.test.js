@@ -448,7 +448,7 @@ test('updateScoreDisplay renders measurement unstable label for gated state', ()
   assert.doesNotMatch(refs.liveScoreEl.textContent, /교정 필요/);
 });
 
-test('syncPlankTargetUi uses rep state label for non-plank workout', () => {
+test('syncPlankTargetUi uses live posture state label for non-plank workout', () => {
   const refs = {
     scoreModeLabelEl: createElementStub(),
     timerLabelEl: createElementStub(),
@@ -470,5 +470,5 @@ test('syncPlankTargetUi uses rep state label for non-plank workout', () => {
     phase: 'PREPARING',
   });
 
-  assert.equal(refs.scoreModeLabelEl.textContent, '이번 rep 상태');
+  assert.equal(refs.scoreModeLabelEl.textContent, '현재 자세 상태');
 });

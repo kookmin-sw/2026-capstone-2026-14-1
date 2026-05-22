@@ -401,7 +401,7 @@ function createSessionUi({
     }
 
     if (refs.scoreModeLabelEl) {
-      refs.scoreModeLabelEl.textContent = isPlank ? '현재 자세 상태' : '이번 rep 상태';
+      refs.scoreModeLabelEl.textContent = '현재 자세 상태';
     }
     if (refs.timerLabelEl) {
       refs.timerLabelEl.textContent = isPlank ? '플랭크 시간' : '운동 시간';

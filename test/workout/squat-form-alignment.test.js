@@ -187,7 +187,7 @@ test('squat live knee alignment uses continuous alignment curve instead of binar
   assert.ok(poor.normalizedScore < 40, 'poor alignment should follow the strict alignment curve');
 });
 
-test('PoseEngine visual feedback does not map squat trunk metrics to upper body', () => {
+test('PoseEngine visual feedback maps squat trunk metrics to torso skeleton', () => {
   const engine = new PoseEngine();
 
   engine.setVisualFeedback([
@@ -195,12 +195,12 @@ test('PoseEngine visual feedback does not map squat trunk metrics to upper body'
     { key: 'trunk_stability', score: 4, maxScore: 15 },
   ]);
 
-  assert.equal(engine.getLandmarkSeverity(LANDMARKS.LEFT_SHOULDER), 0);
-  assert.equal(engine.getLandmarkSeverity(LANDMARKS.RIGHT_HIP), 0);
-  assert.equal(engine.getConnectionSeverity(LANDMARKS.LEFT_SHOULDER, LANDMARKS.LEFT_HIP), 0);
+  assert.equal(engine.getLandmarkSeverity(LANDMARKS.LEFT_SHOULDER), 2);
+  assert.equal(engine.getLandmarkSeverity(LANDMARKS.RIGHT_HIP), 2);
+  assert.equal(engine.getConnectionSeverity(LANDMARKS.LEFT_SHOULDER, LANDMARKS.LEFT_HIP), 2);
 });
 
-test('squat live trunk-tibia scoring suppresses reclined torso warning copy', () => {
+test('squat live trunk-tibia scoring keeps corrective feedback for TTS', () => {
   const squatModule = window.WorkoutExerciseRegistry.get('squat');
   const trunkTibiaMetric = squatModule.getDefaultProfileMetrics()
     .find((item) => item.metric.key === 'trunk_tibia_angle');
@@ -219,7 +219,7 @@ test('squat live trunk-tibia scoring suppresses reclined torso warning copy', ()
   assert.ok(trunkTibia, 'trunk_tibia_angle must be scored live');
   assert.equal(trunkTibia.actualValue, 40);
   assert.notEqual(trunkTibia.feedback, '상체가 너무 누워있습니다');
-  assert.equal(trunkTibia.feedback, undefined);
+  assert.equal(trunkTibia.feedback, '상체와 다리가 평행하도록 자세를 유지해주세요');
 });
 
 test('squat rep scoring uses averaged heel contact instead of single-frame min', () => {
