@@ -351,6 +351,70 @@ const buildMetricIssue = (metric, priority = 1) => {
     };
 };
 
+const hasKoreanFinalConsonant = (value) => {
+    const chars = Array.from(String(value || '').trim());
+    if (chars.length === 0) return false;
+
+    const code = chars[chars.length - 1].charCodeAt(0);
+    const hangulBase = 0xac00;
+    const hangulEnd = 0xd7a3;
+    if (code < hangulBase || code > hangulEnd) return false;
+
+    return ((code - hangulBase) % 28) !== 0;
+};
+
+const withSubjectParticle = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    return `${text}${hasKoreanFinalConsonant(text) ? '이' : '가'}`;
+};
+
+const buildFinalScoreExplanation = ({ session, bestMetric = null, weakMetric = null }) => {
+    const finalScore = Math.max(0, Math.min(100, Math.round(toFiniteNumber(session?.final_score, 0))));
+    const weakScore = weakMetric ? Math.max(0, Math.min(100, Math.round(toFiniteNumber(weakMetric.avg_score, 0)))) : null;
+    const bestScore = bestMetric ? Math.max(0, Math.min(100, Math.round(toFiniteNumber(bestMetric.avg_score, 0)))) : null;
+    const weakMetricName = weakMetric?.metric_name || weakMetric?.metric_key || '개선 우선 항목';
+    const bestMetricName = bestMetric?.metric_name || bestMetric?.metric_key || '강점 항목';
+
+    if (!weakMetric) {
+        return {
+            headline: '최종 점수는 세션 전체 흐름을 기준으로 계산됩니다.',
+            reason: session?.summary_feedback
+                ? String(session.summary_feedback)
+                : '세부 메트릭 데이터가 충분하지 않아 최종 점수 중심으로 세션을 요약했습니다.',
+            note: '다음 세션에서 같은 동작을 조금 더 길게 수행하면 더 정확한 항목별 분석이 가능합니다.',
+            action: '짧은 목표로 완주한 뒤 자세 항목을 다시 확인해 보세요.',
+            metric_key: null,
+            metric_name: null,
+            metric_score: null
+        };
+    }
+
+    const hasStrongMetricGap =
+        Number.isFinite(bestScore) &&
+        bestScore >= 80 &&
+        (bestScore - finalScore) >= 15;
+    const scoreTone = finalScore < 60
+        ? '크게 낮아졌습니다'
+        : finalScore < 70
+            ? '낮게 반영되었습니다'
+            : '조정되었습니다';
+
+    const reasonPrefix = hasStrongMetricGap
+        ? `강점 항목만 보면 높아 보일 수 있지만, 최종 정확도는 세션 전체 반복 완성도와 개선 우선 항목을 함께 반영합니다.`
+        : `최종 정확도는 가장 좋은 항목 하나가 아니라 세션 전체 반복 완성도를 기준으로 계산됩니다.`;
+
+    return {
+        headline: `${withSubjectParticle(weakMetricName)} 최종 점수를 낮춘 핵심 요인입니다.`,
+        reason: `${reasonPrefix} 이번 세션에서는 ${weakMetricName} 점수가 ${weakScore}점으로 낮아 전체 점수가 ${finalScore}점으로 ${scoreTone}.`,
+        note: `${bestMetricName}${Number.isFinite(bestScore) ? ` ${bestScore}점` : ''}처럼 잘 나온 부분도 있었지만, 필수 동작 조건이 흔들리면 최종 점수는 보수적으로 낮아집니다.`,
+        action: buildMetricAction(weakMetric),
+        metric_key: weakMetric?.metric_key || null,
+        metric_name: weakMetricName,
+        metric_score: weakScore
+    };
+};
+
 const buildCameraInsight = (sessionEvents = []) => {
     const eventCounts = {};
     for (const event of Array.isArray(sessionEvents) ? sessionEvents : []) {
@@ -418,6 +482,11 @@ const buildAccuracyFocus = ({ session, metrics = [], metricSeries = [] }) => {
         metric_count: sortedDesc.length,
         best_metric: sortedDesc.length > 0 ? toMetricItem(sortedDesc[0]) : null,
         weakest_metric: sortedAsc.length > 0 ? toMetricItem(sortedAsc[0]) : null,
+        score_explanation: buildFinalScoreExplanation({
+            session,
+            bestMetric: sortedDesc[0] || null,
+            weakMetric: sortedAsc[0] || null
+        }),
         top_metrics: sortedDesc.slice(0, 3).map(toMetricItem),
         weak_metrics: sortedAsc.slice(0, 3).map(toMetricItem)
     };
@@ -1813,6 +1882,8 @@ module.exports = {
     getHistoryStats,
     deleteSession,
     __test: {
-        buildMetricSeries
+        buildMetricSeries,
+        buildAccuracyFocus,
+        buildFinalScoreExplanation
     }
 };

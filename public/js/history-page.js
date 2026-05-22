@@ -297,6 +297,7 @@
   function renderAccuracySection(accuracyFocus, metrics) {
     const bestMetric = accuracyFocus?.best_metric || null;
     const weakMetric = accuracyFocus?.weakest_metric || null;
+    const scoreExplanation = accuracyFocus?.score_explanation || null;
     const scoreGrade = String(accuracyFocus?.score_grade || '-');
     const scoreValue = Number(accuracyFocus?.overall_score || 0);
 
@@ -318,6 +319,22 @@
           <small>${weakMetric ? `${formatNumber(weakMetric.avg_score || 0)}점` : '데이터 없음'}</small>
         </article>
       </div>
+      ${scoreExplanation ? `
+        <article class="detail-score-explanation">
+          <div class="detail-score-explanation-copy">
+            <label>최종 점수 해석</label>
+            <strong>${escapeHtml(scoreExplanation.headline || '최종 점수는 세션 전체 흐름을 기준으로 계산됩니다.')}</strong>
+            <p>${escapeHtml(scoreExplanation.reason || '')}</p>
+            <small>${escapeHtml(scoreExplanation.note || '')}</small>
+          </div>
+          ${scoreExplanation.action ? `
+            <div class="detail-score-explanation-action">
+              <span>다음 세션 포인트</span>
+              <p>${escapeHtml(scoreExplanation.action)}</p>
+            </div>
+          ` : ''}
+        </article>
+      ` : ''}
       ${renderMetricList(Array.isArray(metrics) ? metrics : [])}
     `;
   }

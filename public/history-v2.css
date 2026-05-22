@@ -1379,6 +1379,58 @@
   font-size: 11px;
 }
 
+.detail-score-explanation {
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 84%, var(--primary) 16%);
+  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.42fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.detail-score-explanation-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detail-score-explanation label,
+.detail-score-explanation-action span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.detail-score-explanation strong {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.detail-score-explanation p {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.detail-score-explanation small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.detail-score-explanation-action {
+  border-left: 1px solid var(--border);
+  padding-left: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
 .detail-improvement-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1584,6 +1636,7 @@
 
 @media (max-width: 860px) {
   .history-focus-summary,
+  .detail-score-explanation,
   .detail-improvement-grid,
   .detail-debug-grid {
     grid-template-columns: 1fr;
@@ -1609,6 +1662,13 @@
 
   .detail-series-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-score-explanation-action {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 12px;
   }
 }
 
