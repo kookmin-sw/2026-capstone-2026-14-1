@@ -29,11 +29,15 @@ function createResponseStub() {
 test('textToSpeech requests mp3 audio and preserves upstream content type', async () => {
   const originalFetch = global.fetch;
   const originalApiKey = process.env.OPENROUTER_API_KEY;
+  const originalAiReportBaseUrl = process.env.AI_REPORT_LLM_BASE_URL;
   const upstreamBody = Buffer.from([0xff, 0xf3, 0xc4, 0xc4]);
   let requestBody;
+  let requestUrl;
 
   process.env.OPENROUTER_API_KEY = 'test-key';
-  global.fetch = async (_url, options) => {
+  process.env.AI_REPORT_LLM_BASE_URL = 'https://crof.ai/v1';
+  global.fetch = async (url, options) => {
+    requestUrl = url;
     requestBody = JSON.parse(options.body);
     return {
       ok: true,
@@ -72,8 +76,14 @@ test('textToSpeech requests mp3 audio and preserves upstream content type', asyn
     } else {
       process.env.OPENROUTER_API_KEY = originalApiKey;
     }
+    if (originalAiReportBaseUrl === undefined) {
+      delete process.env.AI_REPORT_LLM_BASE_URL;
+    } else {
+      process.env.AI_REPORT_LLM_BASE_URL = originalAiReportBaseUrl;
+    }
   }
 
+  assert.equal(requestUrl, 'https://openrouter.ai/api/v1/audio/speech');
   assert.equal(requestBody.response_format, 'mp3');
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['content-type'], 'audio/mpeg');

@@ -24,7 +24,7 @@ function analyzeHistoryTrend({ userId, period = 'recent_5', exerciseKey, exercis
   const scoreDelta = recentAvgScore !== null && previousAvgScore !== null ? Number((recentAvgScore - previousAvgScore).toFixed(1)) : null;
   const trends = buildMetricTrends({ sessions: orderedSessions, metrics, recentCount });
   const improvements = detectImprovements(trends);
-  const weakPoints = detectWeakPoints(trends);
+  const weakPoints = withRelativeWeakPointFallback(detectWeakPoints(trends), trends);
   const regressions = detectRegressions(trends);
   const recentSessionIds = new Set(recentSessions.map((session) => session.session_id));
   const filteredEvents = events.filter((event) => !event.session_id || recentSessionIds.has(event.session_id));
@@ -100,6 +100,36 @@ function classifyTrend(delta) {
   if (delta >= 5) return 'improving';
   if (delta <= -5) return 'declining';
   return 'stable';
+}
+
+function withRelativeWeakPointFallback(weakPoints = [], trends = []) {
+  if (weakPoints.length > 0) return weakPoints;
+
+  const reliableTrends = trends
+    .filter((trend) => Number(trend.confidence) >= 0.45)
+    .filter((trend) => Number(trend.recent_session_count || 0) >= 2)
+    .filter((trend) => Number.isFinite(Number(trend.recent_avg)));
+  if (reliableTrends.length === 0) return weakPoints;
+
+  const sorted = [...reliableTrends].sort((a, b) => Number(a.recent_avg) - Number(b.recent_avg));
+  const lowest = sorted[0];
+  const highest = sorted[sorted.length - 1];
+  const lowestAvg = Number(lowest.recent_avg);
+  const highestAvg = Number(highest.recent_avg);
+  const relativeGap = highestAvg - lowestAvg;
+  const shouldSurface = lowestAvg <= 75 || (lowestAvg < 82 && relativeGap >= 15);
+  if (!shouldSurface) return weakPoints;
+
+  return [{
+    metric_key: lowest.metric_key,
+    metric_name: lowest.metric_name,
+    recent_avg: lowest.recent_avg,
+    occurrence_count: lowest.occurrence_count_below_60,
+    session_count: lowest.recent_session_count,
+    confidence: lowest.confidence,
+    evidence: `최근 ${lowest.recent_session_count}회 평균 ${lowest.recent_avg}점으로 다른 지표보다 상대적으로 낮게 측정됨`,
+    severity: 'relative_low',
+  }];
 }
 
 module.exports = { analyzeHistoryTrend, parsePeriodCount, classifyTrend, describeAnalysisPeriod };

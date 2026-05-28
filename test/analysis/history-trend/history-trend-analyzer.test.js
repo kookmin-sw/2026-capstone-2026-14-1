@@ -106,3 +106,45 @@ test('analyzeHistoryTrend uses all supplied sessions for date range periods', ()
   assert.equal(feature.overall.completed_sessions, 8);
   assert.equal(feature.overall.recent_avg_score, 83.5);
 });
+
+test('analyzeHistoryTrend surfaces a reliable low metric even when overall score is high', () => {
+  const sessions = Array.from({ length: 10 }, (_, index) => ({
+    session_id: `s${index + 1}`,
+    final_score: index === 0 ? 87 : 84,
+    status: 'done',
+    ended_at: `2026-05-${String(index + 1).padStart(2, '0')}T00:00:00Z`,
+  }));
+
+  const metrics = sessions.flatMap((session) => [
+    {
+      session_id: session.session_id,
+      metric_key: 'knee_alignment',
+      metric_name: '무릎 정렬',
+      avg_score: 72,
+      sample_count: 10,
+    },
+    {
+      session_id: session.session_id,
+      metric_key: 'depth',
+      metric_name: '스쿼트 깊이',
+      avg_score: 88,
+      sample_count: 10,
+    },
+  ]);
+
+  const feature = analyzeHistoryTrend({
+    userId: 'u1',
+    period: 'recent_10',
+    exerciseKey: 'squat',
+    exerciseName: '스쿼트',
+    sessions,
+    metrics,
+    events: [],
+  });
+
+  assert.equal(feature.overall.recent_avg_score, 84.3);
+  assert.equal(feature.is_doing_well, false);
+  assert.equal(feature.weak_points[0].metric_key, 'knee_alignment');
+  assert.match(feature.weak_points[0].evidence, /상대적으로 낮게/);
+  assert.equal(feature.next_focus_candidates[0].metric_key, 'knee_alignment');
+});

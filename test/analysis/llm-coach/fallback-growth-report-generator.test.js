@@ -54,3 +54,26 @@ test('generateFallbackGrowthReport uses first cue as mission action', () => {
   assert.equal(report.next_mission.metric_key, 'depth');
   assert.match(report.next_mission.action, /엉덩이/);
 });
+
+test('generateFallbackGrowthReport keeps enough detail for fallback reports', () => {
+  const report = generateFallbackGrowthReport({
+    feature: {
+      user_scope: { period_label: '최근 5회', exercise_name: '스쿼트', session_count: 5 },
+      overall: { trend: 'improving', recent_avg_score: 71.6, previous_avg_score: 62, score_delta: 9.6, completed_sessions: 5 },
+      improvements: [{ metric_key: 'depth', metric_name: '스쿼트 깊이', evidence: '52점에서 63.8점으로 상승' }],
+      weak_points: [{ metric_key: 'knee_alignment', metric_name: '무릎 정렬', evidence: '최근 5회 중 3회 낮음' }],
+      next_focus_candidates: [{
+        metric_key: 'knee_alignment',
+        metric_name: '무릎 정렬',
+        recommended_cues: ['무릎과 발끝 방향을 맞추세요', '내려갈 때 양쪽 무릎이 안쪽으로 모이지 않는지 확인하세요'],
+        reason: '반복 약점',
+      }],
+      data_quality: { confidence_label: 'high', note: '분석에 필요한 데이터가 충분합니다.' },
+    },
+    reason: 'PROVIDER_ERROR',
+  });
+
+  assert.ok(report.summary.length >= 90, report.summary);
+  assert.ok(report.next_mission.action.length >= 60, report.next_mission.action);
+  assert.ok(report.coach_comment.length >= 80, report.coach_comment);
+});

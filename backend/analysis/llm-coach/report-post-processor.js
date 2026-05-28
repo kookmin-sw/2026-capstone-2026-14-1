@@ -15,8 +15,10 @@ function postProcessGrowthReportOutput({ output, feature } = {}) {
 
   applyAuthoritativeDataQuality(processed, feature);
   applyDoingWellGuard(processed, feature);
+  applyAuthoritativeWeakPoints(processed, feature);
   applyDetailedReportItems(processed, feature);
   applyMissionMetricGuard(processed, feature);
+  applyNarrativeDetailGuard(processed, feature);
 
   return processed;
 }
@@ -52,11 +54,48 @@ function applyDoingWellGuard(report, feature) {
   }
 }
 
+function applyAuthoritativeWeakPoints(report, feature) {
+  if (feature?.is_doing_well === true) return;
+
+  const featureWeakPoints = Array.isArray(feature?.weak_points)
+    ? feature.weak_points.filter((item) => String(item?.metric_key || '').trim())
+    : [];
+  if (featureWeakPoints.length === 0) return;
+
+  const currentWeakPoints = Array.isArray(report.weak_points) ? report.weak_points : [];
+  const authoritativeKeys = new Set(featureWeakPoints.map((item) => String(item.metric_key).trim()));
+  const seededWeakPoints = featureWeakPoints.map((source) => {
+    const existing = findMetricSource(source.metric_key, currentWeakPoints);
+    return {
+      ...(existing || {}),
+      title: existing?.title || source.metric_name || '보완할 자세 요소',
+      metric_key: source.metric_key,
+    };
+  });
+  const extraWeakPoints = currentWeakPoints.filter((item) => {
+    const key = String(item?.metric_key || '').trim();
+    return key && !authoritativeKeys.has(key);
+  });
+
+  report.weak_points = [...seededWeakPoints, ...extraWeakPoints];
+}
+
 function applyMissionMetricGuard(report, feature) {
   const mission = report.next_mission;
   if (!mission || typeof mission !== 'object') return;
 
   const metricKey = String(mission.metric_key || '');
+  const correctiveFocus = firstCorrectiveFocus(feature);
+  if (correctiveFocus && (
+    !metricKey ||
+    metricKey === 'general_maintenance' ||
+    !isAllowedMissionMetric(metricKey, feature) ||
+    !isCorrectiveMissionMetric(metricKey, feature)
+  )) {
+    applyCorrectiveMission(mission, correctiveFocus);
+    return;
+  }
+
   if (!metricKey || !isAllowedMissionMetric(metricKey, feature)) {
     mission.metric_key = 'general_maintenance';
   }
@@ -65,6 +104,126 @@ function applyMissionMetricGuard(report, feature) {
 function applyDetailedReportItems(report, feature) {
   report.improvements = enrichImprovements(report.improvements, feature).slice(0, 2);
   report.weak_points = enrichWeakPoints(report.weak_points, feature).slice(0, 2);
+}
+
+function applyNarrativeDetailGuard(report, feature) {
+  if (isShortText(report.summary, 90)) {
+    report.summary = buildDetailedSummary(feature);
+  }
+
+  if (report.next_mission && typeof report.next_mission === 'object' && isShortText(report.next_mission.action, 60)) {
+    report.next_mission.action = buildDetailedMissionAction(report.next_mission, feature);
+  }
+
+  if (isShortText(report.coach_comment, 80)) {
+    report.coach_comment = buildDetailedCoachComment(report, feature);
+  }
+}
+
+function isShortText(value, minLength) {
+  return typeof value !== 'string' || value.trim().length < minLength;
+}
+
+function buildDetailedSummary(feature) {
+  const period = feature?.user_scope?.period_label || `최근 ${feature?.user_scope?.session_count || 5}회`;
+  const exercise = feature?.user_scope?.exercise_name || '운동';
+  const recentAvg = formatScore(feature?.overall?.recent_avg_score);
+  const previousAvg = formatScore(feature?.overall?.previous_avg_score);
+  const delta = formatSigned(feature?.overall?.score_delta);
+  const completed = Number(feature?.overall?.completed_sessions || 0);
+  const trend = trendLabel(feature?.overall?.trend);
+  const focus = firstFocusMetric(feature);
+
+  const scoreText = recentAvg !== null
+    ? `${period} ${exercise} 평균은 ${recentAvg}점`
+    : `${period} ${exercise} 기록`;
+  const compareText = previousAvg !== null && delta !== null
+    ? `이전 평균 ${previousAvg}점 대비 ${delta}점 변화했습니다`
+    : `${trend} 흐름으로 확인됩니다`;
+  const completionText = completed > 0 ? `${completed}회 완료 기록을 기준으로 분석했습니다` : '기록된 세션을 기준으로 분석했습니다';
+  const focusText = focus
+    ? `다음 운동에서는 ${focus.metric_name || focus.metric_key}을 가장 먼저 점검하는 것이 좋습니다.`
+    : '다음 운동에서는 현재 자세 흐름을 유지하면서 한 가지 지표를 집중해서 점검하는 것이 좋습니다.';
+
+  return `${scoreText}이며, ${compareText}. ${completionText}. ${focusText}`;
+}
+
+function buildDetailedMissionAction(mission, feature) {
+  const focus = firstFocusMetric(feature);
+  const cues = Array.isArray(focus?.recommended_cues) ? focus.recommended_cues.filter(Boolean) : [];
+  const metricName = mission?.title || focus?.metric_name || '오늘의 집중 지표';
+
+  if (cues.length > 0) {
+    const first = cues[0];
+    const second = cues[1] || `${metricName}가 반복 내내 유지되는지 확인하세요`;
+    return `첫째, ${first}. 둘째, ${second}. 반복 수를 늘리기보다 각 rep가 끝난 뒤 이 지표가 유지됐는지 먼저 확인하세요.`;
+  }
+
+  return `첫째, 다음 세트 시작 전에 ${metricName} 기준을 한 번 확인하세요. 둘째, 내려가는 구간과 올라오는 구간에서 같은 기준이 유지되는지 천천히 점검하세요.`;
+}
+
+function buildDetailedCoachComment(report, feature) {
+  const positive = report.improvements?.[0]?.title || buildStablePerformanceTitle(feature);
+  const weak = report.weak_points?.[0]?.title || firstFocusMetric(feature)?.metric_name || '오늘의 집중 지표';
+  const exercise = feature?.user_scope?.exercise_name || '운동';
+
+  return `${exercise} 기록에서 ${positive} 흐름은 유지할 만한 강점입니다. 동시에 ${weak}은 다음 세트에서 점수보다 먼저 확인해야 할 지표입니다. 한 번에 여러 자세를 바꾸기보다 이 지표 하나를 정해 천천히 반복해보세요.`;
+}
+
+function firstCorrectiveFocus(feature) {
+  if (feature?.is_doing_well === true) return null;
+  return firstMetricFrom(feature?.next_focus_candidates) ||
+    firstMetricFrom(feature?.weak_points) ||
+    firstMetricFrom(feature?.regressions) ||
+    null;
+}
+
+function firstMetricFrom(collection) {
+  if (!Array.isArray(collection)) return null;
+  return collection.find((item) => String(item?.metric_key || '').trim()) || null;
+}
+
+function applyCorrectiveMission(mission, focus) {
+  const name = focus.metric_name || focus.metric_key || '집중 지표';
+  const originalMetricKey = String(mission.metric_key || '');
+  const wasMaintenance = String(mission.metric_key || '') === 'general_maintenance' ||
+    /유지|maintenance/i.test(String(mission.title || ''));
+  const wasOffFocus = originalMetricKey !== String(focus.metric_key || '');
+
+  mission.metric_key = focus.metric_key;
+  if (wasMaintenance || wasOffFocus || !mission.title || !String(mission.title).includes(name)) {
+    mission.title = `${name} 집중`;
+  }
+  if (wasMaintenance || wasOffFocus || !mission.reason) {
+    mission.reason = focus.reason || `${name}이 최근 기록에서 반복적으로 낮게 측정되어 다음 세트의 우선 점검 지표입니다.`;
+  }
+  if (wasMaintenance || wasOffFocus || !mission.action) {
+    mission.action = buildCorrectiveMissionAction(focus);
+  }
+}
+
+function buildCorrectiveMissionAction(focus) {
+  const name = focus.metric_name || focus.metric_key || '집중 지표';
+  const cues = Array.isArray(focus.recommended_cues) ? focus.recommended_cues.filter(Boolean) : [];
+  if (cues.length > 0) {
+    const second = cues[1] || `${name}이 반복 내내 유지되는지 확인하세요`;
+    return `첫째, ${cues[0]}. 둘째, ${second}.`;
+  }
+  return `첫째, 다음 세트 시작 전에 ${name} 기준을 확인하세요. 둘째, 내려가는 구간과 올라오는 구간에서 같은 기준이 유지되는지 점검하세요.`;
+}
+
+function firstFocusMetric(feature) {
+  return feature?.next_focus_candidates?.[0] ||
+    feature?.weak_points?.[0] ||
+    feature?.regressions?.[0] ||
+    feature?.improvements?.[0] ||
+    null;
+}
+
+function trendLabel(trend) {
+  if (trend === 'improving') return '개선되는';
+  if (trend === 'declining') return '하락하는';
+  return '안정적인';
 }
 
 function enrichImprovements(improvements, feature) {
@@ -105,7 +264,7 @@ function enrichWeakPoints(weakPoints, feature) {
       title: item.title || source?.metric_name || '보완할 자세 요소',
       evidence: detailedWeakEvidence(source, item.evidence),
       meaning: item.meaning || detailedWeakMeaning(source),
-      metric_key: item.metric_key || source?.metric_key,
+      metric_key: source?.metric_key || item.metric_key,
     };
   });
 }
@@ -142,6 +301,9 @@ function detailedPositiveMeaning(source, feature) {
 
 function detailedWeakEvidence(source, fallback = null) {
   if (!source) return fallback || '최근 기록에서 반복적으로 낮게 측정되었습니다.';
+  if (source.severity === 'relative_low' && typeof source.evidence === 'string' && source.evidence.trim()) {
+    return withSentencePunctuation(source.evidence.trim());
+  }
 
   const name = source.metric_name || '해당 지표';
   const sessionCount = Number(source.session_count || source.recent_session_count || 0);
@@ -156,6 +318,10 @@ function detailedWeakEvidence(source, fallback = null) {
   }
   if (parts.length > 0) return `${parts.join(', ')}.`;
   return fallback || `${name}이 최근 기록에서 반복적으로 낮게 측정되었습니다.`;
+}
+
+function withSentencePunctuation(value) {
+  return /[.!?。]$/.test(value) ? value : `${value}.`;
 }
 
 function detailedWeakMeaning(source) {
@@ -194,12 +360,14 @@ function findMetricSource(metricKey, collection) {
 }
 
 function formatScore(value) {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
   return Number(number.toFixed(1)).toString();
 }
 
 function formatSigned(value) {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
   return `${number > 0 ? '+' : ''}${Number(number.toFixed(1))}`;
@@ -210,11 +378,31 @@ function isAllowedMissionMetric(metricKey, feature) {
   return collectAllowedMetricKeys(feature).has(metricKey);
 }
 
+function isCorrectiveMissionMetric(metricKey, feature) {
+  return collectCorrectiveMetricKeys(feature).has(metricKey);
+}
+
 function collectAllowedMetricKeys(feature) {
   const keys = new Set();
   for (const collection of [
     feature?.next_focus_candidates,
     feature?.improvements,
+    feature?.weak_points,
+    feature?.regressions,
+  ]) {
+    if (!Array.isArray(collection)) continue;
+    for (const item of collection) {
+      const key = String(item?.metric_key || '').trim();
+      if (key) keys.add(key);
+    }
+  }
+  return keys;
+}
+
+function collectCorrectiveMetricKeys(feature) {
+  const keys = new Set();
+  for (const collection of [
+    feature?.next_focus_candidates,
     feature?.weak_points,
     feature?.regressions,
   ]) {

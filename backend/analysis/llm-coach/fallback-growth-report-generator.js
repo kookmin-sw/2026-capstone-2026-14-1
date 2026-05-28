@@ -37,13 +37,11 @@ function generateFallbackGrowthReport({ feature, reason = null } = {}) {
   const focus = feature?.next_focus_candidates?.[0] || null;
   const missionMetric = focus?.metric_key || weakPoints[0]?.metric_key || 'general_focus';
   const missionTitle = focus ? `오늘은 ${focus.metric_name}에 집중하기` : '오늘은 안정적인 자세 유지하기';
-  const missionAction = focus?.recommended_cues?.[0] || '반복 수보다 자세를 천천히 유지하는 데 집중하세요.';
+  const missionAction = buildMissionAction(focus);
   const trend = feature?.overall?.trend;
 
   return {
-    summary: trend === 'improving'
-      ? '최근 운동 기록은 전반적으로 좋아지고 있습니다.'
-      : '최근 운동 기록을 기준으로 다음 집중 포인트를 정리했습니다.',
+    summary: buildSummary(feature, trend),
     improvements,
     weak_points: weakPoints,
     next_mission: {
@@ -56,10 +54,66 @@ function generateFallbackGrowthReport({ feature, reason = null } = {}) {
       label: feature?.data_quality?.confidence_label || 'low',
       message: feature?.data_quality?.note || '운동 기록이 충분하지 않아 참고용으로 확인해 주세요.',
     },
-    coach_comment: reason
-      ? 'AI 응답 대신 기록 기반 기본 리포트를 표시합니다. 다음 운동에서는 한 가지 미션에 집중해 보세요.'
-      : '좋아진 점은 유지하고, 다음 운동에서는 미션 하나에 집중해 보세요.',
+    coach_comment: buildCoachComment({ feature, reason, focus, improvements, weakPoints }),
   };
+}
+
+function buildSummary(feature, trend) {
+  const period = feature?.user_scope?.period_label || `최근 ${feature?.user_scope?.session_count || 5}회`;
+  const exercise = feature?.user_scope?.exercise_name || '운동';
+  const recentAvg = formatScore(feature?.overall?.recent_avg_score);
+  const previousAvg = formatScore(feature?.overall?.previous_avg_score);
+  const delta = formatSigned(feature?.overall?.score_delta);
+  const completed = Number(feature?.overall?.completed_sessions || 0);
+  const trendText = trend === 'improving' ? '좋아지고 있는 흐름' : trend === 'declining' ? '하락하는 흐름' : '안정적인 흐름';
+
+  const scoreText = recentAvg !== null
+    ? `${period} ${exercise} 평균은 ${recentAvg}점으로 ${trendText}입니다`
+    : `${period} ${exercise} 기록을 기준으로 ${trendText}을 확인했습니다`;
+  const compareText = previousAvg !== null && delta !== null
+    ? `이전 평균 ${previousAvg}점 대비 ${delta}점 변화가 있습니다`
+    : '이전 구간과 직접 비교할 수 있는 표본은 제한적입니다';
+  const completionText = completed > 0
+    ? `${completed}회 완료 기록과 세부 지표를 함께 반영했습니다`
+    : '세부 지표가 충분하지 않아 확인 가능한 기록 중심으로 정리했습니다';
+
+  return `${scoreText}. ${compareText}. ${completionText}. 다음 집중 포인트를 함께 정리했습니다.`;
+}
+
+function buildMissionAction(focus) {
+  const cues = Array.isArray(focus?.recommended_cues) ? focus.recommended_cues.filter(Boolean) : [];
+  if (cues.length > 0) {
+    const first = cues[0];
+    const second = cues[1] || `${focus.metric_name || '집중 지표'}가 반복 내내 유지되는지 확인하세요`;
+    return `첫째, ${first}. 둘째, ${second}. 반복 수를 늘리기보다 각 rep가 끝난 뒤 이 기준이 유지됐는지 확인하세요.`;
+  }
+
+  return '첫째, 반복 수보다 자세를 천천히 유지하는 데 집중하세요. 둘째, 세트가 끝난 뒤 가장 낮게 나온 지표 하나를 확인하고 다음 세트에서 같은 지표를 다시 점검하세요.';
+}
+
+function buildCoachComment({ feature, reason, focus, improvements = [], weakPoints = [] } = {}) {
+  const exercise = feature?.user_scope?.exercise_name || '운동';
+  const positive = improvements[0]?.title || '최근 기록에서 확인되는 좋은 흐름';
+  const weak = weakPoints[0]?.title || focus?.metric_name || '오늘의 집중 지표';
+  const prefix = reason
+    ? 'AI 응답 대신 기록 기반 기본 리포트를 표시합니다.'
+    : '기록 기반으로 다음 운동 포인트를 정리했습니다.';
+
+  return `${prefix} ${exercise}에서 ${positive}은 유지하고, ${weak}은 다음 세트에서 가장 먼저 확인하세요. 한 번에 여러 자세를 바꾸기보다 하나의 미션을 정해 천천히 반복하는 것이 안정적입니다.`;
+}
+
+function formatScore(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Number(number.toFixed(1)).toString();
+}
+
+function formatSigned(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return `${number > 0 ? '+' : ''}${Number(number.toFixed(1))}`;
 }
 
 module.exports = { generateFallbackGrowthReport };

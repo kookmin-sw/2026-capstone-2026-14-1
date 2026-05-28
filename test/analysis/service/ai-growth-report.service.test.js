@@ -56,7 +56,9 @@ test('getCoachReport returns LLM result when history sufficient and LLM succeeds
   assert.equal(response.status, 'completed');
   assert.equal(response.source, 'generated');
   assert.equal(response.isFallback, false);
-  assert.equal(response.result.summary, '좋아지고 있습니다');
+  assert.match(response.result.summary, /최근 5회/);
+  assert.match(response.result.summary, /스쿼트/);
+  assert.ok(response.result.summary.length >= 90);
 });
 
 test('getCoachReport supports all exercise reports when history is sufficient', async () => {
@@ -91,7 +93,8 @@ test('getCoachReport supports all exercise reports when history is sufficient', 
   const response = await service.getCoachReport({ userId: 'u1', period: 'recent_5', exercise: 'all' });
 
   assert.equal(response.isFallback, false);
-  assert.equal(response.result.summary, '전체 운동 기록 요약');
+  assert.match(response.result.summary, /최근 5회/);
+  assert.ok(response.result.summary.length >= 90);
 });
 
 test('getCoachReport post-processes contradictory LLM output for doing-well reports', async () => {
