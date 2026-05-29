@@ -46,9 +46,9 @@
     },
     SIDE: {
       metrics: [
-        { key: 'depth', weight: 0.34, scorer: 'kneeDepth' },
-        { key: 'trunk_tibia_angle', weight: 0.26, scorer: 'angleDiff' },
-        { key: 'hip_angle', weight: 0.16, scorer: 'hipDepth' },
+        { key: 'depth', weight: 0.40, scorer: 'kneeDepth' },
+        { key: 'trunk_tibia_angle', weight: 0.16, scorer: 'angleDiff' },
+        { key: 'hip_angle', weight: 0.20, scorer: 'hipDepth' },
         { key: 'trunk_stability', weight: 0.14, scorer: 'trunkLean' },
         { key: 'heel_contact', weight: 0.10, scorer: 'heelContact' }
       ]
@@ -60,7 +60,7 @@
     trunkLean: [[15, 100], [25, 85], [35, 60], [45, 30], [60, 0]],
     hipDepth: [[110, 100], [120, 80], [140, 40], [155, 10], [170, 0]],
     symmetry: [[4, 100], [8, 85], [15, 60], [25, 25], [35, 0]],
-    angleDiff: [[10, 100], [15, 75], [25, 35], [35, 10], [50, 0]],
+    angleDiff: [[20, 100], [30, 85], [40, 60], [50, 30], [65, 0]],
     alignment: [[0.03, 100], [0.05, 75], [0.08, 30], [0.12, 5], [0.16, 0]],
     heelContact: [[0.90, 100], [0.80, 70], [0.65, 35], [0.50, 10], [0, 0]]
   };
@@ -129,9 +129,9 @@
           max_score: 15,
           rule: {
             ideal_min: 0,
-            ideal_max: 10,
+            ideal_max: 20,
             acceptable_min: 0,
-            acceptable_max: 20,
+            acceptable_max: 35,
             feedback_low: '상체와 다리가 평행하도록 자세를 유지해주세요',
             feedback_high: '상체와 다리가 평행하도록 자세를 유지해주세요'
           },
@@ -1672,7 +1672,7 @@
     if (view === 'SIDE' && Number.isFinite(maxSpine) && maxSpine > 40) {
       return '가슴을 들고 상체를 더 안정적으로 유지해주세요';
     }
-    if (view === 'SIDE' && Number.isFinite(maxTrunkTibia) && maxTrunkTibia > 25) {
+    if (view === 'SIDE' && Number.isFinite(maxTrunkTibia) && maxTrunkTibia > 40) {
       return '상체와 다리가 평행하도록 자세를 유지해주세요';
     }
     if (view === 'SIDE' && Number.isFinite(avgHeelContact) && avgHeelContact < 0.7) {

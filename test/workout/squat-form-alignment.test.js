@@ -222,6 +222,28 @@ test('squat live trunk-tibia scoring keeps corrective feedback for TTS', () => {
   assert.equal(trunkTibia.feedback, '상체와 다리가 평행하도록 자세를 유지해주세요');
 });
 
+test('squat live trunk-tibia scoring tolerates moderate side-view mismatch', () => {
+  const squatModule = window.WorkoutExerciseRegistry.get('squat');
+  const trunkTibiaMetric = squatModule.getDefaultProfileMetrics()
+    .find((item) => item.metric.key === 'trunk_tibia_angle');
+  const scoringEngine = new ScoringEngine({ scoring_profile_metric: [trunkTibiaMetric] }, {
+    exerciseCode: 'squat',
+    selectedView: 'SIDE',
+  });
+
+  const scoreResult = scoringEngine.calculate({
+    view: 'SIDE',
+    spine: 32,
+    tibia: 8,
+  });
+  const trunkTibia = scoreResult.breakdown.find((item) => item.key === 'trunk_tibia_angle');
+
+  assert.ok(trunkTibia, 'trunk_tibia_angle must be scored live');
+  assert.equal(trunkTibia.actualValue, 24);
+  assert.ok(trunkTibia.normalizedScore >= 85, 'moderate mismatch should stay below warning level');
+  assert.equal(trunkTibia.feedback, null);
+});
+
 test('squat rep scoring uses averaged heel contact instead of single-frame min', () => {
   const squatModule = window.WorkoutExerciseRegistry.get('squat');
   const scoringEngine = {

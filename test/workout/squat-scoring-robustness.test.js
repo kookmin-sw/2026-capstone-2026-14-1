@@ -613,9 +613,9 @@ test('Phase 2 front and side scoring weights follow the config contract', () => 
   assert.equal(front.breakdown.find((item) => item.key === 'knee_alignment').configuredWeight, 0.20);
   assert.equal(front.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.10);
   assert.equal(front.breakdown.find((item) => item.key === 'trunk_stability').configuredWeight, 0.10);
-  assert.equal(side.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.34);
-  assert.equal(side.breakdown.find((item) => item.key === 'trunk_tibia_angle').configuredWeight, 0.26);
-  assert.equal(side.breakdown.find((item) => item.key === 'hip_angle').configuredWeight, 0.16);
+  assert.equal(side.breakdown.find((item) => item.key === 'depth').configuredWeight, 0.40);
+  assert.equal(side.breakdown.find((item) => item.key === 'trunk_tibia_angle').configuredWeight, 0.16);
+  assert.equal(side.breakdown.find((item) => item.key === 'hip_angle').configuredWeight, 0.20);
   assert.equal(side.breakdown.find((item) => item.key === 'trunk_stability').configuredWeight, 0.14);
   assert.equal(side.breakdown.find((item) => item.key === 'heel_contact').configuredWeight, 0.10);
   assert.equal(side.breakdown.some((item) => item.key === 'knee_alignment'), false);
@@ -625,13 +625,13 @@ test('Phase 2 front and side scoring weights follow the config contract', () => 
   assert.ok(Math.abs(sideWeightSum - 1) < 1e-6, 'SIDE metric weights must sum to 1');
 });
 
-test('Phase 1 side trunk-tibia mismatch below 85 receives feedback and stronger penalty', () => {
+test('Phase 1 side trunk-tibia moderate mismatch stays warning-free', () => {
   const result = scoreSquatRep({
     view: 'SIDE',
     metricStats: baseMetrics({
       kneeAngle: { min: 94, max: 170 },
       hipAngle: { min: 108, max: 165 },
-      trunkTibiaAngle: { max: 15 },
+      trunkTibiaAngle: { max: 30 },
       spineAngle: { max: 12 },
       heelContact: { avg: 0.92 },
     }),
@@ -640,7 +640,27 @@ test('Phase 1 side trunk-tibia mismatch below 85 receives feedback and stronger 
   const trunkTibia = result.breakdown.find((item) => item.key === 'trunk_tibia_angle');
 
   assert.ok(trunkTibia, 'trunk_tibia_angle metric should be present');
-  assert.equal(trunkTibia.normalizedScore, 75);
+  assert.ok(trunkTibia.normalizedScore >= 85, 'moderate trunk-tibia mismatch should not dominate correction feedback');
+  assert.equal(trunkTibia.feedback, null);
+  assert.doesNotMatch(result.primaryFeedback, /상체와 다리가 평행/);
+});
+
+test('Phase 1 side trunk-tibia large mismatch receives feedback and stronger penalty', () => {
+  const result = scoreSquatRep({
+    view: 'SIDE',
+    metricStats: baseMetrics({
+      kneeAngle: { min: 94, max: 170 },
+      hipAngle: { min: 108, max: 165 },
+      trunkTibiaAngle: { max: 40 },
+      spineAngle: { max: 12 },
+      heelContact: { avg: 0.92 },
+    }),
+  });
+
+  const trunkTibia = result.breakdown.find((item) => item.key === 'trunk_tibia_angle');
+
+  assert.ok(trunkTibia, 'trunk_tibia_angle metric should be present');
+  assert.ok(trunkTibia.normalizedScore < 85, 'large trunk-tibia mismatch should still receive correction feedback');
   assert.match(trunkTibia.feedback, /상체|평행|다리/);
 });
 
